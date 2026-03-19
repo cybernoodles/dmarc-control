@@ -1,0 +1,6 @@
+.env
+config/parsedmarc.ini
+opensearch-data/
+grafana-data/
+dmarc-reports/
+.DS_Store

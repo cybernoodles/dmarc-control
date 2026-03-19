@@ -1,0 +1,33 @@
+# Ablageort: ./config/grafana/provisioning/datasources/opensearch.yml
+# Wird beim Start von Grafana automatisch eingelesen.
+
+apiVersion: 1
+
+datasources:
+  - name: parsedmarc-aggregate
+    type: grafana-opensearch-datasource
+    access: proxy
+    url: http://opensearch:9200
+    isDefault: true
+    jsonData:
+      database: "dmarc_aggregate-*"
+      timeField: "date_range"
+      version: "2.x"
+      interval: Daily
+      flavor: OpenSearch
+    version: 1
+    editable: true
+
+  - name: parsedmarc-forensic
+    type: grafana-opensearch-datasource
+    access: proxy
+    url: http://opensearch:9200
+    isDefault: false
+    jsonData:
+      database: "dmarc_forensic-*"
+      timeField: "date_range"
+      version: "2.x"
+      interval: Daily
+      flavor: OpenSearch
+    version: 1
+    editable: true

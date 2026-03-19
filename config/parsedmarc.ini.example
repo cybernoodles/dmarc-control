@@ -1,0 +1,92 @@
+# parsedmarc.ini – Konfigurationsvorlage
+# Ablageort auf docker01: ./config/parsedmarc.ini
+# Dokumentation: https://domainaware.github.io/parsedmarc/usage.html
+#
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  NUR EINE der drei Mailbox-Varianten aktivieren (A, B oder C)║
+# ╚══════════════════════════════════════════════════════════════╝
+
+[general]
+save_aggregate = True
+save_forensic = True
+# Nur nötig wenn Reports als Dateien angeliefert werden (kein IMAP):
+# output = /output/
+
+# ── VARIANTE A: klassisches IMAP (Basic Auth) ──────────────────────────────
+# Funktioniert für On-Prem Exchange oder Provider die noch Basic Auth erlauben.
+# Microsoft 365 blockiert Basic Auth seit Oktober 2022 für die meisten Tenants!
+#
+# [imap]
+# host = mail.example.com
+# user = dmarc@example.com
+# password = IMAP_PASSWORT_HIER
+# watch = True
+# # reports_folder = DMARC/Reports
+# # skip_certificate_verification = False
+
+
+# ── VARIANTE B: Microsoft 365 via Microsoft Graph API (empfohlen für M365) ──
+# Voraussetzung: App-Registrierung in Azure Entra ID (ehem. Azure AD)
+#
+# Schritte in Azure Portal (portal.azure.com):
+#   1. "App registrations" → "New registration"
+#      Name: parsedmarc
+#      Supported account types: "Accounts in this organizational directory only"
+#   2. Nach Erstellung: Application (client) ID und Directory (tenant) ID notieren
+#   3. "API permissions" → "Add a permission" → Microsoft Graph
+#      → Application permissions → Mail.Read → "Add permissions"
+#      → "Grant admin consent" klicken (erfordert Global Admin)
+#   4. "Certificates & secrets" → "New client secret"
+#      → Wert sofort kopieren (wird nur einmal angezeigt!)
+#   5. Optional (empfohlen): Mailbox-Zugriff einschränken via Exchange Online PowerShell:
+#      New-ApplicationAccessPolicy -AppId <client_id> \
+#        -PolicyScopeGroupId <mail-enabled-security-group> \
+#        -AccessRight RestrictAccess
+#
+[msgraph]
+auth_method = ClientSecret
+# tenant_id: Directory (tenant) ID aus Azure Portal
+tenant_id = TENANT_ID_HERE
+# client_id: Application (client) ID aus Azure Portal
+client_id = CLIENT_ID_HERE
+# client_secret: Wert des Client Secret (nicht die Secret ID!)
+client_secret = CLIENT_SECRET_HERE
+# Postfach das gelesen werden soll
+mailbox = DMARC_MAILBOX_HERE
+# Im Daemon-Modus auf neue Mails warten
+[mailbox]
+watch = True
+reports_folder = Inbox
+# Verarbeitete Mails in diesen Ordner verschieben (optional)
+# reports_folder = DMARC/Reports
+
+# ── VARIANTE C: Microsoft 365 via EWS/OWA + DavMail (Fallback) ─────────────
+# Nur nötig wenn die Organisation weder IMAP noch Microsoft Graph erlaubt,
+# aber EWS (Exchange Web Services) verfügbar ist.
+# DavMail läuft als separater Container und agiert als lokaler IMAP-Gateway.
+# Siehe: https://domainaware.github.io/parsedmarc/davmail.html
+#
+# [imap]
+# host = davmail          # Container-Name des DavMail-Service im Docker-Netz
+# port = 1143
+# ssl = False
+# user = dmarc@example.com
+# password = PASSWORT_HIER
+# watch = True
+
+
+# ── OpenSearch (immer aktiv, unabhängig von der Mailbox-Variante) ───────────
+[opensearch]
+hosts = opensearch:9200
+ssl = False
+# Kein Username/Passwort nötig solange Security deaktiviert (siehe docker-compose)
+# username = admin
+# password = Ch@ngeMe!2024
+
+
+# ── Optionale GeoIP-Anreicherung ────────────────────────────────────────────
+# MaxMind GeoLite2, kostenloser Account erforderlich:
+# https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+# Datei ins Container-Volume mounten und Pfad setzen:
+# [geoip]
+# geolite2_country_db_path = /usr/share/GeoIP/GeoLite2-Country.mmdb
