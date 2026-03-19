@@ -1,88 +1,175 @@
-# parsedmarc Stack – Setup auf docker01
+# parsedmarc-stack
+
+Self-hosted DMARC report parsing and visualization using [parsedmarc](https://github.com/domainaware/parsedmarc), OpenSearch and Grafana – containerized with Docker Compose.
+
+## Stack
+
+| Component | Image | Zweck |
+|---|---|---|
+| parsedmarc | gebaut aus GitHub | Parser, liest DMARC-Reports via IMAP oder MS Graph |
+| OpenSearch 2.x | `opensearchproject/opensearch:2` | Datenspeicher |
+| OpenSearch Dashboards | `opensearchproject/opensearch-dashboards:2` | Natives UI (optional) |
+| Grafana | `grafana/grafana:latest` | Visualisierung |
+
+## Voraussetzungen
+
+- Docker + Docker Compose
+- `vm.max_map_count` auf mindestens 262144 gesetzt (OpenSearch-Pflicht)
+
+```bash
+# Einmalig setzen
+sudo sysctl -w vm.max_map_count=262144
+
+# Dauerhaft machen
+echo "vm.max_map_count=262144" | sudo tee /etc/sysctl.d/99-opensearch.conf
+```
 
 ## Verzeichnisstruktur
 
 ```
-dmarc/
+parsedmarc-stack/
 ├── docker-compose.yml
-├── .env                          ← Passwörter (nicht ins Git!)
+├── .env                                    ← Passwörter (nicht ins Git!)
+├── .env.example                            ← Vorlage ohne echte Werte
+├── .gitignore
+├── README.md
 ├── config/
-│   ├── parsedmarc.ini            ← IMAP & OpenSearch Konfiguration
+│   ├── parsedmarc.ini                      ← Mailbox & OpenSearch Konfig (nicht ins Git!)
+│   ├── parsedmarc.ini.example              ← Vorlage ohne echte Credentials
 │   └── grafana/
 │       └── provisioning/
-│           └── datasources/
-│               └── opensearch.yml
-└── dmarc-reports/                ← optional: Reports als Dateien
+│           ├── datasources/
+│           │   └── opensearch.yml          ← Grafana Datasource (auto-provisioniert)
+│           └── dashboards/
+│               ├── dashboards.yml          ← Grafana Dashboard Provider
+│               └── Grafana-DMARC_Reports.json  ← Dashboard (auto-provisioniert)
+└── dmarc-reports/                          ← optional: Reports als Dateien ablegen
 ```
 
-## 1. Voraussetzungen
+## Installation
+
+**1. Repo klonen**
 
 ```bash
-# vm.max_map_count erhöhen (OpenSearch Pflicht)
-sudo sysctl -w vm.max_map_count=262144
-
-# Dauerhaft machen:
-echo "vm.max_map_count=262144" | sudo tee /etc/sysctl.d/99-opensearch.conf
+git clone https://github.com/DEIN-USERNAME/parsedmarc-stack.git
+cd parsedmarc-stack
 ```
 
-## 2. Verzeichnisse anlegen
+**2. Konfiguration anlegen**
 
 ```bash
-mkdir -p ./config/grafana/provisioning/datasources
-```
-
-## 3. Dateien platzieren
-
-```bash
-# parsedmarc.ini anpassen (IMAP-Host, User, Passwort)
-nano ./config/parsedmarc.ini
-
-# Grafana Datasource
-cp grafana-datasource.yml ./config/grafana/provisioning/datasources/opensearch.yml
-
-# Passwörter in .env setzen
+# Passwörter setzen
+cp .env.example .env
 nano .env
+
+# parsedmarc konfigurieren
+cp config/parsedmarc.ini.example config/parsedmarc.ini
+nano config/parsedmarc.ini
 ```
 
-## 4. Stack starten
+**3. Stack starten**
 
 ```bash
-docker compose up -d
+docker compose up -d --build
+```
 
-# Logs verfolgen
+Der erste Start dauert länger da parsedmarc direkt aus dem GitHub-Repo gebaut wird.
+
+**4. Logs verfolgen**
+
+```bash
 docker compose logs -f parsedmarc
 ```
 
-## 5. Grafana Dashboard einrichten
+## Mailbox-Konfiguration
 
-1. Browser: http://docker01:3000 (admin / Passwort aus .env)
-2. **Connections → Data Sources** prüfen (sollte auto-provisioniert sein)
-3. **Dashboards → Import**
-4. Dashboard-JSON aus dem parsedmarc-Repo importieren:
-   https://github.com/domainaware/parsedmarc/blob/master/grafana/Grafana-DMARC_Reports.json
-   → "Download raw file" → in Grafana importieren → Datasource `parsedmarc-aggregate` wählen
+### Option A – Microsoft 365 via Microsoft Graph API (empfohlen)
 
-## 6. Optional: OpenSearch Dashboards (natives Kibana-ähnliches UI)
+Voraussetzung: App-Registrierung in Azure Entra ID mit folgenden Einstellungen:
 
-Browser: http://docker01:5601
+- **API Permissions:** `Mail.ReadWrite` (Application, nicht Delegated) + Admin Consent
+- **Auth:** Client Secret
 
-Dashboard-JSON importieren:
-- Menü → Management → Saved Objects → Import
-- Datei: https://github.com/domainaware/parsedmarc/blob/master/kibana/ (eine der .ndjson Dateien)
+Mailbox-Zugriff auf ein einzelnes Postfach einschränken (Exchange Online PowerShell):
+
+```powershell
+New-ApplicationAccessPolicy `
+  -AccessRight RestrictAccess `
+  -AppId "<CLIENT_ID>" `
+  -PolicyScopeGroupId "<dmarc@example.com>" `
+  -Description "Restrict parsedmarc to DMARC mailbox only"
+```
+
+Konfiguration in `parsedmarc.ini`:
+
+```ini
+[msgraph]
+auth_method = ClientSecret
+tenant_id = TENANT_ID
+client_id = CLIENT_ID
+client_secret = CLIENT_SECRET
+mailbox = dmarc@example.com
+
+[mailbox]
+watch = True
+reports_folder = Inbox
+```
+
+### Option B – klassisches IMAP
+
+```ini
+[imap]
+host = mail.example.com
+user = dmarc@example.com
+password = PASSWORT
+
+[mailbox]
+watch = True
+reports_folder = Inbox
+```
+
+## Grafana
+
+| URL | Credentials |
+|---|---|
+| `http://HOSTNAME:3000` | `admin` / Passwort aus `.env` |
+
+Das Dashboard wird beim Start automatisch provisioniert. Zeitraum oben rechts auf **Last 1 year** stellen.
+
+### Datasource manuell anlegen (falls Auto-Provisioning fehlschlägt)
+
+Connections → Data Sources → Add → **OpenSearch**:
+
+| Feld | Wert |
+|---|---|
+| URL | `http://opensearch:9200` |
+| Index name | `dmarc_aggregate-*` |
+| Pattern | `No pattern` |
+| Time field | `date_begin` |
+| Version | `2.x` |
 
 ## Ports
 
-| Service              | Port  | Beschreibung              |
-|----------------------|-------|---------------------------|
-| Grafana              | 3000  | Haupt-Dashboard           |
-| OpenSearch Dashboards| 5601  | Natives UI (optional)     |
-| OpenSearch API       | 9200  | Nur intern (kein Expose)  |
+| Service | Port | Beschreibung |
+|---|---|---|
+| Grafana | 3000 | Haupt-Dashboard |
+| OpenSearch Dashboards | 5601 | Natives UI (optional) |
+| OpenSearch API | 9200 | Nur intern |
 
-## Ressourcenbedarf (Minimum)
+## Ressourcenbedarf
 
-- RAM: 2 GB (OpenSearch 512m Heap + Overhead + Grafana)
-- Disk: je nach Report-Volumen, ~1 GB/Jahr realistisch
-- CPU: 1 Core reicht für kleine Umgebungen
+| Ressource | Minimum |
+|---|---|
+| RAM | 2 GB |
+| CPU | 1 Core |
+| Disk | ~1 GB/Jahr (je nach Report-Volumen) |
+
+## Hinweise
+
+- **Forensic Reports (ruf):** Die meisten Mail-Provider (Microsoft, Google, Yahoo) senden keine Forensic Reports. Der DMARC Forensic-Bereich im Dashboard bleibt daher in der Regel leer – das ist normal.
+- **Zeitfeld:** parsedmarc speichert Daten mit `date_begin` als Zeitfeld, nicht `date_range` (Array).
+- **Dashboard-JSON:** Das mitgelieferte Dashboard ist für modernes Grafana (11.x) angepasst – Legacy Panel-Typen (`grafana-piechart-panel`, `graph`, `grafana-worldmap-panel`) wurden auf aktuelle Äquivalente konvertiert.
+- **`fromdomain` Variable:** Muss mit `Include All option` und `Custom all value = *` konfiguriert sein, sonst bleiben alle Panels leer.
 
 ## Troubleshooting
 
@@ -90,9 +177,23 @@ Dashboard-JSON importieren:
 # OpenSearch Gesundheit prüfen
 docker exec dmarc-opensearch curl -s http://localhost:9200/_cluster/health | python3 -m json.tool
 
-# parsedmarc Logs
-docker compose logs parsedmarc
+# Indizes prüfen
+docker exec dmarc-opensearch curl -s http://localhost:9200/_cat/indices?v | grep dmarc
 
-# Grafana Plugin-Installation prüfen
-docker compose logs grafana | grep -i plugin
+# parsedmarc Logs
+docker compose logs parsedmarc --tail=50
+
+# Grafana Plugin prüfen
+docker compose logs grafana | grep -i "plugin\|opensearch"
+
+# Stack neu starten
+docker compose restart
+
+# parsedmarc Image neu bauen (nach Update)
+docker compose build --no-cache parsedmarc
+docker compose up -d
 ```
+
+## Lizenz
+
+Dieses Setup-Repo steht unter [Apache 2.0](LICENSE). parsedmarc selbst steht ebenfalls unter [Apache 2.0](https://github.com/domainaware/parsedmarc/blob/master/LICENSE).
