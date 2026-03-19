@@ -204,7 +204,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#E0B400",
+                  "fixedColor": "#FF7F00",
                   "mode": "fixed"
                 }
               }
@@ -234,7 +234,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#E0B400",
+                  "fixedColor": "#FF7F00",
                   "mode": "fixed"
                 }
               }
@@ -264,7 +264,7 @@
               {
                 "id": "color",
                 "value": {
-                  "fixedColor": "#E0B400",
+                  "fixedColor": "#FF7F00",
                   "mode": "fixed"
                 }
               }
