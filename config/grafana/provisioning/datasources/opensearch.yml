@@ -10,12 +10,15 @@ datasources:
     access: proxy
     url: http://opensearch:9200
     isDefault: true
-    version: 1
+    # Keep this above the database version so the valid OpenSearch version is
+    # applied to existing Grafana installations as well.
+    version: 8
     editable: false
     jsonData:
       database: dmarc_aggregate-*
       timeField: date_begin
-      version: 2.x
+      # grafana-opensearch-datasource 2.34+ validates this as SemVer.
+      version: 2.19.5
       interval: Daily
       flavor: OpenSearch
 
@@ -29,14 +32,14 @@ datasources:
     # parsedmarc 10.x stores RUF/forensic reports in dmarc_failure-*.
     # Increment the provisioning version so existing Grafana instances receive
     # the corrected index pattern and settings on their next restart.
-    # The original manually configured datasource is already at version 5.
-    # Use a higher value so Grafana replaces its stale forensic index and
-    # time-field settings during provisioning.
-    version: 6
+    # The existing Grafana datasource is at version 7. Keep this higher so
+    # Grafana applies the corrected index, time field, and OpenSearch version.
+    version: 8
     editable: false
     jsonData:
       database: dmarc_failure-*
       timeField: arrival_date
-      version: 2.x
+      # grafana-opensearch-datasource 2.34+ validates this as SemVer.
+      version: 2.19.5
       interval: Daily
       flavor: OpenSearch
