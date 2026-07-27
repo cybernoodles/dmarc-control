@@ -10,6 +10,8 @@
 save_aggregate = True
 # Forensic/RUF reports can include message headers and subjects. Enable only after
 # retention and access have been approved by the responsible security/privacy team.
+# save_failure is the current option name. save_forensic is accepted by parsedmarc
+# as a legacy alias, but do not define both: save_failure takes precedence.
 save_failure = False
 # Nur nötig wenn Reports als Dateien angeliefert werden (kein IMAP):
 # output = /output/

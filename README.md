@@ -126,6 +126,8 @@ Erst nach Freigabe von Retention, Berechtigungskonzept und Incident-Prozess in d
 save_failure = True
 ```
 
+`save_failure` ist die aktuelle Bezeichnung. Bestehende Installationen mit `save_forensic = True` funktionieren weiterhin, da parsedmarc dies als Legacy-Alias behandelt. Nicht beide Optionen gleichzeitig setzen – `save_failure` hat Vorrang.
+
 Danach parsedmarc neu starten und eingehende RUF-Berichte abwarten:
 
 ```bash
