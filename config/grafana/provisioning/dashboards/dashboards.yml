@@ -8,4 +8,7 @@ providers:
     allowUiUpdates: false
     options:
       path: /etc/grafana/provisioning/dashboards
-      foldersFromFilesStructure: false
+      # Dashboards in a subdirectory are provisioned into a matching Grafana
+      # folder. This keeps the forensic dashboard separate so its folder can
+      # receive restrictive Grafana permissions.
+      foldersFromFilesStructure: true

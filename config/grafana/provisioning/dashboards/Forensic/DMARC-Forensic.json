@@ -1,0 +1,153 @@
+{
+  "annotations": { "list": [] },
+  "description": "Privacy-aware investigation of DMARC forensic (RUF) reports. It intentionally excludes message headers, recipients, subjects, and raw report content.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    { "asDropdown": false, "icon": "external link", "includeTimeRange": true, "keepTime": true, "targetBlank": false, "title": "Open DMARC overview", "type": "link", "url": "/d/dmarc-overview/dmarc-overview" }
+  ],
+  "panels": [
+    {
+      "datasource": null,
+      "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "content": "## DMARC Forensic Analysis\n\nThis dashboard is for incident investigation of RUF/forensic reports. It shows only operational metadata: reported domain, failure type, source infrastructure, country, delivery outcome and authentication outcome. **Message headers, recipients, subjects and raw samples are deliberately excluded.**\n\nEnable `save_failure = True` only after the retention period, access group and incident process have been approved. The dashboard uses a 30-day default period and bounded aggregations.", "mode": "markdown" },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "uid": "afggpt7njctmoe" },
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "blue", "mode": "fixed" }, "displayName": "Forensic samples", "mappings": [{ "type": "special", "options": { "match": "null", "result": { "text": "No data" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": 0 }] }, "unit": "locale" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 5 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "bucketAggs": [{ "field": "arrival_date", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "afggpt7njctmoe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "count" }], "query": "domain.keyword:$domain AND auth_failure.keyword:$failuretype", "refId": "A", "timeField": "arrival_date" }],
+      "title": "Forensic samples",
+      "transformations": [{ "id": "reduce", "options": { "reducers": ["sum"] } }],
+      "type": "stat"
+    },
+    {
+      "datasource": { "uid": "afggpt7njctmoe" },
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "purple", "mode": "fixed" }, "displayName": "Last sample received", "mappings": [{ "type": "special", "options": { "match": "null", "result": { "text": "No data" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "purple", "value": 0 }] }, "unit": "dateTimeAsSystem" }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 5 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "bucketAggs": [{ "field": "arrival_date", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "afggpt7njctmoe" }, "metrics": [{ "field": "arrival_date", "id": "1", "meta": {}, "settings": {}, "type": "max" }], "query": "domain.keyword:$domain AND auth_failure.keyword:$failuretype", "refId": "A", "timeField": "arrival_date" }],
+      "title": "Data freshness",
+      "type": "stat"
+    },
+    {
+      "datasource": null,
+      "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 5 },
+      "id": 4,
+      "options": { "content": "### Access\n\nUse a dedicated Grafana folder/role for this dashboard. Review retention before enabling forensic storage.", "mode": "markdown" },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "uid": "afggpt7njctmoe" },
+      "fieldConfig": { "defaults": { "color": { "fixedColor": "red", "mode": "fixed" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "Samples", "axisPlacement": "auto", "fillOpacity": 80, "lineWidth": 0, "scaleDistribution": { "type": "linear" } }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 8, "x": 0, "y": 10 },
+      "id": 5,
+      "options": { "barRadius": 0, "barWidth": 0.85, "fillOpacity": 80, "groupWidth": 0.7, "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false }, "orientation": "horizontal", "showValue": "auto", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "auth_failure.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "20" }, "type": "terms" }], "datasource": { "uid": "afggpt7njctmoe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "count" }], "query": "domain.keyword:$domain AND auth_failure.keyword:$failuretype", "refId": "A", "timeField": "arrival_date" }],
+      "title": "Authentication failure types",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Count": 1, "auth_failure.keyword": 0 }, "renameByName": { "Count": "Samples", "auth_failure.keyword": "Failure type" } } }],
+      "type": "barchart"
+    },
+    {
+      "datasource": { "uid": "afggpt7njctmoe" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 8, "x": 8, "y": 10 },
+      "id": 6,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Samples" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "domain.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "afggpt7njctmoe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "count" }], "query": "domain.keyword:$domain AND auth_failure.keyword:$failuretype", "refId": "A", "timeField": "arrival_date" }],
+      "title": "Affected domains",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Count": 1, "domain.keyword": 0 }, "renameByName": { "Count": "Samples", "domain.keyword": "Reported domain" } } }],
+      "type": "table"
+    },
+    {
+      "datasource": { "uid": "afggpt7njctmoe" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 8, "x": 16, "y": 10 },
+      "id": 7,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Samples" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "source_country.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "afggpt7njctmoe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "count" }], "query": "domain.keyword:$domain AND auth_failure.keyword:$failuretype", "refId": "A", "timeField": "arrival_date" }],
+      "title": "Sample sources by country",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Count": 1, "source_country.keyword": 0 }, "renameByName": { "Count": "Samples", "source_country.keyword": "Country" } } }],
+      "type": "table"
+    },
+    {
+      "datasource": { "uid": "afggpt7njctmoe" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 11, "w": 12, "x": 0, "y": 20 },
+      "id": 8,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Samples" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "source_ip_address.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }, { "fake": true, "field": "source_reverse_dns.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "source_base_domain.keyword", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "source_country.keyword", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }], "datasource": { "uid": "afggpt7njctmoe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "count" }], "query": "domain.keyword:$domain AND auth_failure.keyword:$failuretype", "refId": "A", "timeField": "arrival_date" }],
+      "title": "Top forensic source IP addresses",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Count": 4, "source_base_domain.keyword": 2, "source_country.keyword": 3, "source_ip_address.keyword": 0, "source_reverse_dns.keyword": 1 }, "renameByName": { "Count": "Samples", "source_base_domain.keyword": "Source domain", "source_country.keyword": "Country", "source_ip_address.keyword": "Source IP", "source_reverse_dns.keyword": "PTR" } } }],
+      "type": "table"
+    },
+    {
+      "datasource": { "uid": "afggpt7njctmoe" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 11, "w": 12, "x": 12, "y": 20 },
+      "id": 9,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Samples" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "auth_failure.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" }, { "fake": true, "field": "delivery_results.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }, { "fake": true, "field": "authentication_results.keyword", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }, { "fake": true, "field": "source_country.keyword", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }], "datasource": { "uid": "afggpt7njctmoe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "count" }], "query": "domain.keyword:$domain AND auth_failure.keyword:$failuretype", "refId": "A", "timeField": "arrival_date" }],
+      "title": "Sanitized failure evidence",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Count": 4, "auth_failure.keyword": 0, "authentication_results.keyword": 2, "delivery_results.keyword": 1, "source_country.keyword": 3 }, "renameByName": { "Count": "Samples", "auth_failure.keyword": "Failure type", "authentication_results.keyword": "Authentication results", "delivery_results.keyword": "Delivery result", "source_country.keyword": "Country" } } }],
+      "type": "table"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 42,
+  "tags": ["DMARC", "forensic", "security", "sensitive"],
+  "templating": {
+    "list": [
+      {
+        "allValue": "*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "uid": "afggpt7njctmoe" },
+        "definition": "{\"find\":\"terms\",\"field\":\"domain.keyword\"}",
+        "includeAll": true,
+        "label": "Reported domain",
+        "multi": true,
+        "name": "domain",
+        "options": [],
+        "query": "{\"find\":\"terms\",\"field\":\"domain.keyword\"}",
+        "refresh": 2,
+        "sort": 5,
+        "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "uid": "afggpt7njctmoe" },
+        "definition": "{\"find\":\"terms\",\"field\":\"auth_failure.keyword\"}",
+        "includeAll": true,
+        "label": "Failure type",
+        "multi": true,
+        "name": "failuretype",
+        "options": [],
+        "query": "{\"find\":\"terms\",\"field\":\"auth_failure.keyword\"}",
+        "refresh": 2,
+        "sort": 5,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "DMARC Forensic Analysis",
+  "uid": "dmarc-forensic",
+  "version": 1,
+  "weekStart": ""
+}

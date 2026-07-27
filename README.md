@@ -44,7 +44,9 @@ parsedmarc-stack/
 │           └── dashboards/
 │               ├── dashboards.yml          ← Grafana Dashboard Provider
 │               ├── DMARC-Overview.json     ← Haupt-Dashboard (auto-provisioniert)
-│               └── DMARC-Analysis.json     ← Detailanalyse (auto-provisioniert)
+│               ├── DMARC-Analysis.json     ← Detailanalyse (auto-provisioniert)
+│               └── Forensic/
+│                   └── DMARC-Forensic.json ← RUF-Analyse (separater Ordner)
 └── dmarc-reports/                          ← optional: Reports als Dateien ablegen
 ```
 
@@ -113,6 +115,25 @@ reports_folder = Inbox/DMARC
 archive_folder = Inbox/DMARC/Processed
 ```
 
+### Forensic-/RUF-Reports (nur nach Freigabe)
+
+Forensic-Berichte können Header, Empfänger und Betreffzeilen enthalten. Die Speicherung ist deshalb standardmäßig deaktiviert. Ein `git pull` aktiviert sie **nicht** und ändert auch keine vorhandene `config/parsedmarc.ini`.
+
+Erst nach Freigabe von Retention, Berechtigungskonzept und Incident-Prozess in der lokalen, nicht versionierten Konfiguration aktivieren:
+
+```ini
+[general]
+save_failure = True
+```
+
+Danach parsedmarc neu starten und eingehende RUF-Berichte abwarten:
+
+```bash
+docker compose restart parsedmarc
+```
+
+Das Dashboard **DMARC Forensic Analysis** zeigt ausschließlich minimierte Betriebsmetadaten – keine Betreffzeilen, Empfänger, Header oder Rohinhalte. Es wird in den separaten Grafana-Ordner **Forensic** provisioniert. Diesem Ordner in Grafana nur den zuständigen Security-/Incident-Rollen Zugriff gewähren.
+
 ### IMAP (nur Fallback)
 
 ```ini
@@ -132,10 +153,11 @@ reports_folder = Inbox
 |---|---|
 | `http://HOSTNAME:3020` | `admin` / Passwort aus `.env` |
 
-Grafana provisioniert zwei versionierte Dashboards und öffnet nach Anmeldung direkt **DMARC Overview**:
+Grafana provisioniert drei versionierte Dashboards und öffnet nach Anmeldung direkt **DMARC Overview**:
 
 - **DMARC Overview:** Betriebsstatus, Datenfrische, DMARC-Trend und Policies; Zeitraum 30 Tage, Aktualisierung alle 5 Minuten.
 - **DMARC Analysis:** Sender-, IP-, SPF- und DKIM-Detailanalyse; Zeitraum 90 Tage. Forensic-Daten sind bewusst ausgeschlossen.
+- **DMARC Forensic Analysis:** RUF-/Forensic-Untersuchung mit 30 Tagen Standardzeitraum und begrenzten Aggregationen. Es bleibt leer, solange `save_failure = False` gesetzt ist.
 
 Datasources und Dashboards sind schreibgeschützt provisioniert. Änderungen erfolgen im Repository, dann mit `docker compose restart grafana` übernehmen. Damit bleibt die laufende Instanz nachvollziehbar und frei von UI-Drift.
 
