@@ -11,8 +11,7 @@
 #   cp parsedmarc.ini ./config/
 #
 # Start: docker compose up -d
-# Grafana UI: http://docker01:3000  (admin / siehe GF_SECURITY_ADMIN_PASSWORD)
-# OpenSearch UI: http://docker01:5601 (admin / siehe OPENSEARCH_INITIAL_ADMIN_PASSWORD)
+# Grafana UI: http://docker01:3020  (admin / siehe GF_SECURITY_ADMIN_PASSWORD)
 
 services:
 
@@ -45,23 +44,6 @@ services:
     networks:
       - dmarc-net
 
-  # ── OpenSearch Dashboards (optionales natives UI) ──────────────────────────
-  # Kann deaktiviert werden wenn nur Grafana gewünscht.
-  opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:2
-    container_name: dmarc-osd
-    restart: unless-stopped
-    ports:
-      - "5601:5601"
-    environment:
-      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
-      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
-    depends_on:
-      opensearch:
-        condition: service_healthy
-    networks:
-      - dmarc-net
-
   # ── Grafana (Visualisierung, primäres Dashboard) ────────────────────────────
   grafana:
     image: grafana/grafana:latest
@@ -72,6 +54,7 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_INSTALL_PLUGINS=grafana-opensearch-datasource
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/etc/grafana/provisioning/dashboards/DMARC-Overview.json
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro

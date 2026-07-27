@@ -8,7 +8,9 @@
 
 [general]
 save_aggregate = True
-save_forensic = True
+# Forensic/RUF reports can include message headers and subjects. Enable only after
+# retention and access have been approved by the responsible security/privacy team.
+save_failure = False
 # Nur nötig wenn Reports als Dateien angeliefert werden (kein IMAP):
 # output = /output/
 
@@ -33,15 +35,11 @@ save_forensic = True
 #      Name: parsedmarc
 #      Supported account types: "Accounts in this organizational directory only"
 #   2. Nach Erstellung: Application (client) ID und Directory (tenant) ID notieren
-#   3. "API permissions" → "Add a permission" → Microsoft Graph
-#      → Application permissions → Mail.Read → "Add permissions"
-#      → "Grant admin consent" klicken (erfordert Global Admin)
-#   4. "Certificates & secrets" → "New client secret"
-#      → Wert sofort kopieren (wird nur einmal angezeigt!)
-#   5. Optional (empfohlen): Mailbox-Zugriff einschränken via Exchange Online PowerShell:
-#      New-ApplicationAccessPolicy -AppId <client_id> \
-#        -PolicyScopeGroupId <mail-enabled-security-group> \
-#        -AccessRight RestrictAccess
+#   3. Für App-only-Zugriff ist Mail.ReadWrite nötig: parsedmarc archiviert
+#      verarbeitete Nachrichten. Die Berechtigung muss zwingend auf das
+#      DMARC-Postfach beschränkt werden; siehe docs/M365.md.
+#   4. Für den Produktivbetrieb Zertifikatsauthentisierung bevorzugen. Ein
+#      Client Secret ist für den ersten, zeitlich begrenzten Funktionstest OK.
 #
 [msgraph]
 auth_method = ClientSecret
@@ -49,16 +47,22 @@ auth_method = ClientSecret
 tenant_id = TENANT_ID_HERE
 # client_id: Application (client) ID aus Azure Portal
 client_id = CLIENT_ID_HERE
-# client_secret: Wert des Client Secret (nicht die Secret ID!)
+# client_secret: Wert des Client Secret (nicht die Secret ID!). Für produktiv
+# besser auth_method = Certificate und certificate_path verwenden.
 client_secret = CLIENT_SECRET_HERE
 # Postfach das gelesen werden soll
 mailbox = DMARC_MAILBOX_HERE
 # Im Daemon-Modus auf neue Mails warten
 [mailbox]
+# Beim ersten Lauf auf True lassen: parsedmarc liest, verschiebt aber keine Mails.
+test = True
+delete = False
 watch = True
-reports_folder = Inbox
-# Verarbeitete Mails in diesen Ordner verschieben (optional)
-# reports_folder = DMARC/Reports
+# Dedizierten Mail-Ordner benutzen, nicht die allgemeine Inbox.
+reports_folder = Inbox/DMARC
+# Nach erfolgreichem Test test = False setzen. Verarbeitete Reports werden dann
+# in diesen Ordner verschoben und nicht erneut verarbeitet.
+archive_folder = Inbox/DMARC/Processed
 
 # ── VARIANTE C: Microsoft 365 via EWS/OWA + DavMail (Fallback) ─────────────
 # Nur nötig wenn die Organisation weder IMAP noch Microsoft Graph erlaubt,

@@ -1,0 +1,107 @@
+{
+  "annotations": { "list": [] },
+  "description": "Detailed DMARC sender and authentication analysis. Forensic report content is deliberately excluded.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    { "asDropdown": false, "icon": "external link", "includeTimeRange": true, "keepTime": true, "targetBlank": false, "title": "Open DMARC overview", "type": "link", "url": "/d/dmarc-overview/dmarc-overview" }
+  ],
+  "panels": [
+    {
+      "datasource": null,
+      "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "content": "## DMARC Analysis\n\nUse this dashboard to investigate a selected domain. The limits in the tables intentionally prevent expensive, unbounded OpenSearch aggregations. Forensic samples are not shown here because they can contain personal data.", "mode": "markdown" },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "uid": "parsedmarc-aggregate" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 4 },
+      "id": 2,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "source_base_domain.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }, { "fake": true, "field": "source_reverse_dns.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "title": "Top sending domains",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 2, "source_base_domain.keyword": 0, "source_reverse_dns.keyword": 1 }, "renameByName": { "Sum": "Messages", "source_base_domain.keyword": "Sending domain", "source_reverse_dns.keyword": "PTR" } } }],
+      "type": "table"
+    },
+    {
+      "datasource": { "uid": "parsedmarc-aggregate" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 4 },
+      "id": 3,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "source_ip_address.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "100" }, "type": "terms" }, { "fake": true, "field": "source_country.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "title": "Top source IP addresses",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 2, "source_country.keyword": 1, "source_ip_address.keyword": 0 }, "renameByName": { "Sum": "Messages", "source_country.keyword": "Country", "source_ip_address.keyword": "Source IP" } } }],
+      "type": "table"
+    },
+    {
+      "datasource": { "uid": "parsedmarc-aggregate" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 11, "w": 12, "x": 0, "y": 14 },
+      "id": 4,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "header_from.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "25" }, "type": "terms" }, { "fake": true, "field": "envelope_from.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "spf_results.result.keyword", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "spf_aligned", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "title": "SPF alignment details",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 4, "envelope_from.keyword": 1, "header_from.keyword": 0, "spf_aligned": 3, "spf_results.result.keyword": 2 }, "renameByName": { "Sum": "Messages", "envelope_from.keyword": "Envelope from", "header_from.keyword": "Email domain", "spf_aligned": "SPF aligned", "spf_results.result.keyword": "SPF result" } } }],
+      "type": "table"
+    },
+    {
+      "datasource": { "uid": "parsedmarc-aggregate" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 11, "w": 12, "x": 12, "y": 14 },
+      "id": 5,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "header_from.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "25" }, "type": "terms" }, { "fake": true, "field": "dkim_results.domain.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "dkim_results.selector.keyword", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "dkim_results.result.keyword", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "dkim_aligned", "id": "6", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "title": "DKIM alignment details",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 5, "dkim_aligned": 4, "dkim_results.domain.keyword": 1, "dkim_results.result.keyword": 3, "dkim_results.selector.keyword": 2, "header_from.keyword": 0 }, "renameByName": { "Sum": "Messages", "dkim_aligned": "DKIM aligned", "dkim_results.domain.keyword": "DKIM domain", "dkim_results.result.keyword": "DKIM result", "dkim_results.selector.keyword": "Selector", "header_from.keyword": "Email domain" } } }],
+      "type": "table"
+    },
+    {
+      "datasource": { "uid": "parsedmarc-aggregate" },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 25 },
+      "id": 6,
+      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "source_country.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "title": "Message sources by country",
+      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 1, "source_country.keyword": 0 }, "renameByName": { "Sum": "Messages", "source_country.keyword": "Country" } } }],
+      "type": "table"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 42,
+  "tags": ["DMARC", "analysis", "security"],
+  "templating": {
+    "list": [
+      {
+        "allValue": "*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "uid": "parsedmarc-aggregate" },
+        "definition": "{\"find\":\"terms\",\"field\":\"header_from.keyword\"}",
+        "includeAll": true,
+        "label": "From domain",
+        "multi": true,
+        "name": "fromdomain",
+        "options": [],
+        "query": "{\"find\":\"terms\",\"field\":\"header_from.keyword\"}",
+        "refresh": 2,
+        "sort": 5,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-90d", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "DMARC Analysis",
+  "uid": "dmarc-analysis",
+  "version": 1,
+  "weekStart": ""
+}

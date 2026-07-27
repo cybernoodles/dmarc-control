@@ -6,9 +6,8 @@ Self-hosted DMARC report parsing and visualization using [parsedmarc](https://gi
 
 | Component | Image | Zweck |
 |---|---|---|
-| parsedmarc | gebaut aus GitHub | Parser, liest DMARC-Reports via IMAP oder MS Graph |
+| parsedmarc | gebaut aus GitHub | Parser, liest DMARC-Reports via Microsoft Graph oder IMAP |
 | OpenSearch 2.x | `opensearchproject/opensearch:2` | Datenspeicher |
-| OpenSearch Dashboards | `opensearchproject/opensearch-dashboards:2` | Natives UI (optional) |
 | Grafana | `grafana/grafana:latest` | Visualisierung |
 
 ## Voraussetzungen
@@ -33,16 +32,19 @@ parsedmarc-stack/
 ├── .env.example                            ← Vorlage ohne echte Werte
 ├── .gitignore
 ├── README.md
+├── docs/
+│   └── M365.md                              ← M365-Setup und RBAC-Prüfung
 ├── config/
 │   ├── parsedmarc.ini                      ← Mailbox & OpenSearch Konfig (nicht ins Git!)
 │   ├── parsedmarc.ini.example              ← Vorlage ohne echte Credentials
 │   └── grafana/
 │       └── provisioning/
 │           ├── datasources/
-│           │   └── opensearch.yml          ← Grafana Datasource (auto-provisioniert)
+│           │   └── opensearch.yml          ← Grafana Datasources (auto-provisioniert)
 │           └── dashboards/
 │               ├── dashboards.yml          ← Grafana Dashboard Provider
-│               └── Grafana-DMARC_Reports.json  ← Dashboard (auto-provisioniert)
+│               ├── DMARC-Overview.json     ← Haupt-Dashboard (auto-provisioniert)
+│               └── DMARC-Analysis.json     ← Detailanalyse (auto-provisioniert)
 └── dmarc-reports/                          ← optional: Reports als Dateien ablegen
 ```
 
@@ -70,7 +72,7 @@ nano config/parsedmarc.ini
 **3. Stack starten**
 
 ```bash
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
 ```
 
 Der erste Start dauert länger da parsedmarc direkt aus dem GitHub-Repo gebaut wird.
@@ -83,22 +85,15 @@ docker compose logs -f parsedmarc
 
 ## Mailbox-Konfiguration
 
-### Option A – Microsoft 365 via Microsoft Graph API (empfohlen)
+### Microsoft 365 via Microsoft Graph API (empfohlen)
 
-Voraussetzung: App-Registrierung in Azure Entra ID mit folgenden Einstellungen:
+Für den Betrieb ein separates Postfach wie `dmarc-reports@example.com` mit dem Ordner `Inbox/DMARC` verwenden. Es enthält ausschließlich DMARC-Reports und wird nicht interaktiv genutzt.
 
-- **API Permissions:** `Mail.ReadWrite` (Application, nicht Delegated) + Admin Consent
-- **Auth:** Client Secret
+- **Berechtigung:** App-only `Mail.ReadWrite`; parsedmarc archiviert verarbeitete Nachrichten.
+- **Scope:** Zugriff zwingend auf dieses eine Postfach beschränken. Für neue Unternehmens-Setups ist Exchange Online Application RBAC vorgesehen; das ausführliche Vorgehen steht in [docs/M365.md](docs/M365.md).
+- **Anmeldung:** Für produktiven Betrieb Zertifikat bevorzugen; Client Secret nur für den ersten Funktionstest und mit dokumentiertem Ablauf zur Rotation.
 
-Mailbox-Zugriff auf ein einzelnes Postfach einschränken (Exchange Online PowerShell):
-
-```powershell
-New-ApplicationAccessPolicy `
-  -AccessRight RestrictAccess `
-  -AppId "<CLIENT_ID>" `
-  -PolicyScopeGroupId "<dmarc@example.com>" `
-  -Description "Restrict parsedmarc to DMARC mailbox only"
-```
+Beim ersten Lauf bleibt `test = True` gesetzt. Erst wenn Logs und Dashboard korrekt aussehen, `test = False` setzen; dann werden verarbeitete Mails in `Inbox/DMARC/Processed` verschoben.
 
 Konfiguration in `parsedmarc.ini`:
 
@@ -111,11 +106,14 @@ client_secret = CLIENT_SECRET
 mailbox = dmarc@example.com
 
 [mailbox]
+test = True
+delete = False
 watch = True
-reports_folder = Inbox
+reports_folder = Inbox/DMARC
+archive_folder = Inbox/DMARC/Processed
 ```
 
-### Option B – klassisches IMAP
+### IMAP (nur Fallback)
 
 ```ini
 [imap]
@@ -132,28 +130,22 @@ reports_folder = Inbox
 
 | URL | Credentials |
 |---|---|
-| `http://HOSTNAME:3000` | `admin` / Passwort aus `.env` |
+| `http://HOSTNAME:3020` | `admin` / Passwort aus `.env` |
 
-Das Dashboard wird beim Start automatisch provisioniert. Zeitraum oben rechts auf **Last 1 year** stellen.
+Grafana provisioniert zwei versionierte Dashboards und öffnet nach Anmeldung direkt **DMARC Overview**:
 
-### Datasource manuell anlegen (falls Auto-Provisioning fehlschlägt)
+- **DMARC Overview:** Betriebsstatus, Datenfrische, DMARC-Trend und Policies; Zeitraum 30 Tage, Aktualisierung alle 5 Minuten.
+- **DMARC Analysis:** Sender-, IP-, SPF- und DKIM-Detailanalyse; Zeitraum 90 Tage. Forensic-Daten sind bewusst ausgeschlossen.
 
-Connections → Data Sources → Add → **OpenSearch**:
+Datasources und Dashboards sind schreibgeschützt provisioniert. Änderungen erfolgen im Repository, dann mit `docker compose restart grafana` übernehmen. Damit bleibt die laufende Instanz nachvollziehbar und frei von UI-Drift.
 
-| Feld | Wert |
-|---|---|
-| URL | `http://opensearch:9200` |
-| Index name | `dmarc_aggregate-*` |
-| Pattern | `No pattern` |
-| Time field | `date_begin` |
-| Version | `2.x` |
+Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in `docker-compose.yml` definiert.
 
 ## Ports
 
 | Service | Port | Beschreibung |
 |---|---|---|
-| Grafana | 3000 | Haupt-Dashboard |
-| OpenSearch Dashboards | 5601 | Natives UI (optional) |
+| Grafana | 3020 | Haupt-Dashboard und Analyse |
 | OpenSearch API | 9200 | Nur intern |
 
 ## Ressourcenbedarf
@@ -166,10 +158,9 @@ Connections → Data Sources → Add → **OpenSearch**:
 
 ## Hinweise
 
-- **Forensic Reports (ruf):** Die meisten Mail-Provider (Microsoft, Google, Yahoo) senden keine Forensic Reports. Der DMARC Forensic-Bereich im Dashboard bleibt daher in der Regel leer – das ist normal.
-- **Zeitfeld:** parsedmarc speichert Daten mit `date_begin` als Zeitfeld, nicht `date_range` (Array).
-- **Dashboard-JSON:** Das mitgelieferte Dashboard ist für modernes Grafana (11.x) angepasst – Legacy Panel-Typen (`grafana-piechart-panel`, `graph`, `grafana-worldmap-panel`) wurden auf aktuelle Äquivalente konvertiert.
-- **`fromdomain` Variable:** Muss mit `Include All option` und `Custom all value = *` konfiguriert sein, sonst bleiben alle Panels leer.
+- **Zeitfelder:** Aggregate verwenden `date_begin`, Forensic-Indices `arrival_date`.
+- **Forensic/RUF:** Standardmäßig deaktiviert, weil diese Reports personenbezogene Header oder Betreffzeilen enthalten können. Bei Bedarf nur mit dokumentierter Retention und getrennten Berechtigungen aktivieren.
+- **OpenSearch-Sicherheit:** Der aktuelle Ad-hoc-Stack veröffentlicht keine OpenSearch-Ports und nutzt nur Grafana als Oberfläche. Vor einem Firmenbetrieb müssen OpenSearch Security, TLS, Zugriffskontrolle und Back-up verbindlich ergänzt werden.
 
 ## Troubleshooting
 
@@ -183,8 +174,8 @@ docker exec dmarc-opensearch curl -s http://localhost:9200/_cat/indices?v | grep
 # parsedmarc Logs
 docker compose logs parsedmarc --tail=50
 
-# Grafana Plugin prüfen
-docker compose logs grafana | grep -i "plugin\|opensearch"
+# Prüfen, ob beide Dashboards und die Datasource provisioniert wurden
+docker compose logs grafana | grep -i "provision\|opensearch"
 
 # Stack neu starten
 docker compose restart
