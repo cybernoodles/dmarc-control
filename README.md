@@ -159,7 +159,7 @@ Grafana provisioniert drei versionierte Dashboards und öffnet nach Anmeldung di
 
 - **DMARC Overview:** Betriebsstatus, Datenfrische, DMARC-Trend und Policies; Zeitraum 30 Tage, Aktualisierung alle 5 Minuten.
 - **DMARC Analysis:** Sender-, IP-, SPF- und DKIM-Detailanalyse; Zeitraum 90 Tage. Forensic-Daten sind bewusst ausgeschlossen.
-- **DMARC Forensic Analysis:** RUF-/Forensic-Untersuchung mit 30 Tagen Standardzeitraum und begrenzten Aggregationen. Es bleibt leer, solange `save_failure = False` gesetzt ist.
+- **DMARC Forensic Analysis:** RUF-/Forensic-Untersuchung mit 30 Tagen Standardzeitraum und begrenzten Aggregationen. Aktuelle parsedmarc-Versionen speichern diese Berichte in `dmarc_failure-*`; das Dashboard bleibt leer, solange `save_failure = False` gesetzt ist oder keine RUF-Berichte eingehen.
 
 Datasources und Dashboards sind schreibgeschützt provisioniert. Änderungen erfolgen im Repository, dann mit `docker compose restart grafana` übernehmen. Damit bleibt die laufende Instanz nachvollziehbar und frei von UI-Drift.
 
@@ -182,7 +182,7 @@ Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in 
 
 ## Hinweise
 
-- **Zeitfelder:** Aggregate verwenden `date_begin`, Forensic-Indices `arrival_date`.
+- **Zeitfelder:** Aggregate verwenden `date_begin`, Failure-/Forensic-Indizes `arrival_date`.
 - **Forensic/RUF:** Standardmäßig deaktiviert, weil diese Reports personenbezogene Header oder Betreffzeilen enthalten können. Bei Bedarf nur mit dokumentierter Retention und getrennten Berechtigungen aktivieren.
 - **OpenSearch-Sicherheit:** Der aktuelle Ad-hoc-Stack veröffentlicht keine OpenSearch-Ports und nutzt nur Grafana als Oberfläche. Vor einem Firmenbetrieb müssen OpenSearch Security, TLS, Zugriffskontrolle und Back-up verbindlich ergänzt werden.
 
