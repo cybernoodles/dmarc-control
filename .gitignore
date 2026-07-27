@@ -1,6 +1,8 @@
 .env
 config/parsedmarc.ini
-opensearch-data/
-grafana-data/
 dmarc-reports/
+data/opensearch/*
+!data/opensearch/.gitkeep
+data/grafana/*
+!data/grafana/.gitkeep
 .DS_Store

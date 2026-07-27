@@ -33,7 +33,11 @@ parsedmarc-stack/
 ├── .gitignore
 ├── README.md
 ├── docs/
-│   └── M365.md                              ← M365-Setup und RBAC-Prüfung
+│   ├── M365.md                              ← M365-Setup und RBAC-Prüfung
+│   └── MIGRATION-TO-PORTABLE-DATA.md        ← Einmalmigration bestehender Docker-Volumes
+├── data/                                    ← Persistente Laufzeitdaten (nicht im Git)
+│   ├── opensearch/                          ← Indizes und OpenSearch-Zustand
+│   └── grafana/                             ← Grafana SQLite, Benutzer und Plugins
 ├── config/
 │   ├── parsedmarc.ini                      ← Mailbox & OpenSearch Konfig (nicht ins Git!)
 │   ├── parsedmarc.ini.example              ← Vorlage ohne echte Credentials
@@ -47,7 +51,7 @@ parsedmarc-stack/
 │               ├── DMARC-Analysis.json     ← Detailanalyse (auto-provisioniert)
 │               └── Forensic/
 │                   └── DMARC-Forensic.json ← RUF-Analyse (separater Ordner)
-└── dmarc-reports/                          ← optional: Reports als Dateien ablegen
+└── dmarc-reports/                           ← optional: Reports als Dateien ablegen
 ```
 
 ## Installation
@@ -71,7 +75,28 @@ cp config/parsedmarc.ini.example config/parsedmarc.ini
 nano config/parsedmarc.ini
 ```
 
-**3. Stack starten**
+**3. Datenverzeichnisse vorbereiten**
+
+Die persistenten OpenSearch- und Grafana-Daten liegen unter `./data`, damit
+das Projektverzeichnis vollständig auf einen anderen Host übertragen werden
+kann. Die Inhalte sind absichtlich nicht versioniert.
+
+```bash
+mkdir -p data/opensearch data/grafana dmarc-reports
+sudo chown 1000:1000 data/opensearch
+sudo chown 472:472 data/grafana
+```
+
+OpenSearch läuft im Container als UID 1000; Grafana als UID 472. Ohne diese
+Eigentümer kann der jeweilige Dienst beim ersten Start nicht in sein
+Datenverzeichnis schreiben.
+
+> **Dockge:** Relative Pfade wie `./data` beziehen sich auf den Ordner der
+> Compose-Datei. Daher entweder das gesamte Repository als Stack-Ordner
+> verwenden oder beim Übertragen nach Dockge alle drei Pfade (`./config`,
+> `./data`, `./dmarc-reports`) konsistent auf den Projektordner umstellen.
+
+**4. Stack starten**
 
 ```bash
 docker compose up -d --build --remove-orphans
@@ -79,11 +104,18 @@ docker compose up -d --build --remove-orphans
 
 Der erste Start dauert länger da parsedmarc direkt aus dem GitHub-Repo gebaut wird.
 
-**4. Logs verfolgen**
+**5. Logs verfolgen**
 
 ```bash
 docker compose logs -f parsedmarc
 ```
+
+### Bestehende Installation migrieren
+
+Ältere Versionen dieses Repositories verwendeten Docker-Volumes für
+OpenSearch und Grafana. Die einmalige, datenerhaltende Übernahme in das neue
+`data/`-Layout ist in [docs/MIGRATION-TO-PORTABLE-DATA.md](docs/MIGRATION-TO-PORTABLE-DATA.md)
+beschrieben. Nicht vorab einen leeren Stack mit dem neuen Compose starten.
 
 ## Mailbox-Konfiguration
 
@@ -185,6 +217,7 @@ Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in 
 - **Zeitfelder:** Aggregate verwenden `date_begin`, Failure-/Forensic-Indizes `arrival_date`.
 - **Forensic/RUF:** Standardmäßig deaktiviert, weil diese Reports personenbezogene Header oder Betreffzeilen enthalten können. Bei Bedarf nur mit dokumentierter Retention und getrennten Berechtigungen aktivieren.
 - **OpenSearch-Sicherheit:** Der aktuelle Ad-hoc-Stack veröffentlicht keine OpenSearch-Ports und nutzt nur Grafana als Oberfläche. Vor einem Firmenbetrieb müssen OpenSearch Security, TLS, Zugriffskontrolle und Back-up verbindlich ergänzt werden.
+- **Portabilität:** Konfiguration, `.env` und alle persistenten Containerdaten liegen unter dem Projektverzeichnis. Für einen Hostwechsel den Stack sauber stoppen, das gesamte Verzeichnis inklusive `data/` übertragen und auf dem Zielhost mit kompatiblen Image-Versionen starten. Für OpenSearch ist ein Snapshot zusätzlich der empfohlene Backup- und Migrationsweg.
 
 ## Troubleshooting
 
