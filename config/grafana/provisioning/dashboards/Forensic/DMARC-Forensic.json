@@ -148,6 +148,6 @@
   "timezone": "browser",
   "title": "DMARC Forensic Analysis",
   "uid": "dmarc-forensic",
-  "version": 1,
+  "version": 10,
   "weekStart": ""
 }
