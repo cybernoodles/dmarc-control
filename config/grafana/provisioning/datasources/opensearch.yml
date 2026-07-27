@@ -29,7 +29,10 @@ datasources:
     # parsedmarc 10.x stores RUF/forensic reports in dmarc_failure-*.
     # Increment the provisioning version so existing Grafana instances receive
     # the corrected index pattern and settings on their next restart.
-    version: 3
+    # The original manually configured datasource is already at version 5.
+    # Use a higher value so Grafana replaces its stale forensic index and
+    # time-field settings during provisioning.
+    version: 6
     editable: false
     jsonData:
       database: dmarc_failure-*
