@@ -2,11 +2,15 @@ apiVersion: 1
 
 datasources:
   - name: parsedmarc-aggregate
-    uid: parsedmarc-aggregate
+    # Stable UID from the currently working dashboard export. Keeping it avoids
+    # changing the UID of an already existing datasource during an upgrade.
+    uid: dfgfg0zezr5kwe
+    orgId: 1
     type: grafana-opensearch-datasource
     access: proxy
     url: http://opensearch:9200
     isDefault: true
+    version: 1
     editable: false
     jsonData:
       database: dmarc_aggregate-*
@@ -16,11 +20,13 @@ datasources:
       flavor: OpenSearch
 
   - name: parsedmarc-forensic
-    uid: parsedmarc-forensic
+    uid: afggpt7njctmoe
+    orgId: 1
     type: grafana-opensearch-datasource
     access: proxy
     url: http://opensearch:9200
     isDefault: false
+    version: 1
     editable: false
     jsonData:
       database: dmarc_forensic-*

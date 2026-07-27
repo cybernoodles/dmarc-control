@@ -19,7 +19,7 @@
   ],
   "panels": [
     {
-      "datasource": { "uid": "parsedmarc-aggregate" },
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "fixed", "fixedColor": "blue" },
@@ -33,12 +33,12 @@
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
       "id": 1,
       "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
-      "targets": [{ "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "targets": [{ "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
       "title": "Total message volume",
       "type": "stat"
     },
     {
-      "datasource": { "uid": "parsedmarc-aggregate" },
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -52,12 +52,12 @@
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
       "id": 2,
       "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
-      "targets": [{ "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:false", "refId": "A", "timeField": "date_begin" }],
+      "targets": [{ "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:false", "refId": "A", "timeField": "date_begin" }],
       "title": "DMARC failures",
       "type": "stat"
     },
     {
-      "datasource": { "uid": "parsedmarc-aggregate" },
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "fixed", "fixedColor": "purple" },
@@ -71,7 +71,7 @@
       "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
       "id": 3,
       "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value_and_name", "wideLayout": true },
-      "targets": [{ "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "date_begin", "id": "1", "meta": {}, "settings": {}, "type": "max" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "targets": [{ "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "date_begin", "id": "1", "meta": {}, "settings": {}, "type": "max" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
       "title": "Data freshness",
       "type": "stat"
     },
@@ -86,7 +86,7 @@
       "type": "text"
     },
     {
-      "datasource": { "uid": "parsedmarc-aggregate" },
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -100,56 +100,56 @@
       "id": 5,
       "options": { "barRadius": 0, "barWidth": 0.85, "fillOpacity": 80, "groupWidth": 0.7, "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "orientation": "horizontal", "showValue": "auto", "stacking": "none", "tooltip": { "mode": "single", "sort": "none" } },
       "targets": [
-        { "alias": "SPF pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND spf_aligned:true", "refId": "A", "timeField": "date_begin" },
-        { "alias": "SPF fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND spf_aligned:false", "refId": "B", "timeField": "date_begin" },
-        { "alias": "DKIM pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND dkim_aligned:true", "refId": "C", "timeField": "date_begin" },
-        { "alias": "DKIM fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND dkim_aligned:false", "refId": "D", "timeField": "date_begin" },
-        { "alias": "DMARC pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:true", "refId": "E", "timeField": "date_begin" },
-        { "alias": "DMARC fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:false", "refId": "F", "timeField": "date_begin" }
+        { "alias": "SPF pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND spf_aligned:true", "refId": "A", "timeField": "date_begin" },
+        { "alias": "SPF fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND spf_aligned:false", "refId": "B", "timeField": "date_begin" },
+        { "alias": "DKIM pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND dkim_aligned:true", "refId": "C", "timeField": "date_begin" },
+        { "alias": "DKIM fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND dkim_aligned:false", "refId": "D", "timeField": "date_begin" },
+        { "alias": "DMARC pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:true", "refId": "E", "timeField": "date_begin" },
+        { "alias": "DMARC fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:false", "refId": "F", "timeField": "date_begin" }
       ],
       "title": "Alignment summary",
       "transformations": [{ "id": "reduce", "options": { "reducers": ["sum"] } }],
       "type": "barchart"
     },
     {
-      "datasource": { "uid": "parsedmarc-aggregate" },
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": true, "axisColorMode": "text", "axisLabel": "Messages", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 15, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "showPoints": "auto", "spanNulls": false, "stacking": { "group": "A", "mode": "normal" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] }, "unit": "locale" }, "overrides": [] },
       "gridPos": { "h": 10, "w": 12, "x": 12, "y": 5 },
       "id": 6,
       "options": { "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "passed_dmarc", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "_term", "size": "0" }, "type": "terms" }, { "field": "date_begin", "id": "2", "settings": { "fixed_interval": "1d", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "passed_dmarc", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "_term", "size": "0" }, "type": "terms" }, { "field": "date_begin", "id": "2", "settings": { "fixed_interval": "1d", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
       "title": "DMARC pass/fail trend",
       "type": "timeseries"
     },
     {
-      "datasource": { "uid": "parsedmarc-aggregate" },
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 15 },
       "id": 7,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "header_from.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "header_from.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
       "title": "Message volume by domain",
       "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 1, "header_from.keyword": 0 }, "renameByName": { "Sum": "Messages", "header_from.keyword": "Email domain" } } }],
       "type": "table"
     },
     {
-      "datasource": { "uid": "parsedmarc-aggregate" },
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 15 },
       "id": 8,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "org_name.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "org_name.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
       "title": "Reporting organisations",
       "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 1, "org_name.keyword": 0 }, "renameByName": { "Sum": "Messages", "org_name.keyword": "Reporter" } } }],
       "type": "table"
     },
     {
-      "datasource": { "uid": "parsedmarc-aggregate" },
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 24 },
       "id": 9,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "published_policy.domain.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }, { "fake": true, "field": "published_policy.p.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }, { "fake": true, "field": "published_policy.pct", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }], "datasource": { "uid": "parsedmarc-aggregate" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
+      "targets": [{ "bucketAggs": [{ "fake": true, "field": "published_policy.domain.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }, { "fake": true, "field": "published_policy.p.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }, { "fake": true, "field": "published_policy.pct", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
       "title": "Published DMARC policies",
       "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 3, "published_policy.domain.keyword": 0, "published_policy.p.keyword": 1, "published_policy.pct": 2 }, "renameByName": { "Sum": "Messages", "published_policy.domain.keyword": "Domain", "published_policy.p.keyword": "Policy", "published_policy.pct": "Policy %" } } }],
       "type": "table"
@@ -163,7 +163,7 @@
       {
         "allValue": "*",
         "current": { "selected": true, "text": "All", "value": "$__all" },
-        "datasource": { "uid": "parsedmarc-aggregate" },
+        "datasource": { "uid": "dfgfg0zezr5kwe" },
         "definition": "{\"find\":\"terms\",\"field\":\"header_from.keyword\"}",
         "includeAll": true,
         "label": "From domain",
