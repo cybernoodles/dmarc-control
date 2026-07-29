@@ -10,17 +10,24 @@ datasources:
     access: proxy
     url: http://opensearch:9200
     isDefault: true
-    # Keep this above the database version so the valid OpenSearch version is
-    # applied to existing Grafana installations as well.
-    version: 8
+    # Grafana only applies provisioned datasource changes when this is at least
+    # as high as the version stored in its database. The deployed datasource
+    # reached version 9 after UI/plugin migrations, so bump this to 10.
+    version: 10
     editable: false
     jsonData:
       database: dmarc_aggregate-*
       timeField: date_begin
       # grafana-opensearch-datasource 2.34+ validates this as SemVer.
       version: 2.19.5
-      interval: Daily
-      flavor: OpenSearch
+      # A wildcard index must use "No pattern". Setting interval: Daily makes
+      # the plugin interpret database as a Moment-style date pattern and yields
+      # empty index names for dmarc_aggregate-*.
+      timeInterval: 1d
+      flavor: opensearch
+      pplEnabled: true
+      serverless: false
+      maxConcurrentShardRequests: 5
 
   - name: parsedmarc-forensic
     uid: afggpt7njctmoe
@@ -32,14 +39,18 @@ datasources:
     # parsedmarc 10.x stores RUF/forensic reports in dmarc_failure-*.
     # Increment the provisioning version so existing Grafana instances receive
     # the corrected index pattern and settings on their next restart.
-    # The existing Grafana datasource is at version 7. Keep this higher so
-    # Grafana applies the corrected index, time field, and OpenSearch version.
-    version: 8
+    # Keep this above the version stored in Grafana so the corrected wildcard
+    # pattern settings are applied on restart.
+    version: 10
     editable: false
     jsonData:
       database: dmarc_failure-*
       timeField: arrival_date
       # grafana-opensearch-datasource 2.34+ validates this as SemVer.
       version: 2.19.5
-      interval: Daily
-      flavor: OpenSearch
+      # Wildcard index: omit interval so the plugin uses "No pattern".
+      timeInterval: 1h
+      flavor: opensearch
+      pplEnabled: true
+      serverless: false
+      maxConcurrentShardRequests: 5
