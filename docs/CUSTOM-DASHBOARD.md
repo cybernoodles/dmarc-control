@@ -91,6 +91,14 @@ PTR wird nie allein als vertrauenswürdige Dienstidentität behandelt. Das
 Ergebnis enthält eine Konfidenz und kann administrativ bestätigt oder
 überschrieben werden.
 
+Öffentliche IPv4-Adressen werden zusätzlich als dynamischer Anschlussbereich
+markiert, wenn der PTR sowohl die Quell-IP (auch in umgekehrter
+Oktettreihenfolge) als auch ein typisches Zugangsnetz-Muster enthält. Explizite
+Static-Marker und bereits belastbar erkannte Maildienste verhindern diese
+Zuordnung. Ein dynamischer Bereich zusammen mit einem echten DMARC-Fail wird
+als starkes Indiz für Spoofing oder Spam hervorgehoben, bleibt aber wegen
+möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
+
 ## API
 
 | Endpunkt | Zweck |

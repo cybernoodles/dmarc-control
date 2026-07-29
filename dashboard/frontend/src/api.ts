@@ -93,6 +93,7 @@ export interface Host {
     confidence_label: string;
     evidence: string[];
     manual_override: boolean;
+    profile: "dynamic_ip" | "mail_service" | "unknown";
   };
   override: {
     service_name: string | null;

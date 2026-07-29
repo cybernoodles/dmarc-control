@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable
 
@@ -97,8 +99,17 @@ def _weighted_terms(aggregation: dict[str, Any]) -> list[dict[str, Any]]:
 def _score_service(source: dict[str, Any], evidence: Iterable[str]) -> dict[str, Any]:
     candidates: dict[str, dict[str, Any]] = {}
 
-    def add(service: str, weight: float, signal: str) -> None:
-        item = candidates.setdefault(service, {"score": 0.0, "evidence": []})
+    def add(
+        service: str,
+        weight: float,
+        signal: str,
+        *,
+        profile: str = "mail_service",
+    ) -> None:
+        item = candidates.setdefault(
+            service,
+            {"score": 0.0, "evidence": [], "profile": profile},
+        )
         item["score"] += weight
         if signal not in item["evidence"]:
             item["evidence"].append(signal)
@@ -106,10 +117,11 @@ def _score_service(source: dict[str, Any], evidence: Iterable[str]) -> dict[str,
     explicit_name = str(source.get("source_name") or "").strip()
     source_type = str(source.get("source_type") or "").strip().lower()
     trusted_source_types = {"saas", "email service", "esp", "mail provider"}
+    trusted_source = source_type in trusted_source_types
     if (
         explicit_name
         and explicit_name.lower() not in {"unknown", "none"}
-        and source_type in trusted_source_types
+        and trusted_source
     ):
         add(explicit_name, 0.72, f"parsedmarc: {explicit_name}")
 
@@ -156,12 +168,71 @@ def _score_service(source: dict[str, Any], evidence: Iterable[str]) -> dict[str,
             if needle in haystack:
                 add(service, weight, label)
 
+    ptr = str(source.get("source_reverse_dns") or "").strip().lower().rstrip(".")
+    ptr_tokens = set(re.findall(r"[a-z0-9]+", ptr))
+    dynamic_markers = {
+        "bbcs",
+        "broadband",
+        "cable",
+        "dhcp",
+        "dial",
+        "dialup",
+        "dsl",
+        "dyn",
+        "dynamic",
+        "pool",
+        "ppp",
+        "pppoe",
+        "residential",
+    }
+    static_markers = {"static", "fixed", "dedicated"}
+    address_in_ptr = False
+    public_ipv4 = False
+    try:
+        address = ipaddress.ip_address(str(source.get("source_ip_address") or ""))
+        public_ipv4 = address.version == 4 and address.is_global
+        if public_ipv4 and ptr:
+            octets = str(address).split(".")
+            reverse_octets = list(reversed(octets))
+            address_patterns = {
+                ".".join(octets),
+                "-".join(octets),
+                ".".join(reverse_octets),
+                "-".join(reverse_octets),
+            }
+            address_in_ptr = any(pattern in ptr for pattern in address_patterns)
+    except ValueError:
+        pass
+
+    dynamic_marker = bool(ptr_tokens & dynamic_markers)
+    explicitly_static = bool(ptr_tokens & static_markers)
+    if (
+        public_ipv4
+        and address_in_ptr
+        and dynamic_marker
+        and not explicitly_static
+        and not trusted_source
+    ):
+        add(
+            "Dynamischer IP-Bereich",
+            0.54,
+            "PTR: umgekehrte Quell-IP eingebettet",
+            profile="dynamic_ip",
+        )
+        add(
+            "Dynamischer IP-Bereich",
+            0.34,
+            "PTR: dynamisches Anschlussmuster",
+            profile="dynamic_ip",
+        )
+
     if not candidates:
         return {
             "service": "Unbekannt",
             "confidence": 0,
             "confidence_label": "Keine Zuordnung",
             "evidence": [],
+            "profile": "unknown",
         }
 
     service, result = max(candidates.items(), key=lambda item: item[1]["score"])
@@ -177,6 +248,7 @@ def _score_service(source: dict[str, Any], evidence: Iterable[str]) -> dict[str,
         "confidence": confidence,
         "confidence_label": label,
         "evidence": result["evidence"],
+        "profile": result["profile"],
     }
 
 
@@ -679,6 +751,11 @@ class DashboardService:
                 else:
                     trigger = "host-fail"
                     title = "DMARC-Fehlerquelle erkannt"
+                if (
+                    host["service_detection"].get("profile")
+                    == "dynamic_ip"
+                ):
+                    title = "DMARC-Fail aus dynamischem IP-Bereich"
                 alert_id = self._alert_id(
                     trigger, alert_domain, host["source_ip"], report_day
                 )

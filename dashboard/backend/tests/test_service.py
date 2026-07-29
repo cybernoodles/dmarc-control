@@ -41,8 +41,37 @@ class ServiceDetectionTests(unittest.TestCase):
         )
 
         self.assertEqual(result["service"], "SMTP2GO")
+        self.assertEqual(result["profile"], "mail_service")
         self.assertGreaterEqual(result["confidence"], 0.8)
         self.assertGreaterEqual(len(result["evidence"]), 2)
+
+    def test_dynamic_public_ip_uses_multiple_ptr_patterns(self) -> None:
+        result = _score_service(
+            {
+                "source_ip_address": "157.143.102.109",
+                "source_reverse_dns": "109.102.143.157.bbcs.as8758.net",
+                "source_base_domain": "as8758.net",
+            },
+            ["dp0.ch"],
+        )
+
+        self.assertEqual(result["service"], "Dynamischer IP-Bereich")
+        self.assertEqual(result["profile"], "dynamic_ip")
+        self.assertGreaterEqual(result["confidence"], 0.8)
+        self.assertEqual(len(result["evidence"]), 2)
+
+    def test_explicit_static_ptr_is_not_classified_as_dynamic(self) -> None:
+        result = _score_service(
+            {
+                "source_ip_address": "46.140.105.26",
+                "source_reverse_dns": "46-140-105-26.static.cablecom.ch",
+                "source_base_domain": "cablecom.ch",
+            },
+            [],
+        )
+
+        self.assertEqual(result["service"], "Unbekannt")
+        self.assertEqual(result["profile"], "unknown")
 
     def test_unknown_host_is_not_invented(self) -> None:
         result = _score_service(
@@ -57,6 +86,7 @@ class ServiceDetectionTests(unittest.TestCase):
 
         self.assertEqual(result["service"], "Unbekannt")
         self.assertEqual(result["confidence"], 0)
+        self.assertEqual(result["profile"], "unknown")
 
 
 class StoreTests(unittest.TestCase):

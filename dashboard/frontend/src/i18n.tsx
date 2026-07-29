@@ -330,6 +330,13 @@ const english: Record<string, string> = {
   "Automatisch zugeordnet": "Automatically classified",
   "Zuordnung bestätigt": "Classification confirmed",
   "Klassifizierung ignoriert": "Classification ignored",
+  "Dynamischer IP-Bereich": "Dynamic IP range",
+  "Netzprofil · Dynamische IP": "Network profile · Dynamic IP",
+  "Dynamischer öffentlicher IP-Bereich": "Dynamic public IP range",
+  "Das Muster entspricht einem Endkunden- oder Zugangsnetz. Zusammen mit dem DMARC-Fail ist dies ein starkes Indiz für Spoofing oder Spam; eine Fehlkonfiguration bleibt möglich.":
+    "The pattern matches a consumer or access network. Combined with the DMARC failure, this is a strong indicator of spoofing or spam; a misconfiguration remains possible.",
+  "Das Muster entspricht einem Endkunden- oder Zugangsnetz. Solche Adressen sind für direkte Mailzustellung ungewöhnlich und sollten geprüft werden.":
+    "The pattern matches a consumer or access network. Such addresses are unusual for direct mail delivery and should be reviewed.",
   Bestätigt: "Acknowledged",
   Ignoriert: "Ignored",
   "Zuordnung gespeichert.": "Classification saved.",
@@ -428,6 +435,8 @@ const english: Record<string, string> = {
   "Bekannter Sending Host hat sich verschlechtert":
     "Known sending host has degraded",
   "DMARC-Fehlerquelle erkannt": "DMARC failure source detected",
+  "DMARC-Fail aus dynamischem IP-Bereich":
+    "DMARC failure from a dynamic IP range",
   "Kompensiertes Alignment-Problem": "Compensated alignment issue",
   "DMARC-Reports bleiben aus": "DMARC reports are missing",
   "Erstmals gesehen am {date}": "First seen on {date}",
@@ -529,10 +538,19 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     };
     const backendLabels: Record<string, string> = {
       Unbekannt: t("Unbekannt"),
+      "Dynamischer IP-Bereich": t("Dynamischer IP-Bereich"),
       "Keine Zuordnung": t("Keine Zuordnung"),
       Hoch: t("Hoch"),
       Mittel: t("Mittel"),
       Niedrig: t("Niedrig"),
+      "PTR: umgekehrte Quell-IP eingebettet":
+        language === "en"
+          ? "PTR: reversed source IP embedded"
+          : "PTR: umgekehrte Quell-IP eingebettet",
+      "PTR: dynamisches Anschlussmuster":
+        language === "en"
+          ? "PTR: dynamic access-network pattern"
+          : "PTR: dynamisches Anschlussmuster",
     };
     const translateBackendLabel = (rawValue: string | null | undefined) => {
       if (!rawValue) return "";

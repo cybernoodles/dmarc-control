@@ -2738,6 +2738,12 @@ function HostsView({
                         ·{" "}
                         {Math.round(host.service_detection.confidence * 100)} %
                       </small>
+                      {host.service_detection.profile === "dynamic_ip" && (
+                        <small className="dynamic-source-label">
+                          <TriangleAlert aria-hidden="true" />
+                          {t("Netzprofil · Dynamische IP")}
+                        </small>
+                      )}
                     </td>
                     <td>
                       <ClassificationPill status={host.trust_status} />
@@ -2926,6 +2932,7 @@ function HostDetail({
   ]
     .filter(Boolean)
     .map((item) => translateBackendLabel(item));
+  const isDynamicIp = host.service_detection.profile === "dynamic_ip";
 
   return (
     <section className="surface host-detail" aria-live="polite">
@@ -2988,6 +2995,24 @@ function HostDetail({
           value={`${formatNumber(host.dmarc_pass)} Pass · ${formatNumber(host.dmarc_fail)} Fail`}
         />
       </div>
+
+      {isDynamicIp && (
+        <div className="dynamic-source-notice">
+          <TriangleAlert aria-hidden="true" />
+          <div>
+            <strong>{t("Dynamischer öffentlicher IP-Bereich")}</strong>
+            <p>
+              {host.dmarc_fail
+                ? t(
+                    "Das Muster entspricht einem Endkunden- oder Zugangsnetz. Zusammen mit dem DMARC-Fail ist dies ein starkes Indiz für Spoofing oder Spam; eine Fehlkonfiguration bleibt möglich.",
+                  )
+                : t(
+                    "Das Muster entspricht einem Endkunden- oder Zugangsnetz. Solche Adressen sind für direkte Mailzustellung ungewöhnlich und sollten geprüft werden.",
+                  )}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="evidence-block">
         <div>
