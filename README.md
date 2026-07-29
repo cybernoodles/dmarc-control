@@ -34,6 +34,7 @@ parsedmarc-stack/
 ├── .gitignore
 ├── README.md
 ├── docs/
+│   ├── BACKLOG.md                           ← geplante Weiterentwicklung von DMARC Control
 │   ├── M365.md                              ← M365-Setup und RBAC-Prüfung
 │   ├── MIGRATION-TO-PORTABLE-DATA.md        ← Einmalmigration bestehender Docker-Volumes
 │   └── CUSTOM-DASHBOARD.md                  ← Architektur und Betrieb von DMARC Control
