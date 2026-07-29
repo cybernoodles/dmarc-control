@@ -149,7 +149,12 @@ export interface AppearanceSettings {
   global_color: string;
   updated_at: string | null;
   write_protected: boolean;
-  token_configured: boolean;
+  admin_configured: boolean;
+}
+
+export interface AuthStatus {
+  setup_required: boolean;
+  authenticated: boolean;
 }
 
 const query = (values: Record<string, string | number>) => {
@@ -166,6 +171,7 @@ async function request<T>(
 ): Promise<T> {
   const response = await fetch(path, {
     ...options,
+    credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
       ...(options?.headers ?? {}),
@@ -179,18 +185,37 @@ async function request<T>(
 }
 
 export const api = {
+  authStatus: () => request<AuthStatus>("/api/auth/status"),
+  setupAdmin: (password: string) =>
+    request<AuthStatus>("/api/auth/setup", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+  loginAdmin: (password: string) =>
+    request<AuthStatus>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+  logoutAdmin: () =>
+    request<AuthStatus>("/api/auth/logout", {
+      method: "POST",
+    }),
+  changeAdminPassword: (currentPassword: string, newPassword: string) =>
+    request<AuthStatus>("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    }),
   appearance: () =>
     request<AppearanceSettings>("/api/settings/appearance"),
   updateAppearance: (
     profile: AppearanceSettings["global_profile"],
     color: string | null,
-    settingsToken: string,
   ) =>
     request<AppearanceSettings>("/api/settings/appearance", {
       method: "PUT",
-      headers: {
-        "X-Dashboard-Settings-Token": settingsToken,
-      },
       body: JSON.stringify({ profile, color }),
     }),
   domains: () =>

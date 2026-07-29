@@ -52,6 +52,121 @@ class StateStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_credentials (
+                    credential_id INTEGER PRIMARY KEY CHECK (credential_id = 1),
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_sessions (
+                    session_hash TEXT PRIMARY KEY,
+                    expires_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+    def admin_configured(self) -> bool:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM admin_credentials WHERE credential_id = 1"
+            ).fetchone()
+        return row is not None
+
+    def admin_password_hash(self) -> str | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT password_hash
+                FROM admin_credentials
+                WHERE credential_id = 1
+                """
+            ).fetchone()
+        return row["password_hash"] if row else None
+
+    def set_initial_admin_password(self, password_hash: str) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO admin_credentials (
+                    credential_id, password_hash, created_at, updated_at
+                )
+                VALUES (1, ?, ?, ?)
+                """,
+                (password_hash, timestamp, timestamp),
+            )
+        return cursor.rowcount == 1
+
+    def replace_admin_password(
+        self,
+        *,
+        expected_hash: str,
+        password_hash: str,
+    ) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE admin_credentials
+                SET password_hash = ?, updated_at = ?
+                WHERE credential_id = 1 AND password_hash = ?
+                """,
+                (password_hash, timestamp, expected_hash),
+            )
+            if cursor.rowcount == 1:
+                connection.execute("DELETE FROM admin_sessions")
+        return cursor.rowcount == 1
+
+    def create_admin_session(
+        self,
+        *,
+        session_hash: str,
+        expires_at: datetime,
+    ) -> None:
+        created_at = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "DELETE FROM admin_sessions WHERE expires_at <= ?",
+                (created_at,),
+            )
+            connection.execute(
+                """
+                INSERT INTO admin_sessions (session_hash, expires_at, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (session_hash, expires_at.isoformat(), created_at),
+            )
+
+    def admin_session_valid(self, session_hash: str) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "DELETE FROM admin_sessions WHERE expires_at <= ?",
+                (timestamp,),
+            )
+            row = connection.execute(
+                """
+                SELECT 1
+                FROM admin_sessions
+                WHERE session_hash = ? AND expires_at > ?
+                """,
+                (session_hash, timestamp),
+            ).fetchone()
+        return row is not None
+
+    def delete_admin_session(self, session_hash: str) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "DELETE FROM admin_sessions WHERE session_hash = ?",
+                (session_hash,),
+            )
 
     def alert_states(self) -> dict[str, dict[str, str]]:
         with self._lock, self._connect() as connection:

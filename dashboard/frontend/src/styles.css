@@ -96,6 +96,119 @@ small {
   margin-top: 0.18rem;
 }
 
+.setup-shell {
+  align-items: center;
+  background:
+    radial-gradient(circle at 50% 18%, var(--brand-glow), transparent 24rem),
+    var(--canvas);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1.25rem;
+}
+
+.setup-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 1.25rem;
+  max-width: 31rem;
+  padding: clamp(1.5rem, 4vw, 2.4rem);
+  position: relative;
+  width: 100%;
+}
+
+.setup-card > strong {
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+  text-align: center;
+}
+
+.setup-brand-mark {
+  height: 3.25rem;
+  justify-self: center;
+  width: 3.25rem;
+}
+
+.setup-brand-mark svg {
+  height: 1.65rem;
+  width: 1.65rem;
+}
+
+.setup-language {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+}
+
+.setup-language button {
+  background: transparent;
+  border: 0;
+  border-radius: 0.38rem;
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.38rem 0.45rem;
+}
+
+.setup-language button.active {
+  background: var(--primary);
+  color: var(--primary-contrast);
+}
+
+.setup-heading {
+  display: grid;
+  gap: 0.55rem;
+  text-align: center;
+}
+
+.setup-heading > span {
+  color: var(--primary);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-heading h1 {
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  letter-spacing: -0.035em;
+}
+
+.setup-heading p {
+  color: var(--ink-muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.setup-form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.setup-error {
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger), transparent 65%);
+  border-radius: 0.55rem;
+  color: var(--danger);
+  font-size: 0.76rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.setup-submit {
+  justify-content: center;
+  margin-top: 0.25rem;
+  width: 100%;
+}
+
 .app-shell {
   margin: 0 auto;
   max-width: 1480px;
@@ -880,12 +993,14 @@ td > strong {
 
 .brand-settings,
 .brand-preview-section,
-.profile-settings {
+.profile-settings,
+.admin-settings {
   display: grid;
   gap: 1.2rem;
 }
 
-.profile-settings {
+.profile-settings,
+.admin-settings {
   grid-column: 1 / -1;
 }
 
@@ -930,6 +1045,10 @@ td > strong {
   align-items: start;
   display: flex;
   gap: 0.7rem;
+}
+
+.settings-title > .status-pill {
+  margin-left: auto;
 }
 
 .settings-title p,
@@ -1058,37 +1177,26 @@ td > strong {
     var(--surface);
 }
 
-.global-settings-auth {
+.admin-login-form,
+.password-change-form {
   align-items: end;
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
-  border-radius: 0.72rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.admin-login-form {
+  grid-template-columns: minmax(14rem, 22rem) auto;
+  justify-content: start;
+}
+
+.password-change-form {
+  grid-template-columns: repeat(3, minmax(12rem, 1fr));
+}
+
+.admin-actions {
   display: flex;
-  gap: 1rem;
-  justify-content: space-between;
-  padding: 0.85rem;
-}
-
-.global-settings-auth > div {
-  align-items: center;
-  display: flex;
-  gap: 0.65rem;
-}
-
-.global-settings-auth > div > svg {
-  color: var(--primary);
-  flex: 0 0 auto;
-  height: 1rem;
-  width: 1rem;
-}
-
-.global-settings-auth strong {
-  display: block;
-  font-size: 0.78rem;
-}
-
-.global-settings-auth label {
-  min-width: min(100%, 18rem);
+  gap: 0.45rem;
+  grid-column: 1 / -1;
 }
 
 .settings-feedback {
@@ -1472,13 +1580,13 @@ footer {
     align-self: flex-start;
   }
 
-  .global-settings-auth {
-    align-items: stretch;
-    flex-direction: column;
+  .admin-login-form,
+  .password-change-form {
+    grid-template-columns: 1fr;
   }
 
-  .global-settings-auth label {
-    width: 100%;
+  .admin-actions {
+    grid-column: auto;
   }
 
   .preview-content {

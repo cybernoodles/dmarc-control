@@ -45,24 +45,15 @@ getrennt.
 
 Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
 sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
-Abweichung. Schreibzugriffe auf den globalen Standard erfordern den
-Settings-Token aus `/app/data/settings.token`. Alternativ kann er über
-`DASHBOARD_SETTINGS_TOKEN` oder ein abweichender Dateipfad über
-`DASHBOARD_SETTINGS_TOKEN_FILE` bereitgestellt werden.
+Abweichung. Beim ersten Aufruf blockiert ein Setup-Screen das Dashboard, bis
+ein Admin-Passwort mit mindestens zwölf Zeichen festgelegt wurde. Nur der
+gesalzene Passwort-Hash wird in `dashboard.db` gespeichert.
 
-Für den Standardpfad wird der Token auf dem Docker-Host einmalig erzeugt:
-
-```bash
-mkdir -p data/dashboard
-openssl rand -hex 32 > data/dashboard/settings.token
-chown 10001:10001 data/dashboard/settings.token
-chmod 400 data/dashboard/settings.token
-```
-
-Die Oberfläche hält den eingegebenen Token nur im `sessionStorage` des
-Browsers. Er wird beim Schließen der Browser-Sitzung verworfen.
-Auf docker01 kann der installierte Token bei Bedarf mit
-`docker exec dmarc-dashboard cat /app/data/settings.token` angezeigt werden.
+Eine Admin-Anmeldung ist ausschließlich für globale Einstellungen erforderlich.
+Die Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden Gültigkeit
+gehalten. Das Passwort kann unter **Einstellungen → Administration** geändert
+werden; dabei werden andere bestehende Admin-Sitzungen beendet. Das lesende
+Dashboard bleibt ohne Admin-Anmeldung verfügbar.
 
 Die Warnungs-IDs werden deterministisch aus Auslöser, Domain, Host und Reporttag
 gebildet. Damit werden wiederholte Anzeigen desselben Ereignisses dedupliziert,
@@ -87,8 +78,13 @@ Ergebnis enthält eine Konfidenz und kann administrativ bestätigt oder
 | Endpunkt | Zweck |
 |---|---|
 | `GET /api/health` | Container- und OpenSearch-Status |
+| `GET /api/auth/status` | Ersteinrichtung und Admin-Sitzung prüfen |
+| `POST /api/auth/setup` | initiales Admin-Passwort einmalig festlegen |
+| `POST /api/auth/login` | Admin-Sitzung starten |
+| `POST /api/auth/logout` | Admin-Sitzung beenden |
+| `POST /api/auth/change-password` | Admin-Passwort ändern |
 | `GET /api/settings/appearance` | globalen UI-Farbstandard lesen |
-| `PUT /api/settings/appearance` | globalen UI-Farbstandard mit Settings-Token ändern |
+| `PUT /api/settings/appearance` | globalen UI-Farbstandard als Admin ändern |
 | `GET /api/domains` | verfügbare Header-From-Domains |
 | `GET /api/overview` | Kennzahlen, Trend, Fehlerquellen, Reports und Policies |
 | `GET /api/hosts` | vollständiges Sending-Host-Inventar |

@@ -48,6 +48,27 @@ const english: Record<string, string> = {
     "Branding and display preferences for this browser",
   "Eigenes Branding aktiv": "Custom branding active",
   "Sprache und visuelle Darstellung": "Language and visual appearance",
+  "Sprache, UI-Farbgebung und Administration":
+    "Language, UI color scheme and administration",
+  "Die Anwendung konnte nicht gestartet werden.":
+    "The application could not be started.",
+  "Sichere Anwendung wird vorbereitet …": "Preparing the secure application …",
+  Ersteinrichtung: "Initial setup",
+  "Admin-Zugang einrichten": "Set up admin access",
+  "Lege einmalig das Passwort für globale Einstellungen fest. Es wird ausschließlich als sicherer Hash in der Dashboard-Datenbank gespeichert.":
+    "Set the password for global settings once. Only a secure hash is stored in the dashboard database.",
+  "Admin-Passwort": "Admin password",
+  "Passwort wiederholen": "Repeat password",
+  "Mindestens 12 Zeichen.": "At least 12 characters.",
+  "Das Admin-Passwort muss mindestens 12 Zeichen lang sein.":
+    "The admin password must contain at least 12 characters.",
+  "Die Passwörter stimmen nicht überein.": "The passwords do not match.",
+  "Admin-Passwort konnte nicht gespeichert werden.":
+    "The admin password could not be saved.",
+  "Wird gespeichert …": "Saving …",
+  "Admin-Passwort festlegen": "Set admin password",
+  "Das Passwort schützt Administrationsfunktionen, nicht den lesenden Zugriff auf DMARC-Daten.":
+    "The password protects administrative functions, not read-only access to DMARC data.",
   "Lokale Farbgebung aktiv": "Local color scheme active",
   "Globaler Standard: Custom": "Global default: Custom",
   "Globaler Standard: Standardgrün": "Global default: Default green",
@@ -94,18 +115,39 @@ const english: Record<string, string> = {
   Global: "Global",
   Anwenden: "Apply",
   "Global setzen": "Set globally",
-  "Geschützte globale Einstellung": "Protected global setting",
-  "Der Token wird nur für diese Browser-Sitzung gespeichert.":
-    "The token is stored for this browser session only.",
-  "Settings-Token": "Settings token",
-  "Token für globale Änderungen": "Token for global changes",
-  "Settings-Token ist erforderlich.": "A settings token is required.",
-  "Settings-Token ist ungültig.": "The settings token is invalid.",
+  Administration: "Administration",
+  "Die Admin-Anmeldung schützt globale Einstellungen. Das Dashboard bleibt ohne Anmeldung lesbar.":
+    "Admin sign-in protects global settings. The dashboard remains readable without signing in.",
+  "Admin angemeldet": "Admin signed in",
+  "Nicht angemeldet": "Not signed in",
+  "Als Admin anmelden": "Sign in as admin",
+  "Als Admin angemeldet.": "Signed in as admin.",
+  "Admin-Passwort ist falsch.": "The admin password is incorrect.",
+  "Anmeldung fehlgeschlagen.": "Sign-in failed.",
+  "Aktuelles Passwort": "Current password",
+  "Neues Passwort": "New password",
+  "Neues Passwort wiederholen": "Repeat new password",
+  "Passwort ändern": "Change password",
+  Abmelden: "Sign out",
+  "Admin-Passwort wurde geändert.": "The admin password was changed.",
+  "Das aktuelle Admin-Passwort ist falsch.":
+    "The current admin password is incorrect.",
+  "Das neue Passwort muss sich vom aktuellen unterscheiden.":
+    "The new password must be different from the current password.",
+  "Passwortänderung fehlgeschlagen.": "Password change failed.",
+  "Admin-Sitzung wurde beendet.": "The admin session was ended.",
+  "Abmeldung fehlgeschlagen.": "Sign-out failed.",
+  "Nach einer Passwortänderung werden andere Admin-Sitzungen automatisch beendet.":
+    "Changing the password automatically ends other admin sessions.",
+  "Melde dich zuerst als Admin an.": "Sign in as admin first.",
+  "Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.":
+    "The admin session has expired. Please sign in again.",
+  "Admin-Anmeldung erforderlich": "Admin sign-in required",
+  "Melde dich im Bereich Administration an, um ein Profil global zu setzen.":
+    "Sign in under Administration to set a profile globally.",
   "Speichere zuerst eine Custom-Farbe.": "Save a Custom color first.",
   "Globaler Standard wurde aktualisiert.": "The global default was updated.",
   "Aktualisierung fehlgeschlagen.": "Update failed.",
-  "Auf dem Server ist noch kein Settings-Token eingerichtet.":
-    "No settings token has been configured on the server yet.",
   "Globale Farbgebung ist nicht verfügbar: {error}":
     "Global color settings are unavailable: {error}",
   "DMARC-Kennzahlen": "DMARC metrics",

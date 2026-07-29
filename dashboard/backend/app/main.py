@@ -1,14 +1,24 @@
 from __future__ import annotations
 
-import hmac
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .auth import (
+    PASSWORD_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
+    SESSION_COOKIE,
+    SESSION_HOURS,
+    AdminSession,
+    create_session,
+    hash_password,
+    session_hash,
+    verify_password,
+)
 from .config import settings
 from .opensearch import OpenSearchClient, OpenSearchError
 from .service import DashboardService
@@ -49,27 +59,50 @@ class AppearanceUpdate(BaseModel):
     )
 
 
-def configured_settings_token() -> str:
-    if settings.settings_token.strip():
-        return settings.settings_token.strip()
-    try:
-        return settings.settings_token_file.read_text(encoding="utf-8").strip()
-    except OSError:
-        return ""
+class PasswordRequest(BaseModel):
+    password: str = Field(
+        min_length=PASSWORD_MIN_LENGTH,
+        max_length=PASSWORD_MAX_LENGTH,
+    )
 
 
-def require_settings_token(provided_token: str | None) -> None:
-    expected_token = configured_settings_token()
-    if not expected_token:
-        raise HTTPException(
-            status_code=503,
-            detail="Global settings token is not configured",
-        )
-    if not provided_token or not hmac.compare_digest(
-        provided_token.strip(),
-        expected_token,
-    ):
-        raise HTTPException(status_code=403, detail="Invalid settings token")
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(
+        min_length=1,
+        max_length=PASSWORD_MAX_LENGTH,
+    )
+    new_password: str = Field(
+        min_length=PASSWORD_MIN_LENGTH,
+        max_length=PASSWORD_MAX_LENGTH,
+    )
+
+
+def current_session_hash(request: Request) -> str | None:
+    token = request.cookies.get(SESSION_COOKIE)
+    return session_hash(token) if token else None
+
+
+def is_admin_authenticated(request: Request) -> bool:
+    current_hash = current_session_hash(request)
+    return bool(current_hash and store.admin_session_valid(current_hash))
+
+
+def require_admin(request: Request) -> None:
+    if not is_admin_authenticated(request):
+        raise HTTPException(status_code=401, detail="Admin login required")
+
+
+def set_admin_cookie(response: Response, session: AdminSession) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=session.token,
+        max_age=SESSION_HOURS * 60 * 60,
+        expires=session.expires_at,
+        path="/",
+        secure=settings.session_secure_cookie,
+        httponly=True,
+        samesite="strict",
+    )
 
 
 @app.middleware("http")
@@ -115,24 +148,105 @@ async def domains():
     return {"items": await service.domains()}
 
 
+@app.get("/api/auth/status")
+async def auth_status(request: Request):
+    setup_required = not store.admin_configured()
+    return {
+        "setup_required": setup_required,
+        "authenticated": (
+            False if setup_required else is_admin_authenticated(request)
+        ),
+    }
+
+
+@app.post("/api/auth/setup", status_code=201)
+async def setup_admin(update: PasswordRequest, response: Response):
+    if not store.set_initial_admin_password(hash_password(update.password)):
+        raise HTTPException(
+            status_code=409,
+            detail="Admin password is already configured",
+        )
+    set_admin_cookie(response, create_session(store))
+    return {"setup_required": False, "authenticated": True}
+
+
+@app.post("/api/auth/login")
+async def login_admin(update: PasswordRequest, response: Response):
+    password_hash = store.admin_password_hash()
+    if not password_hash:
+        raise HTTPException(status_code=409, detail="Admin setup required")
+    if not verify_password(update.password, password_hash):
+        raise HTTPException(status_code=401, detail="Invalid admin password")
+    set_admin_cookie(response, create_session(store))
+    return {"setup_required": False, "authenticated": True}
+
+
+@app.post("/api/auth/logout")
+async def logout_admin(request: Request, response: Response):
+    current_hash = current_session_hash(request)
+    if current_hash:
+        store.delete_admin_session(current_hash)
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+        secure=settings.session_secure_cookie,
+        httponly=True,
+        samesite="strict",
+    )
+    return {
+        "setup_required": not store.admin_configured(),
+        "authenticated": False,
+    }
+
+
+@app.post("/api/auth/change-password")
+async def change_admin_password(
+    update: PasswordChangeRequest,
+    request: Request,
+    response: Response,
+):
+    require_admin(request)
+    password_hash = store.admin_password_hash()
+    if not password_hash or not verify_password(
+        update.current_password,
+        password_hash,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Current admin password is invalid",
+        )
+    if verify_password(update.new_password, password_hash):
+        raise HTTPException(
+            status_code=422,
+            detail="New password must be different",
+        )
+    if not store.replace_admin_password(
+        expected_hash=password_hash,
+        password_hash=hash_password(update.new_password),
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Admin password changed concurrently",
+        )
+    set_admin_cookie(response, create_session(store))
+    return {"setup_required": False, "authenticated": True}
+
+
 @app.get("/api/settings/appearance")
 async def appearance_settings():
     return {
         **store.appearance_settings(),
         "write_protected": True,
-        "token_configured": bool(configured_settings_token()),
+        "admin_configured": store.admin_configured(),
     }
 
 
 @app.put("/api/settings/appearance")
 async def update_appearance_settings(
     update: AppearanceUpdate,
-    settings_token: str | None = Header(
-        default=None,
-        alias="X-Dashboard-Settings-Token",
-    ),
+    request: Request,
 ):
-    require_settings_token(settings_token)
+    require_admin(request)
     if update.profile == "custom" and not update.color:
         raise HTTPException(
             status_code=422,
@@ -145,7 +259,7 @@ async def update_appearance_settings(
     return {
         **result,
         "write_protected": True,
-        "token_configured": True,
+        "admin_configured": True,
     }
 
 

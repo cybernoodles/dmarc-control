@@ -36,6 +36,7 @@ import {
   Alert,
   AlertStatus,
   AppearanceSettings,
+  AuthStatus,
   DomainItem,
   Forensics,
   Host,
@@ -51,7 +52,6 @@ type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
 const DEFAULT_BRAND_COLOR = "#173f43";
 const BRAND_STORAGE_KEY = "dmarc-control-brand-color";
 const CUSTOM_BRAND_STORAGE_KEY = "dmarc-control-custom-brand-color";
-const SETTINGS_TOKEN_SESSION_KEY = "dmarc-control-settings-token";
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -346,12 +346,194 @@ function TopList({
 export function App() {
   return (
     <LanguageProvider>
-      <DashboardApp />
+      <AppGate />
     </LanguageProvider>
   );
 }
 
-function DashboardApp() {
+function AppGate() {
+  const { language, setLanguage, t } = useI18n();
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [error, setError] = useState("");
+
+  const loadStatus = useCallback(() => {
+    setError("");
+    api.authStatus().then(setAuth).catch((reason: Error) => setError(reason.message));
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  if (!auth) {
+    return (
+      <div className="setup-shell">
+        <section className="setup-card" aria-live="polite">
+          <span className="brand-mark setup-brand-mark">
+            <ShieldCheck aria-hidden="true" />
+          </span>
+          <strong>DMARC Control</strong>
+          {error ? (
+            <>
+              <p>{t("Die Anwendung konnte nicht gestartet werden.")}</p>
+              <small>{error}</small>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={loadStatus}
+              >
+                {t("Erneut versuchen")}
+              </button>
+            </>
+          ) : (
+            <p>{t("Sichere Anwendung wird vorbereitet …")}</p>
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  if (auth.setup_required) {
+    return (
+      <AdminSetup
+        language={language}
+        setLanguage={setLanguage}
+        onComplete={setAuth}
+      />
+    );
+  }
+
+  return <DashboardApp auth={auth} setAuth={setAuth} />;
+}
+
+function AdminSetup({
+  language,
+  setLanguage,
+  onComplete,
+}: {
+  language: "de" | "en";
+  setLanguage: (language: "de" | "en") => void;
+  onComplete: (status: AuthStatus) => void;
+}) {
+  const { t } = useI18n();
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (password.length < 12) {
+      setError(t("Das Admin-Passwort muss mindestens 12 Zeichen lang sein."));
+      return;
+    }
+    if (password !== confirmation) {
+      setError(t("Die Passwörter stimmen nicht überein."));
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      onComplete(await api.setupAdmin(password));
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("Admin-Passwort konnte nicht gespeichert werden."),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="setup-shell">
+      <section className="setup-card">
+        <div className="setup-language" role="group" aria-label={t("Sprache")}>
+          <button
+            type="button"
+            className={classNames(language === "de" && "active")}
+            onClick={() => setLanguage("de")}
+          >
+            DE
+          </button>
+          <button
+            type="button"
+            className={classNames(language === "en" && "active")}
+            onClick={() => setLanguage("en")}
+          >
+            EN
+          </button>
+        </div>
+        <span className="brand-mark setup-brand-mark">
+          <ShieldCheck aria-hidden="true" />
+        </span>
+        <div className="setup-heading">
+          <span>{t("Ersteinrichtung")}</span>
+          <h1>{t("Admin-Zugang einrichten")}</h1>
+          <p>
+            {t(
+              "Lege einmalig das Passwort für globale Einstellungen fest. Es wird ausschließlich als sicherer Hash in der Dashboard-Datenbank gespeichert.",
+            )}
+          </p>
+        </div>
+        <form className="setup-form" onSubmit={submit}>
+          <label>
+            <span>{t("Admin-Passwort")}</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={256}
+              autoFocus
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>{t("Passwort wiederholen")}</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={256}
+              required
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+            />
+          </label>
+          <small>{t("Mindestens 12 Zeichen.")}</small>
+          {error && <div className="setup-error">{error}</div>}
+          <button
+            className="button button-primary setup-submit"
+            type="submit"
+            disabled={saving}
+          >
+            <LockKeyhole aria-hidden="true" />
+            {saving ? t("Wird gespeichert …") : t("Admin-Passwort festlegen")}
+          </button>
+        </form>
+        <div className="settings-note">
+          <Info aria-hidden="true" />
+          <span>
+            {t(
+              "Das Passwort schützt Administrationsfunktionen, nicht den lesenden Zugriff auf DMARC-Daten.",
+            )}
+          </span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DashboardApp({
+  auth,
+  setAuth,
+}: {
+  auth: AuthStatus;
+  setAuth: (status: AuthStatus) => void;
+}) {
   const { t } = useI18n();
   const [view, setView] = useState<View>("overview");
   const [domains, setDomains] = useState<DomainItem[]>([]);
@@ -455,9 +637,8 @@ function DashboardApp() {
   const updateGlobalAppearance = async (
     profile: AppearanceSettings["global_profile"],
     color: string | null,
-    settingsToken: string,
   ) => {
-    const updated = await api.updateAppearance(profile, color, settingsToken);
+    const updated = await api.updateAppearance(profile, color);
     setAppearance(updated);
     setBrandColorState(updated.global_color);
     setHasLocalBrand(false);
@@ -618,6 +799,8 @@ function DashboardApp() {
             hasLocalBrand={hasLocalBrand}
             appearance={appearance}
             appearanceError={appearanceError}
+            auth={auth}
+            setAuth={setAuth}
             updateColor={updateBrandColor}
             saveCustomColor={saveCustomColor}
             resetLocalBrand={resetLocalBrand}
@@ -644,6 +827,8 @@ function SettingsView({
   hasLocalBrand,
   appearance,
   appearanceError,
+  auth,
+  setAuth,
   updateColor,
   saveCustomColor,
   resetLocalBrand,
@@ -654,28 +839,31 @@ function SettingsView({
   hasLocalBrand: boolean;
   appearance: AppearanceSettings | null;
   appearanceError: string;
+  auth: AuthStatus;
+  setAuth: (status: AuthStatus) => void;
   updateColor: (color: string) => void;
   saveCustomColor: () => void;
   resetLocalBrand: () => void;
   updateGlobalAppearance: (
     profile: AppearanceSettings["global_profile"],
     color: string | null,
-    settingsToken: string,
   ) => Promise<AppearanceSettings>;
 }) {
   const { language, setLanguage, t } = useI18n();
-  const [settingsToken, setSettingsToken] = useState(() => {
-    try {
-      return sessionStorage.getItem(SETTINGS_TOKEN_SESSION_KEY) ?? "";
-    } catch {
-      return "";
-    }
-  });
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<
     "success" | "critical" | "info"
   >("info");
   const [savingGlobal, setSavingGlobal] = useState(false);
+  const [loginPassword, setLoginPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [authMessageTone, setAuthMessageTone] = useState<
+    "success" | "critical" | "info"
+  >("info");
+  const [authBusy, setAuthBusy] = useState(false);
   const rgb = hexToRgb(color);
   const customRgb = customColor ? hexToRgb(customColor) : null;
   const updateChannel = (channel: "r" | "g" | "b", value: string) => {
@@ -687,18 +875,6 @@ function SettingsView({
         : 0,
     };
     updateColor(rgbToHex(next.r, next.g, next.b));
-  };
-  const updateToken = (value: string) => {
-    setSettingsToken(value);
-    try {
-      if (value) {
-        sessionStorage.setItem(SETTINGS_TOKEN_SESSION_KEY, value);
-      } else {
-        sessionStorage.removeItem(SETTINGS_TOKEN_SESSION_KEY);
-      }
-    } catch {
-      // The token remains available for the current page.
-    }
   };
   const storeCustomProfile = () => {
     saveCustomColor();
@@ -714,9 +890,9 @@ function SettingsView({
     profile: AppearanceSettings["global_profile"],
     profileColor: string | null,
   ) => {
-    if (!settingsToken.trim()) {
+    if (!auth.authenticated) {
       setMessageTone("critical");
-      setMessage(t("Settings-Token ist erforderlich."));
+      setMessage(t("Melde dich zuerst als Admin an."));
       return;
     }
     if (profile === "custom" && !profileColor) {
@@ -727,24 +903,102 @@ function SettingsView({
     setSavingGlobal(true);
     setMessage("");
     try {
-      await updateGlobalAppearance(
-        profile,
-        profileColor,
-        settingsToken.trim(),
-      );
+      await updateGlobalAppearance(profile, profileColor);
       setMessageTone("success");
       setMessage(t("Globaler Standard wurde aktualisiert."));
     } catch (reason) {
       const rawMessage =
         reason instanceof Error ? reason.message : t("Aktualisierung fehlgeschlagen.");
+      if (rawMessage === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+      }
       setMessageTone("critical");
       setMessage(
-        rawMessage === "Invalid settings token"
-          ? t("Settings-Token ist ungültig.")
+        rawMessage === "Admin login required"
+          ? t("Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.")
           : rawMessage,
       );
     } finally {
       setSavingGlobal(false);
+    }
+  };
+  const login = async (event: FormEvent) => {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      setAuth(await api.loginAdmin(loginPassword));
+      setLoginPassword("");
+      setAuthMessageTone("success");
+      setAuthMessage(t("Als Admin angemeldet."));
+    } catch (reason) {
+      const rawMessage =
+        reason instanceof Error ? reason.message : t("Anmeldung fehlgeschlagen.");
+      setAuthMessageTone("critical");
+      setAuthMessage(
+        rawMessage === "Invalid admin password"
+          ? t("Admin-Passwort ist falsch.")
+          : rawMessage,
+      );
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const logout = async () => {
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      setAuth(await api.logoutAdmin());
+      setAuthMessageTone("info");
+      setAuthMessage(t("Admin-Sitzung wurde beendet."));
+    } catch (reason) {
+      setAuthMessageTone("critical");
+      setAuthMessage(
+        reason instanceof Error ? reason.message : t("Abmeldung fehlgeschlagen."),
+      );
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const changePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (newPassword.length < 12) {
+      setAuthMessageTone("critical");
+      setAuthMessage(t("Das Admin-Passwort muss mindestens 12 Zeichen lang sein."));
+      return;
+    }
+    if (newPassword !== newPasswordConfirmation) {
+      setAuthMessageTone("critical");
+      setAuthMessage(t("Die Passwörter stimmen nicht überein."));
+      return;
+    }
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      setAuth(await api.changeAdminPassword(currentPassword, newPassword));
+      setCurrentPassword("");
+      setNewPassword("");
+      setNewPasswordConfirmation("");
+      setAuthMessageTone("success");
+      setAuthMessage(t("Admin-Passwort wurde geändert."));
+    } catch (reason) {
+      const rawMessage =
+        reason instanceof Error ? reason.message : t("Passwortänderung fehlgeschlagen.");
+      if (rawMessage === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+      }
+      setAuthMessageTone("critical");
+      setAuthMessage(
+        rawMessage === "Current admin password is invalid"
+          ? t("Das aktuelle Admin-Passwort ist falsch.")
+          : rawMessage === "New password must be different"
+            ? t("Das neue Passwort muss sich vom aktuellen unterscheiden.")
+            : rawMessage === "Admin login required"
+              ? t("Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.")
+              : rawMessage,
+      );
+    } finally {
+      setAuthBusy(false);
     }
   };
   const activeLabel = hasLocalBrand
@@ -757,7 +1011,7 @@ function SettingsView({
     <div className="page-stack settings-page">
       <SectionHeader
         title={t("Einstellungen")}
-        subtitle={t("Sprache und visuelle Darstellung")}
+        subtitle={t("Sprache, UI-Farbgebung und Administration")}
         action={
           <StatusPill tone={hasLocalBrand ? "info" : "neutral"}>
             {activeLabel}
@@ -794,6 +1048,117 @@ function SettingsView({
               EN · {t("Englisch")}
             </button>
           </div>
+        </section>
+
+        <section className="surface admin-settings">
+          <div className="settings-title">
+            <span className="settings-icon">
+              <LockKeyhole aria-hidden="true" />
+            </span>
+            <div>
+              <h3>{t("Administration")}</h3>
+              <p>
+                {t(
+                  "Die Admin-Anmeldung schützt globale Einstellungen. Das Dashboard bleibt ohne Anmeldung lesbar.",
+                )}
+              </p>
+            </div>
+            <StatusPill tone={auth.authenticated ? "success" : "neutral"}>
+              {auth.authenticated
+                ? t("Admin angemeldet")
+                : t("Nicht angemeldet")}
+            </StatusPill>
+          </div>
+
+          {!auth.authenticated ? (
+            <form className="admin-login-form" onSubmit={login}>
+              <label>
+                <span>{t("Admin-Passwort")}</span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={loginPassword}
+                  onChange={(event) => setLoginPassword(event.target.value)}
+                />
+              </label>
+              <button
+                className="button button-primary"
+                type="submit"
+                disabled={authBusy}
+              >
+                {t("Als Admin anmelden")}
+              </button>
+            </form>
+          ) : (
+            <>
+              <form className="password-change-form" onSubmit={changePassword}>
+                <label>
+                  <span>{t("Aktuelles Passwort")}</span>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>{t("Neues Passwort")}</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={256}
+                    required
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>{t("Neues Passwort wiederholen")}</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={256}
+                    required
+                    value={newPasswordConfirmation}
+                    onChange={(event) =>
+                      setNewPasswordConfirmation(event.target.value)
+                    }
+                  />
+                </label>
+                <div className="admin-actions">
+                  <button
+                    className="button button-secondary"
+                    type="submit"
+                    disabled={authBusy}
+                  >
+                    {t("Passwort ändern")}
+                  </button>
+                  <button
+                    className="button button-ghost"
+                    type="button"
+                    disabled={authBusy}
+                    onClick={logout}
+                  >
+                    {t("Abmelden")}
+                  </button>
+                </div>
+              </form>
+              <small>
+                {t(
+                  "Nach einer Passwortänderung werden andere Admin-Sitzungen automatisch beendet.",
+                )}
+              </small>
+            </>
+          )}
+          {authMessage && (
+            <div className="settings-feedback" aria-live="polite">
+              <StatusPill tone={authMessageTone}>{authMessage}</StatusPill>
+            </div>
+          )}
         </section>
 
         <section className="surface brand-settings">
@@ -990,8 +1355,15 @@ function SettingsView({
                 <button
                   className="button button-ghost"
                   type="button"
-                  disabled={!customColor || savingGlobal}
+                  disabled={
+                    !customColor || savingGlobal || !auth.authenticated
+                  }
                   onClick={() => setGlobal("custom", customColor)}
+                  title={
+                    auth.authenticated
+                      ? undefined
+                      : t("Admin-Anmeldung erforderlich")
+                  }
                 >
                   {t("Global setzen")}
                 </button>
@@ -1029,8 +1401,13 @@ function SettingsView({
                 <button
                   className="button button-ghost"
                   type="button"
-                  disabled={savingGlobal}
+                  disabled={savingGlobal || !auth.authenticated}
                   onClick={() => setGlobal("standard", null)}
+                  title={
+                    auth.authenticated
+                      ? undefined
+                      : t("Admin-Anmeldung erforderlich")
+                  }
                 >
                   {t("Global setzen")}
                 </button>
@@ -1038,34 +1415,14 @@ function SettingsView({
             </article>
           </div>
 
-          <div className="global-settings-auth">
-            <div>
+          {!auth.authenticated && (
+            <div className="settings-note">
               <LockKeyhole aria-hidden="true" />
-              <div>
-                <strong>{t("Geschützte globale Einstellung")}</strong>
-                <small>
-                  {t(
-                    "Der Token wird nur für diese Browser-Sitzung gespeichert.",
-                  )}
-                </small>
-              </div>
-            </div>
-            <label>
-              <span>{t("Settings-Token")}</span>
-              <input
-                type="password"
-                autoComplete="off"
-                value={settingsToken}
-                placeholder={t("Token für globale Änderungen")}
-                onChange={(event) => updateToken(event.target.value)}
-              />
-            </label>
-          </div>
-
-          {appearance && !appearance.token_configured && !appearanceError && (
-            <div className="inline-warning">
-              <TriangleAlert aria-hidden="true" />
-              {t("Auf dem Server ist noch kein Settings-Token eingerichtet.")}
+              <span>
+                {t(
+                  "Melde dich im Bereich Administration an, um ein Profil global zu setzen.",
+                )}
+              </span>
             </div>
           )}
           {appearanceError && (

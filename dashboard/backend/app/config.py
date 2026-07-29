@@ -11,10 +11,10 @@ class Settings:
     aggregate_index: str = os.getenv("DMARC_AGGREGATE_INDEX", "dmarc_aggregate-*")
     forensic_index: str = os.getenv("DMARC_FORENSIC_INDEX", "dmarc_failure-*")
     database_path: Path = Path(os.getenv("DASHBOARD_DATABASE_PATH", "/app/data/dashboard.db"))
-    settings_token_file: Path = Path(
-        os.getenv("DASHBOARD_SETTINGS_TOKEN_FILE", "/app/data/settings.token")
-    )
-    settings_token: str = os.getenv("DASHBOARD_SETTINGS_TOKEN", "")
+    session_secure_cookie: bool = os.getenv(
+        "DASHBOARD_SESSION_SECURE_COOKIE",
+        "false",
+    ).lower() in {"1", "true", "yes"}
     request_timeout_seconds: float = float(os.getenv("OPENSEARCH_TIMEOUT_SECONDS", "20"))
     new_host_window_days: int = int(os.getenv("NEW_HOST_WINDOW_DAYS", "7"))
     stale_report_days: int = int(os.getenv("STALE_REPORT_DAYS", "3"))
