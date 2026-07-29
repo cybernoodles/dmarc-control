@@ -79,6 +79,34 @@ class StoreTests(unittest.TestCase):
                 "Mail Provider",
             )
 
+    def test_global_appearance_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = StateStore(Path(directory) / "dashboard.db")
+
+            self.assertEqual(
+                store.appearance_settings()["global_profile"],
+                "standard",
+            )
+            self.assertEqual(
+                store.appearance_settings()["global_color"],
+                "#173f43",
+            )
+
+            stored = store.set_global_appearance(
+                profile="custom",
+                color="#2457a6",
+            )
+            self.assertEqual(stored["global_profile"], "custom")
+            self.assertEqual(stored["global_color"], "#2457a6")
+            self.assertEqual(store.appearance_settings(), stored)
+
+            reset = store.set_global_appearance(
+                profile="standard",
+                color="#ffffff",
+            )
+            self.assertEqual(reset["global_profile"], "standard")
+            self.assertEqual(reset["global_color"], "#173f43")
+
 
 class ForensicPrivacyTests(unittest.IsolatedAsyncioTestCase):
     async def test_forensic_query_never_loads_source_documents(self) -> None:

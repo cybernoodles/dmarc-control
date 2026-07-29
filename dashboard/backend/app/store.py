@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+DEFAULT_BRAND_COLOR = "#173f43"
+
 
 class StateStore:
     def __init__(self, database_path: Path) -> None:
@@ -37,6 +39,15 @@ class StateStore:
                     service_name TEXT,
                     trust_status TEXT NOT NULL,
                     notes TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    setting_key TEXT PRIMARY KEY,
+                    setting_value TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -117,5 +128,63 @@ class StateStore:
             "service_name": service_name,
             "trust_status": trust_status,
             "notes": notes,
+            "updated_at": updated_at,
+        }
+
+    def appearance_settings(self) -> dict[str, Any]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT setting_key, setting_value, updated_at
+                FROM app_settings
+                WHERE setting_key IN (
+                    'appearance.global_profile',
+                    'appearance.global_color'
+                )
+                """
+            ).fetchall()
+        values = {row["setting_key"]: row["setting_value"] for row in rows}
+        profile = values.get("appearance.global_profile", "standard")
+        if profile not in {"standard", "custom"}:
+            profile = "standard"
+        color = values.get("appearance.global_color", DEFAULT_BRAND_COLOR)
+        if profile == "standard":
+            color = DEFAULT_BRAND_COLOR
+        updated_at = max(
+            (row["updated_at"] for row in rows),
+            default=None,
+        )
+        return {
+            "global_profile": profile,
+            "global_color": color,
+            "updated_at": updated_at,
+        }
+
+    def set_global_appearance(
+        self,
+        *,
+        profile: str,
+        color: str,
+    ) -> dict[str, Any]:
+        updated_at = datetime.now(UTC).isoformat()
+        effective_color = DEFAULT_BRAND_COLOR if profile == "standard" else color
+        rows = (
+            ("appearance.global_profile", profile, updated_at),
+            ("appearance.global_color", effective_color, updated_at),
+        )
+        with self._lock, self._connect() as connection:
+            connection.executemany(
+                """
+                INSERT INTO app_settings (setting_key, setting_value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(setting_key) DO UPDATE SET
+                    setting_value = excluded.setting_value,
+                    updated_at = excluded.updated_at
+                """,
+                rows,
+            )
+        return {
+            "global_profile": profile,
+            "global_color": effective_color,
             "updated_at": updated_at,
         }

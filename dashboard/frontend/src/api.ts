@@ -144,6 +144,14 @@ export interface Forensics {
   };
 }
 
+export interface AppearanceSettings {
+  global_profile: "standard" | "custom";
+  global_color: string;
+  updated_at: string | null;
+  write_protected: boolean;
+  token_configured: boolean;
+}
+
 const query = (values: Record<string, string | number>) => {
   const params = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) =>
@@ -171,6 +179,20 @@ async function request<T>(
 }
 
 export const api = {
+  appearance: () =>
+    request<AppearanceSettings>("/api/settings/appearance"),
+  updateAppearance: (
+    profile: AppearanceSettings["global_profile"],
+    color: string | null,
+    settingsToken: string,
+  ) =>
+    request<AppearanceSettings>("/api/settings/appearance", {
+      method: "PUT",
+      headers: {
+        "X-Dashboard-Settings-Token": settingsToken,
+      },
+      body: JSON.stringify({ profile, color }),
+    }),
   domains: () =>
     request<{ items: DomainItem[] }>("/api/domains").then(
       (response) => response.items,

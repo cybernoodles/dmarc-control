@@ -47,6 +47,10 @@ const english: Record<string, string> = {
   "Branding und Darstellung dieses Browsers":
     "Branding and display preferences for this browser",
   "Eigenes Branding aktiv": "Custom branding active",
+  "Sprache und visuelle Darstellung": "Language and visual appearance",
+  "Lokale Farbgebung aktiv": "Local color scheme active",
+  "Globaler Standard: Custom": "Global default: Custom",
+  "Globaler Standard: Standardgrün": "Global default: Default green",
   Standardgrün: "Default green",
   Sprache: "Language",
   "Sprache der Benutzeroberfläche":
@@ -54,11 +58,20 @@ const english: Record<string, string> = {
   Deutsch: "German",
   Englisch: "English",
   Markenfarbe: "Brand color",
+  "UI-Farbgebung": "UI color scheme",
   "Die Grundfarbe steuert Navigation, Akzente, Fokus sowie die feine Tönung von Karten, Flächen und Trennlinien. Statusfarben für Fehler und Warnungen bleiben semantisch eindeutig.":
     "The base color controls navigation, accents, focus and the subtle tint of cards, surfaces and dividers. Status colors for errors and warnings remain semantically distinct.",
   "Farbe wählen": "Choose color",
+  "Aktuelle Farbe": "Current color",
   "RGB-Farbwerte": "RGB color values",
   Custom: "Custom",
+  "Als Custom speichern": "Save as Custom",
+  "Aktuelle Farbe wurde als Custom gespeichert.":
+    "The current color was saved as Custom.",
+  "Farbprofil ist lokal aktiv.": "The color profile is active locally.",
+  "Lokale Abweichung entfernen": "Remove local override",
+  "Änderungen wirken sofort und bleiben automatisch in diesem Browser gespeichert.":
+    "Changes apply immediately and are saved automatically in this browser.",
   "Ursprüngliche Gestaltung": "Original design",
   "Live-Vorschau": "Live preview",
   "Änderungen werden unmittelbar auf die gesamte Oberfläche angewendet.":
@@ -72,6 +85,29 @@ const english: Record<string, string> = {
   Beispielaktion: "Example action",
   "Die Auswahl wird lokal in diesem Browser gespeichert und verändert keine DMARC- oder Serverdaten.":
     "These preferences are stored locally in this browser and do not alter DMARC or server data.",
+  "Die Vorschau verändert keine DMARC- oder OpenSearch-Daten.":
+    "The preview does not alter DMARC or OpenSearch data.",
+  Farbprofile: "Color profiles",
+  "Profile können lokal angewendet oder als Standard für alle Browser dieser Installation gesetzt werden.":
+    "Profiles can be applied locally or set as the default for every browser using this installation.",
+  "Noch nicht gespeichert": "Not saved yet",
+  Global: "Global",
+  Anwenden: "Apply",
+  "Global setzen": "Set globally",
+  "Geschützte globale Einstellung": "Protected global setting",
+  "Der Token wird nur für diese Browser-Sitzung gespeichert.":
+    "The token is stored for this browser session only.",
+  "Settings-Token": "Settings token",
+  "Token für globale Änderungen": "Token for global changes",
+  "Settings-Token ist erforderlich.": "A settings token is required.",
+  "Settings-Token ist ungültig.": "The settings token is invalid.",
+  "Speichere zuerst eine Custom-Farbe.": "Save a Custom color first.",
+  "Globaler Standard wurde aktualisiert.": "The global default was updated.",
+  "Aktualisierung fehlgeschlagen.": "Update failed.",
+  "Auf dem Server ist noch kein Settings-Token eingerichtet.":
+    "No settings token has been configured on the server yet.",
+  "Globale Farbgebung ist nicht verfügbar: {error}":
+    "Global color settings are unavailable: {error}",
   "DMARC-Kennzahlen": "DMARC metrics",
   "DMARC-Passrate": "DMARC pass rate",
   Nachrichten: "Messages",

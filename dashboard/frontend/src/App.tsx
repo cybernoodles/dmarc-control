@@ -12,6 +12,7 @@ import {
   Globe2,
   Info,
   LayoutDashboard,
+  LockKeyhole,
   Palette,
   RefreshCw,
   Save,
@@ -34,6 +35,7 @@ import {
 import {
   Alert,
   AlertStatus,
+  AppearanceSettings,
   DomainItem,
   Forensics,
   Host,
@@ -47,8 +49,9 @@ import { TrendChart } from "./TrendChart";
 type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
 
 const DEFAULT_BRAND_COLOR = "#173f43";
-const COMPANY_BRAND_COLOR = "#940084";
 const BRAND_STORAGE_KEY = "dmarc-control-brand-color";
+const CUSTOM_BRAND_STORAGE_KEY = "dmarc-control-custom-brand-color";
+const SETTINGS_TOKEN_SESSION_KEY = "dmarc-control-settings-token";
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -366,28 +369,63 @@ function DashboardApp() {
       return DEFAULT_BRAND_COLOR;
     }
   });
-  const [hasCustomBrand, setHasCustomBrand] = useState(() => {
+  const [hasLocalBrand, setHasLocalBrand] = useState(() => {
     try {
       return Boolean(normalizeHex(localStorage.getItem(BRAND_STORAGE_KEY) ?? ""));
     } catch {
       return false;
     }
   });
+  const [customColor, setCustomColor] = useState<string | null>(() => {
+    try {
+      return normalizeHex(localStorage.getItem(CUSTOM_BRAND_STORAGE_KEY) ?? "");
+    } catch {
+      return null;
+    }
+  });
+  const [appearance, setAppearance] = useState<AppearanceSettings | null>(null);
+  const [appearanceError, setAppearanceError] = useState("");
 
   useLayoutEffect(() => {
-    const color = hasCustomBrand ? brandColor : null;
+    const color =
+      brandColor === DEFAULT_BRAND_COLOR ? null : brandColor;
     const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
     const applyPalette = () => applyBrandPalette(color, colorScheme.matches);
     applyPalette();
     colorScheme.addEventListener("change", applyPalette);
     return () => colorScheme.removeEventListener("change", applyPalette);
-  }, [brandColor, hasCustomBrand]);
+  }, [brandColor]);
+
+  useEffect(() => {
+    setAppearanceError("");
+    api
+      .appearance()
+      .then((settings) => {
+        setAppearance(settings);
+        try {
+          if (!normalizeHex(localStorage.getItem(BRAND_STORAGE_KEY) ?? "")) {
+            setBrandColorState(settings.global_color);
+          }
+          if (
+            settings.global_profile === "custom" &&
+            !normalizeHex(
+              localStorage.getItem(CUSTOM_BRAND_STORAGE_KEY) ?? "",
+            )
+          ) {
+            setCustomColor(settings.global_color);
+          }
+        } catch {
+          if (!hasLocalBrand) setBrandColorState(settings.global_color);
+        }
+      })
+      .catch((error: Error) => setAppearanceError(error.message));
+  }, []);
 
   const updateBrandColor = (color: string) => {
     const normalized = normalizeHex(color);
     if (!normalized) return;
     setBrandColorState(normalized);
-    setHasCustomBrand(true);
+    setHasLocalBrand(true);
     try {
       localStorage.setItem(BRAND_STORAGE_KEY, normalized);
     } catch {
@@ -395,14 +433,40 @@ function DashboardApp() {
     }
   };
 
-  const resetBrandColor = () => {
-    setBrandColorState(DEFAULT_BRAND_COLOR);
-    setHasCustomBrand(false);
+  const saveCustomColor = () => {
+    setCustomColor(brandColor);
+    try {
+      localStorage.setItem(CUSTOM_BRAND_STORAGE_KEY, brandColor);
+    } catch {
+      // The saved profile remains available for the current page.
+    }
+  };
+
+  const resetLocalBrand = () => {
+    setBrandColorState(appearance?.global_color ?? DEFAULT_BRAND_COLOR);
+    setHasLocalBrand(false);
     try {
       localStorage.removeItem(BRAND_STORAGE_KEY);
     } catch {
       // Reset remains effective for the current page.
     }
+  };
+
+  const updateGlobalAppearance = async (
+    profile: AppearanceSettings["global_profile"],
+    color: string | null,
+    settingsToken: string,
+  ) => {
+    const updated = await api.updateAppearance(profile, color, settingsToken);
+    setAppearance(updated);
+    setBrandColorState(updated.global_color);
+    setHasLocalBrand(false);
+    try {
+      localStorage.removeItem(BRAND_STORAGE_KEY);
+    } catch {
+      // The global color still applies for the current page.
+    }
+    return updated;
   };
 
   const loadDomains = useCallback(() => {
@@ -550,9 +614,14 @@ function DashboardApp() {
         {view === "settings" && (
           <SettingsView
             color={brandColor}
-            custom={hasCustomBrand}
+            customColor={customColor}
+            hasLocalBrand={hasLocalBrand}
+            appearance={appearance}
+            appearanceError={appearanceError}
             updateColor={updateBrandColor}
-            resetColor={resetBrandColor}
+            saveCustomColor={saveCustomColor}
+            resetLocalBrand={resetLocalBrand}
+            updateGlobalAppearance={updateGlobalAppearance}
           />
         )}
       </main>
@@ -571,17 +640,44 @@ function DashboardApp() {
 
 function SettingsView({
   color,
-  custom,
+  customColor,
+  hasLocalBrand,
+  appearance,
+  appearanceError,
   updateColor,
-  resetColor,
+  saveCustomColor,
+  resetLocalBrand,
+  updateGlobalAppearance,
 }: {
   color: string;
-  custom: boolean;
+  customColor: string | null;
+  hasLocalBrand: boolean;
+  appearance: AppearanceSettings | null;
+  appearanceError: string;
   updateColor: (color: string) => void;
-  resetColor: () => void;
+  saveCustomColor: () => void;
+  resetLocalBrand: () => void;
+  updateGlobalAppearance: (
+    profile: AppearanceSettings["global_profile"],
+    color: string | null,
+    settingsToken: string,
+  ) => Promise<AppearanceSettings>;
 }) {
   const { language, setLanguage, t } = useI18n();
+  const [settingsToken, setSettingsToken] = useState(() => {
+    try {
+      return sessionStorage.getItem(SETTINGS_TOKEN_SESSION_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<
+    "success" | "critical" | "info"
+  >("info");
+  const [savingGlobal, setSavingGlobal] = useState(false);
   const rgb = hexToRgb(color);
+  const customRgb = customColor ? hexToRgb(customColor) : null;
   const updateChannel = (channel: "r" | "g" | "b", value: string) => {
     const parsed = Number.parseInt(value, 10);
     const next = {
@@ -592,15 +688,79 @@ function SettingsView({
     };
     updateColor(rgbToHex(next.r, next.g, next.b));
   };
+  const updateToken = (value: string) => {
+    setSettingsToken(value);
+    try {
+      if (value) {
+        sessionStorage.setItem(SETTINGS_TOKEN_SESSION_KEY, value);
+      } else {
+        sessionStorage.removeItem(SETTINGS_TOKEN_SESSION_KEY);
+      }
+    } catch {
+      // The token remains available for the current page.
+    }
+  };
+  const storeCustomProfile = () => {
+    saveCustomColor();
+    setMessageTone("success");
+    setMessage(t("Aktuelle Farbe wurde als Custom gespeichert."));
+  };
+  const applyProfile = (profileColor: string) => {
+    updateColor(profileColor);
+    setMessageTone("info");
+    setMessage(t("Farbprofil ist lokal aktiv."));
+  };
+  const setGlobal = async (
+    profile: AppearanceSettings["global_profile"],
+    profileColor: string | null,
+  ) => {
+    if (!settingsToken.trim()) {
+      setMessageTone("critical");
+      setMessage(t("Settings-Token ist erforderlich."));
+      return;
+    }
+    if (profile === "custom" && !profileColor) {
+      setMessageTone("critical");
+      setMessage(t("Speichere zuerst eine Custom-Farbe."));
+      return;
+    }
+    setSavingGlobal(true);
+    setMessage("");
+    try {
+      await updateGlobalAppearance(
+        profile,
+        profileColor,
+        settingsToken.trim(),
+      );
+      setMessageTone("success");
+      setMessage(t("Globaler Standard wurde aktualisiert."));
+    } catch (reason) {
+      const rawMessage =
+        reason instanceof Error ? reason.message : t("Aktualisierung fehlgeschlagen.");
+      setMessageTone("critical");
+      setMessage(
+        rawMessage === "Invalid settings token"
+          ? t("Settings-Token ist ungültig.")
+          : rawMessage,
+      );
+    } finally {
+      setSavingGlobal(false);
+    }
+  };
+  const activeLabel = hasLocalBrand
+    ? t("Lokale Farbgebung aktiv")
+    : appearance?.global_profile === "custom"
+      ? t("Globaler Standard: Custom")
+      : t("Globaler Standard: Standardgrün");
 
   return (
     <div className="page-stack settings-page">
       <SectionHeader
         title={t("Einstellungen")}
-        subtitle={t("Branding und Darstellung dieses Browsers")}
+        subtitle={t("Sprache und visuelle Darstellung")}
         action={
-          <StatusPill tone={custom ? "info" : "neutral"}>
-            {custom ? t("Eigenes Branding aktiv") : t("Standardgrün")}
+          <StatusPill tone={hasLocalBrand ? "info" : "neutral"}>
+            {activeLabel}
           </StatusPill>
         }
       />
@@ -642,7 +802,7 @@ function SettingsView({
               <Palette aria-hidden="true" />
             </span>
             <div>
-              <h3>{t("Markenfarbe")}</h3>
+              <h3>{t("UI-Farbgebung")}</h3>
               <p>
                 {t(
                   "Die Grundfarbe steuert Navigation, Akzente, Fokus sowie die feine Tönung von Karten, Flächen und Trennlinien. Statusfarben für Fehler und Warnungen bleiben semantisch eindeutig.",
@@ -653,7 +813,7 @@ function SettingsView({
 
           <div className="color-picker-row">
             <label className="color-picker-label">
-              <span>{t("Farbe wählen")}</span>
+              <span>{t("Aktuelle Farbe")}</span>
               <input
                 className="color-picker"
                 type="color"
@@ -694,37 +854,32 @@ function SettingsView({
             ))}
           </div>
 
-          <div className="preset-list">
+          <div className="editor-actions">
             <button
-              className="preset-button"
+              className="button button-primary"
               type="button"
-              onClick={() => updateColor(COMPANY_BRAND_COLOR)}
+              onClick={storeCustomProfile}
             >
-              <span
-                className="preset-swatch"
-                style={{ backgroundColor: COMPANY_BRAND_COLOR }}
-                aria-hidden="true"
-              />
-              <span>
-                <strong>{t("Custom")}</strong>
-                <small>RGB 148 / 0 / 132</small>
-              </span>
+              <Save aria-hidden="true" />
+              {t("Als Custom speichern")}
             </button>
-            <button
-              className="preset-button"
-              type="button"
-              onClick={resetColor}
-            >
-              <span
-                className="preset-swatch"
-                style={{ backgroundColor: DEFAULT_BRAND_COLOR }}
-                aria-hidden="true"
-              />
-              <span>
-                <strong>{t("Standardgrün")}</strong>
-                <small>{t("Ursprüngliche Gestaltung")}</small>
-              </span>
-            </button>
+            {hasLocalBrand && (
+              <button
+                className="button button-ghost"
+                type="button"
+                onClick={resetLocalBrand}
+              >
+                {t("Lokale Abweichung entfernen")}
+              </button>
+            )}
+          </div>
+          <div className="settings-note">
+            <Info aria-hidden="true" />
+            <span>
+              {t(
+                "Änderungen wirken sofort und bleiben automatisch in diesem Browser gespeichert.",
+              )}
+            </span>
           </div>
         </section>
 
@@ -770,10 +925,162 @@ function SettingsView({
             <Info aria-hidden="true" />
             <span>
               {t(
-                "Die Auswahl wird lokal in diesem Browser gespeichert und verändert keine DMARC- oder Serverdaten.",
+                "Die Vorschau verändert keine DMARC- oder OpenSearch-Daten.",
               )}
             </span>
           </div>
+        </section>
+
+        <section className="surface profile-settings">
+          <div className="settings-title">
+            <span className="settings-icon">
+              <Palette aria-hidden="true" />
+            </span>
+            <div>
+              <h3>{t("Farbprofile")}</h3>
+              <p>
+                {t(
+                  "Profile können lokal angewendet oder als Standard für alle Browser dieser Installation gesetzt werden.",
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="profile-grid">
+            <article
+              className={classNames(
+                "profile-card",
+                appearance?.global_profile === "custom" && "global",
+              )}
+            >
+              <div className="profile-card-head">
+                <span
+                  className={classNames(
+                    "preset-swatch",
+                    !customColor && "empty",
+                  )}
+                  style={
+                    customColor
+                      ? { backgroundColor: customColor }
+                      : undefined
+                  }
+                  aria-hidden="true"
+                />
+                <div>
+                  <strong>{t("Custom")}</strong>
+                  <small>
+                    {customColor && customRgb
+                      ? `${customColor.toUpperCase()} · RGB ${customRgb.r} / ${customRgb.g} / ${customRgb.b}`
+                      : t("Noch nicht gespeichert")}
+                  </small>
+                </div>
+                {appearance?.global_profile === "custom" && (
+                  <StatusPill tone="info">{t("Global")}</StatusPill>
+                )}
+              </div>
+              <div className="profile-actions">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  disabled={!customColor}
+                  onClick={() => customColor && applyProfile(customColor)}
+                >
+                  {t("Anwenden")}
+                </button>
+                <button
+                  className="button button-ghost"
+                  type="button"
+                  disabled={!customColor || savingGlobal}
+                  onClick={() => setGlobal("custom", customColor)}
+                >
+                  {t("Global setzen")}
+                </button>
+              </div>
+            </article>
+
+            <article
+              className={classNames(
+                "profile-card",
+                appearance?.global_profile === "standard" && "global",
+              )}
+            >
+              <div className="profile-card-head">
+                <span
+                  className="preset-swatch"
+                  style={{ backgroundColor: DEFAULT_BRAND_COLOR }}
+                  aria-hidden="true"
+                />
+                <div>
+                  <strong>{t("Standardgrün")}</strong>
+                  <small>{DEFAULT_BRAND_COLOR.toUpperCase()}</small>
+                </div>
+                {appearance?.global_profile === "standard" && (
+                  <StatusPill tone="info">{t("Global")}</StatusPill>
+                )}
+              </div>
+              <div className="profile-actions">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => applyProfile(DEFAULT_BRAND_COLOR)}
+                >
+                  {t("Anwenden")}
+                </button>
+                <button
+                  className="button button-ghost"
+                  type="button"
+                  disabled={savingGlobal}
+                  onClick={() => setGlobal("standard", null)}
+                >
+                  {t("Global setzen")}
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <div className="global-settings-auth">
+            <div>
+              <LockKeyhole aria-hidden="true" />
+              <div>
+                <strong>{t("Geschützte globale Einstellung")}</strong>
+                <small>
+                  {t(
+                    "Der Token wird nur für diese Browser-Sitzung gespeichert.",
+                  )}
+                </small>
+              </div>
+            </div>
+            <label>
+              <span>{t("Settings-Token")}</span>
+              <input
+                type="password"
+                autoComplete="off"
+                value={settingsToken}
+                placeholder={t("Token für globale Änderungen")}
+                onChange={(event) => updateToken(event.target.value)}
+              />
+            </label>
+          </div>
+
+          {appearance && !appearance.token_configured && !appearanceError && (
+            <div className="inline-warning">
+              <TriangleAlert aria-hidden="true" />
+              {t("Auf dem Server ist noch kein Settings-Token eingerichtet.")}
+            </div>
+          )}
+          {appearanceError && (
+            <div className="inline-warning">
+              <TriangleAlert aria-hidden="true" />
+              {t("Globale Farbgebung ist nicht verfügbar: {error}", {
+                error: appearanceError,
+              })}
+            </div>
+          )}
+          {message && (
+            <div className="settings-feedback" aria-live="polite">
+              <StatusPill tone={messageTone}>{message}</StatusPill>
+            </div>
+          )}
         </section>
       </div>
     </div>

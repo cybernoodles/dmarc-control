@@ -89,14 +89,21 @@ das Projektverzeichnis vollständig auf einen anderen Host übertragen werden
 kann. Die Inhalte sind absichtlich nicht versioniert.
 
 ```bash
-mkdir -p data/opensearch data/grafana dmarc-reports
+mkdir -p data/opensearch data/grafana data/dashboard dmarc-reports
 sudo chown 1000:1000 data/opensearch
 sudo chown 472:472 data/grafana
+sudo chown 10001:10001 data/dashboard
+
+# Schreibzugriff auf globale Dashboard-Einstellungen absichern
+openssl rand -hex 32 | sudo tee data/dashboard/settings.token >/dev/null
+sudo chown 10001:10001 data/dashboard/settings.token
+sudo chmod 400 data/dashboard/settings.token
 ```
 
-OpenSearch läuft im Container als UID 1000; Grafana als UID 472. Ohne diese
-Eigentümer kann der jeweilige Dienst beim ersten Start nicht in sein
-Datenverzeichnis schreiben.
+OpenSearch läuft im Container als UID 1000, Grafana als UID 472 und DMARC
+Control als UID 10001. Ohne diese Eigentümer kann der jeweilige Dienst beim
+ersten Start nicht in sein Datenverzeichnis schreiben. Den generierten
+Settings-Token beim ersten globalen Farbwechsel in der Oberfläche eingeben.
 
 > **Dockge:** Relative Pfade wie `./data` beziehen sich auf den Ordner der
 > Compose-Datei. Daher entweder das gesamte Repository als Stack-Ordner
@@ -218,8 +225,10 @@ Informationsumfang in einer risikoorientierten Oberfläche:
 
 Der Browser spricht ausschließlich mit FastAPI. OpenSearch ist nicht direkt aus
 dem Browser erreichbar und wird von der API ausschließlich lesend abgefragt.
-Warnungsstatus und manuelle Zuordnungen liegen getrennt in
-`data/dashboard/dashboard.db`.
+Warnungsstatus, manuelle Zuordnungen und der globale UI-Farbstandard liegen
+getrennt in `data/dashboard/dashboard.db`. Lokale Farbanpassungen bleiben als
+Browser-Präferenz erhalten. Globale Farbänderungen sind mit dem separaten
+Dashboard-Settings-Token geschützt.
 
 Weitere Details und der Dockge-Betriebsablauf stehen in
 [docs/CUSTOM-DASHBOARD.md](docs/CUSTOM-DASHBOARD.md).

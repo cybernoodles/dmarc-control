@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import hmac
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -38,6 +39,37 @@ class HostClassificationUpdate(BaseModel):
     service_name: str | None = Field(default=None, max_length=120)
     trust_status: Literal["unconfirmed", "automatic", "confirmed", "ignored"]
     notes: str | None = Field(default=None, max_length=500)
+
+
+class AppearanceUpdate(BaseModel):
+    profile: Literal["standard", "custom"]
+    color: str | None = Field(
+        default=None,
+        pattern=r"^#[0-9a-fA-F]{6}$",
+    )
+
+
+def configured_settings_token() -> str:
+    if settings.settings_token.strip():
+        return settings.settings_token.strip()
+    try:
+        return settings.settings_token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def require_settings_token(provided_token: str | None) -> None:
+    expected_token = configured_settings_token()
+    if not expected_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Global settings token is not configured",
+        )
+    if not provided_token or not hmac.compare_digest(
+        provided_token.strip(),
+        expected_token,
+    ):
+        raise HTTPException(status_code=403, detail="Invalid settings token")
 
 
 @app.middleware("http")
@@ -81,6 +113,40 @@ async def health():
 @app.get("/api/domains")
 async def domains():
     return {"items": await service.domains()}
+
+
+@app.get("/api/settings/appearance")
+async def appearance_settings():
+    return {
+        **store.appearance_settings(),
+        "write_protected": True,
+        "token_configured": bool(configured_settings_token()),
+    }
+
+
+@app.put("/api/settings/appearance")
+async def update_appearance_settings(
+    update: AppearanceUpdate,
+    settings_token: str | None = Header(
+        default=None,
+        alias="X-Dashboard-Settings-Token",
+    ),
+):
+    require_settings_token(settings_token)
+    if update.profile == "custom" and not update.color:
+        raise HTTPException(
+            status_code=422,
+            detail="A custom color is required for the custom profile",
+        )
+    result = store.set_global_appearance(
+        profile=update.profile,
+        color=(update.color or "#173f43").lower(),
+    )
+    return {
+        **result,
+        "write_protected": True,
+        "token_configured": True,
+    }
 
 
 @app.get("/api/overview")

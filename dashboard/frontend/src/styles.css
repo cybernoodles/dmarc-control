@@ -879,9 +879,14 @@ td > strong {
 }
 
 .brand-settings,
-.brand-preview-section {
+.brand-preview-section,
+.profile-settings {
   display: grid;
   gap: 1.2rem;
+}
+
+.profile-settings {
+  grid-column: 1 / -1;
 }
 
 .language-settings {
@@ -999,6 +1004,95 @@ td > strong {
 .rgb-grid input {
   min-width: 0;
   width: 100%;
+}
+
+.editor-actions,
+.profile-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.profile-grid {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.profile-card {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.72rem;
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.85rem;
+}
+
+.profile-card.global {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary-soft);
+}
+
+.profile-card-head {
+  align-items: center;
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.profile-card-head strong {
+  display: block;
+  font-size: 0.8rem;
+}
+
+.preset-swatch.empty {
+  background:
+    linear-gradient(
+      135deg,
+      transparent 43%,
+      var(--line-strong) 44%,
+      var(--line-strong) 56%,
+      transparent 57%
+    ),
+    var(--surface);
+}
+
+.global-settings-auth {
+  align-items: end;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.72rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.85rem;
+}
+
+.global-settings-auth > div {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+}
+
+.global-settings-auth > div > svg {
+  color: var(--primary);
+  flex: 0 0 auto;
+  height: 1rem;
+  width: 1rem;
+}
+
+.global-settings-auth strong {
+  display: block;
+  font-size: 0.78rem;
+}
+
+.global-settings-auth label {
+  min-width: min(100%, 18rem);
+}
+
+.settings-feedback {
+  min-height: 1.6rem;
 }
 
 .preset-list {
@@ -1365,6 +1459,10 @@ footer {
     grid-template-columns: 1fr;
   }
 
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+
   .language-settings {
     align-items: stretch;
     flex-direction: column;
@@ -1372,6 +1470,15 @@ footer {
 
   .language-toggle {
     align-self: flex-start;
+  }
+
+  .global-settings-auth {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .global-settings-auth label {
+    width: 100%;
   }
 
   .preview-content {

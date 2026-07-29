@@ -38,9 +38,31 @@ folgende Felder nicht geladen oder ausgeliefert:
 
 ## Eigene Persistenz
 
-Statusänderungen an Warnungen sowie manuell bestätigte Sending Hosts werden in
-`data/dashboard/dashboard.db` gespeichert. Diese SQLite-Datei ist vollständig
-von den OpenSearch- und Grafana-Daten getrennt.
+Statusänderungen an Warnungen, manuell bestätigte Sending Hosts sowie der
+globale UI-Farbstandard werden in `data/dashboard/dashboard.db` gespeichert.
+Diese SQLite-Datei ist vollständig von den OpenSearch- und Grafana-Daten
+getrennt.
+
+Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
+sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
+Abweichung. Schreibzugriffe auf den globalen Standard erfordern den
+Settings-Token aus `/app/data/settings.token`. Alternativ kann er über
+`DASHBOARD_SETTINGS_TOKEN` oder ein abweichender Dateipfad über
+`DASHBOARD_SETTINGS_TOKEN_FILE` bereitgestellt werden.
+
+Für den Standardpfad wird der Token auf dem Docker-Host einmalig erzeugt:
+
+```bash
+mkdir -p data/dashboard
+openssl rand -hex 32 > data/dashboard/settings.token
+chown 10001:10001 data/dashboard/settings.token
+chmod 400 data/dashboard/settings.token
+```
+
+Die Oberfläche hält den eingegebenen Token nur im `sessionStorage` des
+Browsers. Er wird beim Schließen der Browser-Sitzung verworfen.
+Auf docker01 kann der installierte Token bei Bedarf mit
+`docker exec dmarc-dashboard cat /app/data/settings.token` angezeigt werden.
 
 Die Warnungs-IDs werden deterministisch aus Auslöser, Domain, Host und Reporttag
 gebildet. Damit werden wiederholte Anzeigen desselben Ereignisses dedupliziert,
@@ -65,6 +87,8 @@ Ergebnis enthält eine Konfidenz und kann administrativ bestätigt oder
 | Endpunkt | Zweck |
 |---|---|
 | `GET /api/health` | Container- und OpenSearch-Status |
+| `GET /api/settings/appearance` | globalen UI-Farbstandard lesen |
+| `PUT /api/settings/appearance` | globalen UI-Farbstandard mit Settings-Token ändern |
 | `GET /api/domains` | verfügbare Header-From-Domains |
 | `GET /api/overview` | Kennzahlen, Trend, Fehlerquellen, Reports und Policies |
 | `GET /api/hosts` | vollständiges Sending-Host-Inventar |
