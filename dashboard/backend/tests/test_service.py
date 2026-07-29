@@ -78,6 +78,9 @@ class StoreTests(unittest.TestCase):
                 store.host_overrides()["192.0.2.10"]["service_name"],
                 "Mail Provider",
             )
+            self.assertTrue(store.clear_host_override("192.0.2.10"))
+            self.assertNotIn("192.0.2.10", store.host_overrides())
+            self.assertFalse(store.clear_host_override("192.0.2.10"))
 
     def test_global_appearance_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

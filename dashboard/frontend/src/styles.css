@@ -924,6 +924,10 @@ td > strong {
   flex: 2 1 17rem;
 }
 
+.classification-note {
+  margin-top: 0.65rem;
+}
+
 .form-message {
   color: var(--ink-muted);
   font-size: 0.73rem;

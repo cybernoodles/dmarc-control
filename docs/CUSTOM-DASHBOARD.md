@@ -113,7 +113,8 @@ Ergebnis enthält eine Konfidenz und kann administrativ bestätigt oder
 | `GET /api/overview` | Kennzahlen, Trend, Fehlerquellen, Reports und Policies |
 | `GET /api/hosts` | vollständiges Sending-Host-Inventar |
 | `GET /api/hosts/{ip}` | einzelne Host-Detailansicht |
-| `PUT /api/hosts/{ip}/classification` | manuelle Dienst- und Vertrauenszuordnung |
+| `PUT /api/hosts/{ip}/classification` | manuelle Dienst- und Klassifizierungszuordnung |
+| `DELETE /api/hosts/{ip}/classification` | manuelle Zuordnung entfernen und Automatik wiederherstellen |
 | `GET /api/alerts` | abgeleitete und deduplizierte Warnungen |
 | `PATCH /api/alerts/{id}` | Warnungsstatus ändern |
 | `GET /api/forensics` | minimierte Forensik-Aggregationen |

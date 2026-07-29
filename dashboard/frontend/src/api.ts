@@ -324,6 +324,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(update),
     }),
+  clearHostClassification: (sourceIp: string) =>
+    request(`/api/hosts/${encodeURIComponent(sourceIp)}/classification`, {
+      method: "DELETE",
+    }),
   forensics: (
     domain: string,
     days: number,

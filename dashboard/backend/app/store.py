@@ -459,6 +459,14 @@ class StateStore:
             "updated_at": updated_at,
         }
 
+    def clear_host_override(self, source_ip: str) -> bool:
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM host_overrides WHERE source_ip = ?",
+                (source_ip,),
+            )
+        return cursor.rowcount == 1
+
     def appearance_settings(self) -> dict[str, Any]:
         with self._lock, self._connect() as connection:
             rows = connection.execute(

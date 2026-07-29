@@ -2695,8 +2695,14 @@ function HostsView({
                 <tr>
                   <th>{t("Source")}</th>
                   <th>{t("Erkannter Dienst")}</th>
-                  <th>{t("Vertrauen")}</th>
-                  <th>Alignment</th>
+                  <th>{t("Zuordnung")}</th>
+                  <th
+                    title={t(
+                      "Die Zahlen zeigen betroffene Nachrichten im gewählten Zeitraum.",
+                    )}
+                  >
+                    Alignment
+                  </th>
                   <th>DMARC</th>
                   <th className="numeric">{t("Nachrichten")}</th>
                   <th />
@@ -2734,24 +2740,40 @@ function HostsView({
                       </small>
                     </td>
                     <td>
-                      <TrustPill status={host.trust_status} />
+                      <ClassificationPill status={host.trust_status} />
                     </td>
                     <td>
                       <span>
-                        SPF{" "}
+                        SPF ·{" "}
                         {host.spf_not_aligned
-                          ? `${formatNumber(host.spf_not_aligned)} ${t(
-                              "nicht aligned",
-                            )}`
-                          : t("aligned")}
+                          ? t("{count} von {total} nicht aligned", {
+                              count: formatNumber(host.spf_not_aligned),
+                              total: formatNumber(
+                                host.spf_aligned + host.spf_not_aligned,
+                              ),
+                            })
+                          : t("{count} von {total} aligned", {
+                              count: formatNumber(host.spf_aligned),
+                              total: formatNumber(
+                                host.spf_aligned + host.spf_not_aligned,
+                              ),
+                            })}
                       </span>
                       <small>
-                        DKIM{" "}
+                        DKIM ·{" "}
                         {host.dkim_not_aligned
-                          ? `${formatNumber(host.dkim_not_aligned)} ${t(
-                              "nicht aligned",
-                            )}`
-                          : t("aligned")}
+                          ? t("{count} von {total} nicht aligned", {
+                              count: formatNumber(host.dkim_not_aligned),
+                              total: formatNumber(
+                                host.dkim_aligned + host.dkim_not_aligned,
+                              ),
+                            })
+                          : t("{count} von {total} aligned", {
+                              count: formatNumber(host.dkim_aligned),
+                              total: formatNumber(
+                                host.dkim_aligned + host.dkim_not_aligned,
+                              ),
+                            })}
                       </small>
                     </td>
                     <td>
@@ -2805,16 +2827,16 @@ function RiskPill({ host }: { host: Host }) {
   return <StatusPill tone="success">Pass</StatusPill>;
 }
 
-function TrustPill({ status }: { status: TrustStatus }) {
-  const { language, t } = useI18n();
+function ClassificationPill({ status }: { status: TrustStatus }) {
+  const { t } = useI18n();
   const values: Record<TrustStatus, { label: string; tone: "neutral" | "info" | "success" }> = {
-    unconfirmed: { label: t("Nicht bestätigt"), tone: "neutral" },
-    automatic: { label: t("Automatisch erkannt"), tone: "info" },
+    unconfirmed: { label: t("Prüfung ausstehend"), tone: "neutral" },
+    automatic: { label: t("Automatisch zugeordnet"), tone: "info" },
     confirmed: {
-      label: language === "en" ? "Confirmed" : "Bestätigt",
+      label: t("Zuordnung bestätigt"),
       tone: "success",
     },
-    ignored: { label: t("Ignoriert"), tone: "neutral" },
+    ignored: { label: t("Klassifizierung ignoriert"), tone: "neutral" },
   };
   const value = values[status];
   return <StatusPill tone={value.tone}>{value.label}</StatusPill>;
@@ -2829,11 +2851,11 @@ function HostDetail({
   close: () => void;
   saved: () => void;
 }) {
-  const { language, t, formatNumber, formatDate, translateBackendLabel } =
-    useI18n();
+  const { t, formatNumber, formatDate, translateBackendLabel } = useI18n();
   const [serviceName, setServiceName] = useState(host.service_detection.service);
   const [trustStatus, setTrustStatus] = useState<TrustStatus>(host.trust_status);
   const [notes, setNotes] = useState(host.override?.notes ?? "");
+  const [hasOverride, setHasOverride] = useState(Boolean(host.override));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -2841,6 +2863,7 @@ function HostDetail({
     setServiceName(host.service_detection.service);
     setTrustStatus(host.trust_status);
     setNotes(host.override?.notes ?? "");
+    setHasOverride(Boolean(host.override));
   }, [host]);
 
   const submit = async (event: FormEvent) => {
@@ -2853,11 +2876,41 @@ function HostDetail({
         trust_status: trustStatus,
         notes: notes.trim() || null,
       });
+      setHasOverride(true);
       setMessage(t("Zuordnung gespeichert."));
       saved();
     } catch (reason) {
       setMessage(
         reason instanceof Error ? reason.message : t("Speichern fehlgeschlagen"),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const restoreAutomaticClassification = async () => {
+    setSaving(true);
+    setMessage("");
+    try {
+      await api.clearHostClassification(host.source_ip);
+      setServiceName(
+        host.service_detection.automatic_service ??
+          host.service_detection.service,
+      );
+      setTrustStatus(
+        host.service_detection.confidence >= 0.55
+          ? "automatic"
+          : "unconfirmed",
+      );
+      setNotes("");
+      setHasOverride(false);
+      setMessage(t("Automatische Zuordnung wiederhergestellt."));
+      saved();
+    } catch (reason) {
+      setMessage(
+        reason instanceof Error
+          ? reason.message
+          : t("Speichern fehlgeschlagen"),
       );
     } finally {
       setSaving(false);
@@ -2968,17 +3021,17 @@ function HostDetail({
           />
         </label>
         <label>
-          <span>{t("Vertrauensstatus")}</span>
+          <span>{t("Zuordnungsstatus")}</span>
           <select
             value={trustStatus}
             onChange={(event) => setTrustStatus(event.target.value as TrustStatus)}
           >
-            <option value="unconfirmed">{t("Nicht bestätigt")}</option>
-            <option value="automatic">{t("Automatisch erkannt")}</option>
-            <option value="confirmed">
-              {language === "en" ? "Confirmed" : "Bestätigt"}
+            <option value="automatic" disabled>
+              {t("Automatisch zugeordnet · Systemstatus")}
             </option>
-            <option value="ignored">{t("Ignoriert")}</option>
+            <option value="unconfirmed">{t("Prüfung ausstehend")}</option>
+            <option value="confirmed">{t("Zuordnung bestätigt")}</option>
+            <option value="ignored">{t("Klassifizierung ignoriert")}</option>
           </select>
         </label>
         <label className="notes-field">
@@ -2994,8 +3047,27 @@ function HostDetail({
           {saving ? <RefreshCw className="spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
           {t("Speichern")}
         </button>
+        {hasOverride && (
+          <button
+            className="button button-secondary"
+            type="button"
+            disabled={saving}
+            onClick={restoreAutomaticClassification}
+          >
+            <RefreshCw aria-hidden="true" />
+            {t("Automatische Zuordnung wiederherstellen")}
+          </button>
+        )}
         {message && <span className="form-message">{message}</span>}
       </form>
+      <div className="settings-note classification-note">
+        <Info aria-hidden="true" />
+        <span>
+          {t(
+            "Der Zuordnungsstatus beschreibt nur die Dienstklassifizierung. Er ändert weder das DMARC-Ergebnis noch Warnungen und ist keine Freigabeliste.",
+          )}
+        </span>
+      </div>
     </section>
   );
 }

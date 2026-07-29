@@ -671,6 +671,15 @@ async def update_host_classification(
     )
 
 
+@app.delete("/api/hosts/{source_ip}/classification")
+async def clear_host_classification(source_ip: str):
+    return {
+        "source_ip": source_ip,
+        "automatic": True,
+        "override_removed": store.clear_host_override(source_ip),
+    }
+
+
 @app.get("/api/alerts")
 async def alerts(
     domain: str = Query(default="*", max_length=255),

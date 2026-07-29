@@ -312,7 +312,13 @@ const english: Record<string, string> = {
   Source: "Source",
   "Erkannter Dienst": "Detected service",
   Vertrauen: "Trust",
+  Zuordnung: "Classification",
   Konfidenz: "Confidence",
+  "Die Zahlen zeigen betroffene Nachrichten im gewählten Zeitraum.":
+    "The numbers show affected messages in the selected time range.",
+  "{count} von {total} nicht aligned":
+    "{count} of {total} not aligned",
+  "{count} von {total} aligned": "{count} of {total} aligned",
   Details: "Details",
   "Keine Sending Hosts gefunden": "No sending hosts found",
   "Passe Suche, Zeitraum oder Risikofilter an.":
@@ -320,6 +326,10 @@ const english: Record<string, string> = {
   "Pass · Hinweis": "Pass · Advisory",
   "Nicht bestätigt": "Unconfirmed",
   "Automatisch erkannt": "Automatically detected",
+  "Prüfung ausstehend": "Review pending",
+  "Automatisch zugeordnet": "Automatically classified",
+  "Zuordnung bestätigt": "Classification confirmed",
+  "Klassifizierung ignoriert": "Classification ignored",
   Bestätigt: "Acknowledged",
   Ignoriert: "Ignored",
   "Zuordnung gespeichert.": "Classification saved.",
@@ -341,6 +351,15 @@ const english: Record<string, string> = {
   "Keine belastbare Evidenz.": "No reliable evidence.",
   Dienst: "Service",
   Vertrauensstatus: "Trust status",
+  Zuordnungsstatus: "Classification status",
+  "Automatisch zugeordnet · Systemstatus":
+    "Automatically classified · system status",
+  "Automatische Zuordnung wiederherstellen":
+    "Restore automatic classification",
+  "Automatische Zuordnung wiederhergestellt.":
+    "Automatic classification restored.",
+  "Der Zuordnungsstatus beschreibt nur die Dienstklassifizierung. Er ändert weder das DMARC-Ergebnis noch Warnungen und ist keine Freigabeliste.":
+    "The classification status describes only the service classification. It does not change the DMARC result or alerts and is not an allowlist.",
   Notiz: "Note",
   "Optionaler administrativer Kontext": "Optional administrative context",
   Speichern: "Save",
