@@ -1,6 +1,6 @@
 {
   "annotations": { "list": [] },
-  "description": "Operational overview of DMARC aggregate reports.",
+  "description": "Operational overview of DMARC aggregate reports with an actionable list of source hosts that failed DMARC.",
   "editable": false,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -10,6 +10,7 @@
       "asDropdown": false,
       "icon": "external link",
       "includeTimeRange": true,
+      "includeVars": true,
       "keepTime": true,
       "targetBlank": false,
       "title": "Open DMARC analysis",
@@ -80,7 +81,7 @@
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
       "id": 4,
-      "options": { "content": "## Operational use\n\nUse this page for daily status. Investigate failures and sender details in **DMARC Analysis**.\n\nThe selected period defaults to 30 days; use the time picker for longer investigations.", "mode": "markdown" },
+      "options": { "content": "## Operational use\n\nUse this page for daily status. **Not aligned** is not automatically a DMARC failure: aligned SPF or aligned DKIM is sufficient for DMARC to pass. Start investigations with **Critical: DMARC failure sources**, then open **DMARC Analysis** for all affected sender hosts and authentication identities.\n\nThe selected period defaults to 30 days; use the time picker for longer investigations.", "mode": "markdown" },
       "title": "",
       "transparent": true,
       "type": "text"
@@ -106,14 +107,15 @@
       "id": 5,
       "options": { "displayMode": "basic", "minVizHeight": 10, "minVizWidth": 0, "orientation": "horizontal", "reduceOptions": { "calcs": ["sum"], "fields": "", "values": false }, "showUnfilled": false },
       "targets": [
-        { "alias": "SPF pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND spf_aligned:true", "refId": "A", "timeField": "date_begin" },
-        { "alias": "SPF fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND spf_aligned:false", "refId": "B", "timeField": "date_begin" },
-        { "alias": "DKIM pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND dkim_aligned:true", "refId": "C", "timeField": "date_begin" },
-        { "alias": "DKIM fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND dkim_aligned:false", "refId": "D", "timeField": "date_begin" },
+        { "alias": "SPF aligned", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND spf_aligned:true", "refId": "A", "timeField": "date_begin" },
+        { "alias": "SPF not aligned", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND spf_aligned:false", "refId": "B", "timeField": "date_begin" },
+        { "alias": "DKIM aligned", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND dkim_aligned:true", "refId": "C", "timeField": "date_begin" },
+        { "alias": "DKIM not aligned", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND dkim_aligned:false", "refId": "D", "timeField": "date_begin" },
         { "alias": "DMARC pass", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:true", "refId": "E", "timeField": "date_begin" },
         { "alias": "DMARC fail", "bucketAggs": [{ "field": "date_begin", "id": "2", "settings": { "interval": "auto", "min_doc_count": 0, "trimEdges": 0 }, "type": "date_histogram" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:false", "refId": "F", "timeField": "date_begin" }
       ],
-      "title": "Alignment summary",
+      "description": "SPF and DKIM alignment are independent inputs to DMARC. A message can be not aligned for one mechanism and still pass DMARC through the other.",
+      "title": "Alignment and DMARC outcome",
       "transformations": [],
       "type": "bargauge"
     },
@@ -132,8 +134,151 @@
     },
     {
       "datasource": { "uid": "dfgfg0zezr5kwe" },
+      "description": "Source hosts for messages that failed DMARC. Click a source IP to open the detailed analysis with the current domain and time range.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": true,
+            "footer": { "reducers": [] },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Source IP" },
+            "properties": [
+              { "id": "custom.width", "value": 150 },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Investigate this source IP",
+                    "url": "/d/dmarc-analysis/dmarc-analysis?var-fromdomain=${__data.fields[\"header_from.keyword\"]}&var-sourceip=${__value.raw}&from=${__from}&to=${__to}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "PTR hostname" },
+            "properties": [{ "id": "custom.width", "value": 270 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "SPF aligned" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Not aligned" },
+                      "1": { "color": "green", "index": 1, "text": "Aligned" },
+                      "false": { "color": "red", "index": 2, "text": "Not aligned" },
+                      "true": { "color": "green", "index": 3, "text": "Aligned" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "DKIM aligned" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Not aligned" },
+                      "1": { "color": "green", "index": 1, "text": "Aligned" },
+                      "false": { "color": "red", "index": 2, "text": "Not aligned" },
+                      "true": { "color": "green", "index": 3, "text": "Aligned" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last seen" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsSystem" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 15 },
+      "id": 10,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Messages" }]
+      },
+      "targets": [
+        {
+          "bucketAggs": [
+            { "fake": true, "field": "source_ip_address.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" },
+            { "fake": true, "field": "source_reverse_dns.keyword", "id": "3", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "source_base_domain.keyword", "id": "4", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "header_from.keyword", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" },
+            { "fake": true, "field": "envelope_from.keyword", "id": "6", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" },
+            { "fake": true, "field": "spf_aligned", "id": "7", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" },
+            { "fake": true, "field": "dkim_aligned", "id": "8", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }
+          ],
+          "datasource": { "uid": "dfgfg0zezr5kwe" },
+          "metrics": [
+            { "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" },
+            { "field": "date_begin", "id": "9", "meta": {}, "settings": {}, "type": "max" }
+          ],
+          "query": "(header_from.keyword:$fromdomain) AND passed_dmarc:false",
+          "refId": "A",
+          "timeField": "date_begin"
+        }
+      ],
+      "title": "Critical: DMARC failure sources",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Max": 8,
+              "Sum": 7,
+              "dkim_aligned": 6,
+              "envelope_from.keyword": 4,
+              "header_from.keyword": 3,
+              "source_base_domain.keyword": 2,
+              "source_ip_address.keyword": 0,
+              "source_reverse_dns.keyword": 1,
+              "spf_aligned": 5
+            },
+            "renameByName": {
+              "Max": "Last seen",
+              "Sum": "Messages",
+              "dkim_aligned": "DKIM aligned",
+              "envelope_from.keyword": "Envelope From",
+              "header_from.keyword": "Header From",
+              "source_base_domain.keyword": "PTR base domain",
+              "source_ip_address.keyword": "Source IP",
+              "source_reverse_dns.keyword": "PTR hostname",
+              "spf_aligned": "SPF aligned"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 15 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 27 },
       "id": 7,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
       "targets": [{ "bucketAggs": [{ "fake": true, "field": "header_from.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
@@ -144,7 +289,7 @@
     {
       "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 15 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 27 },
       "id": 8,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
       "targets": [{ "bucketAggs": [{ "fake": true, "field": "org_name.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
@@ -155,7 +300,7 @@
     {
       "datasource": { "uid": "dfgfg0zezr5kwe" },
       "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 24 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 36 },
       "id": 9,
       "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
       "targets": [{ "bucketAggs": [{ "fake": true, "field": "published_policy.domain.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }, { "fake": true, "field": "published_policy.p.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }, { "fake": true, "field": "published_policy.pct", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
@@ -191,6 +336,6 @@
   "timezone": "browser",
   "title": "DMARC Overview",
   "uid": "dmarc-overview",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

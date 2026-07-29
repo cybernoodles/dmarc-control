@@ -1,77 +1,628 @@
 {
   "annotations": { "list": [] },
-  "description": "Detailed DMARC sender and authentication analysis. Forensic report content is deliberately excluded.",
+  "description": "Risk-oriented DMARC sender and authentication analysis. Connects alignment outcomes to concrete source IP addresses, PTR hostnames, and authenticated identities. Forensic report content is deliberately excluded.",
   "editable": false,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
   "links": [
-    { "asDropdown": false, "icon": "external link", "includeTimeRange": true, "keepTime": true, "targetBlank": false, "title": "Open DMARC overview", "type": "link", "url": "/d/dmarc-overview/dmarc-overview" }
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeTimeRange": true,
+      "includeVars": true,
+      "keepTime": true,
+      "targetBlank": false,
+      "title": "Open DMARC overview",
+      "type": "link",
+      "url": "/d/dmarc-overview/dmarc-overview"
+    }
   ],
   "panels": [
     {
       "datasource": null,
-      "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 0 },
       "id": 1,
-      "options": { "content": "## DMARC Analysis\n\nUse this dashboard to investigate a selected domain. The limits in the tables intentionally prevent expensive, unbounded OpenSearch aggregations. Forensic samples are not shown here because they can contain personal data.", "mode": "markdown" },
+      "options": {
+        "content": "## DMARC sender investigation\n\nStart with **Critical: DMARC failure sources**. SPF or DKIM being **not aligned** does not by itself mean that DMARC failed: DMARC passes when at least one mechanism is authenticated and aligned. The two alignment tables therefore include the final DMARC outcome. Identify a sending system by the combination of **source IP**, **PTR hostname**, **Header From**, and the SPF/DKIM identity; PTR alone is not a trusted identity. Use the **Source IP** filter or click an IP to narrow all tables.",
+        "mode": "markdown"
+      },
       "title": "",
       "transparent": true,
       "type": "text"
     },
     {
       "datasource": { "uid": "dfgfg0zezr5kwe" },
-      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 4 },
+      "description": "Messages for which neither SPF nor DKIM produced an aligned DMARC pass. These sources require investigation first.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": true,
+            "footer": { "reducers": [] },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Source IP" },
+            "properties": [
+              { "id": "custom.width", "value": 150 },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Filter dashboard by this source IP",
+                    "url": "/d/dmarc-analysis/dmarc-analysis?var-fromdomain=${__data.fields[\"header_from.keyword\"]}&var-sourceip=${__value.raw}&from=${__from}&to=${__to}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "PTR hostname" },
+            "properties": [{ "id": "custom.width", "value": 270 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "SPF aligned" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Not aligned" },
+                      "1": { "color": "green", "index": 1, "text": "Aligned" },
+                      "false": { "color": "red", "index": 2, "text": "Not aligned" },
+                      "true": { "color": "green", "index": 3, "text": "Aligned" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "DKIM aligned" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Not aligned" },
+                      "1": { "color": "green", "index": 1, "text": "Aligned" },
+                      "false": { "color": "red", "index": 2, "text": "Not aligned" },
+                      "true": { "color": "green", "index": 3, "text": "Aligned" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last seen" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsSystem" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 5 },
       "id": 2,
-      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "source_base_domain.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }, { "fake": true, "field": "source_reverse_dns.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
-      "title": "Top sending domains",
-      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 2, "source_base_domain.keyword": 0, "source_reverse_dns.keyword": 1 }, "renameByName": { "Sum": "Messages", "source_base_domain.keyword": "Sending domain", "source_reverse_dns.keyword": "PTR" } } }],
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Messages" }]
+      },
+      "targets": [
+        {
+          "bucketAggs": [
+            { "fake": true, "field": "source_ip_address.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" },
+            { "fake": true, "field": "source_reverse_dns.keyword", "id": "3", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "source_base_domain.keyword", "id": "4", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "source_country.keyword", "id": "5", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "header_from.keyword", "id": "6", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" },
+            { "fake": true, "field": "envelope_from.keyword", "id": "7", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" },
+            { "fake": true, "field": "spf_aligned", "id": "8", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" },
+            { "fake": true, "field": "dkim_aligned", "id": "9", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }
+          ],
+          "datasource": { "uid": "dfgfg0zezr5kwe" },
+          "metrics": [
+            { "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" },
+            { "field": "date_begin", "id": "10", "meta": {}, "settings": {}, "type": "max" }
+          ],
+          "query": "(header_from.keyword:$fromdomain) AND (source_ip_address.keyword:${sourceip:lucene}) AND passed_dmarc:false",
+          "refId": "A",
+          "timeField": "date_begin"
+        }
+      ],
+      "title": "Critical: DMARC failure sources",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Max": 9,
+              "Sum": 8,
+              "dkim_aligned": 7,
+              "envelope_from.keyword": 5,
+              "header_from.keyword": 4,
+              "source_base_domain.keyword": 2,
+              "source_country.keyword": 3,
+              "source_ip_address.keyword": 0,
+              "source_reverse_dns.keyword": 1,
+              "spf_aligned": 6
+            },
+            "renameByName": {
+              "Max": "Last seen",
+              "Sum": "Messages",
+              "dkim_aligned": "DKIM aligned",
+              "envelope_from.keyword": "Envelope From",
+              "header_from.keyword": "Header From",
+              "source_base_domain.keyword": "PTR base domain",
+              "source_country.keyword": "Country",
+              "source_ip_address.keyword": "Source IP",
+              "source_reverse_dns.keyword": "PTR hostname",
+              "spf_aligned": "SPF aligned"
+            }
+          }
+        }
+      ],
       "type": "table"
     },
     {
       "datasource": { "uid": "dfgfg0zezr5kwe" },
-      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 4 },
+      "description": "All source hosts with SPF alignment failure. The DMARC outcome column shows whether aligned DKIM compensated for the SPF issue.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": true,
+            "footer": { "reducers": [] },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Source IP" },
+            "properties": [
+              { "id": "custom.width", "value": 145 },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Filter dashboard by this source IP",
+                    "url": "/d/dmarc-analysis/dmarc-analysis?var-fromdomain=${__data.fields[\"header_from.keyword\"]}&var-sourceip=${__value.raw}&from=${__from}&to=${__to}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "PTR hostname" },
+            "properties": [{ "id": "custom.width", "value": 230 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "DMARC outcome" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Fail" },
+                      "1": { "color": "green", "index": 1, "text": "Pass" },
+                      "false": { "color": "red", "index": 2, "text": "Fail" },
+                      "true": { "color": "green", "index": 3, "text": "Pass" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last seen" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsSystem" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 13, "w": 12, "x": 0, "y": 17 },
       "id": 3,
-      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "source_ip_address.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "100" }, "type": "terms" }, { "fake": true, "field": "source_country.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
-      "title": "Top source IP addresses",
-      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 2, "source_country.keyword": 1, "source_ip_address.keyword": 0 }, "renameByName": { "Sum": "Messages", "source_country.keyword": "Country", "source_ip_address.keyword": "Source IP" } } }],
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Messages" }]
+      },
+      "targets": [
+        {
+          "bucketAggs": [
+            { "fake": true, "field": "source_ip_address.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" },
+            { "fake": true, "field": "source_reverse_dns.keyword", "id": "3", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "source_base_domain.keyword", "id": "4", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "header_from.keyword", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" },
+            { "fake": true, "field": "envelope_from.keyword", "id": "6", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" },
+            { "fake": true, "field": "spf_results.domain.keyword", "id": "7", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" },
+            { "fake": true, "field": "spf_results.result.keyword", "id": "8", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" },
+            { "fake": true, "field": "passed_dmarc", "id": "9", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }
+          ],
+          "datasource": { "uid": "dfgfg0zezr5kwe" },
+          "metrics": [
+            { "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" },
+            { "field": "date_begin", "id": "10", "meta": {}, "settings": {}, "type": "max" }
+          ],
+          "query": "(header_from.keyword:$fromdomain) AND (source_ip_address.keyword:${sourceip:lucene}) AND spf_aligned:false",
+          "refId": "A",
+          "timeField": "date_begin"
+        }
+      ],
+      "title": "SPF not aligned: affected sending hosts",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Max": 9,
+              "Sum": 8,
+              "envelope_from.keyword": 4,
+              "header_from.keyword": 3,
+              "passed_dmarc": 7,
+              "source_base_domain.keyword": 2,
+              "source_ip_address.keyword": 0,
+              "source_reverse_dns.keyword": 1,
+              "spf_results.domain.keyword": 5,
+              "spf_results.result.keyword": 6
+            },
+            "renameByName": {
+              "Max": "Last seen",
+              "Sum": "Messages",
+              "envelope_from.keyword": "Envelope From",
+              "header_from.keyword": "Header From",
+              "passed_dmarc": "DMARC outcome",
+              "source_base_domain.keyword": "PTR base domain",
+              "source_ip_address.keyword": "Source IP",
+              "source_reverse_dns.keyword": "PTR hostname",
+              "spf_results.domain.keyword": "SPF domain",
+              "spf_results.result.keyword": "SPF result"
+            }
+          }
+        }
+      ],
       "type": "table"
     },
     {
       "datasource": { "uid": "dfgfg0zezr5kwe" },
-      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 11, "w": 12, "x": 0, "y": 14 },
+      "description": "All source hosts with DKIM alignment failure. The DMARC outcome column shows whether aligned SPF compensated for the DKIM issue.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": true,
+            "footer": { "reducers": [] },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Source IP" },
+            "properties": [
+              { "id": "custom.width", "value": 145 },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Filter dashboard by this source IP",
+                    "url": "/d/dmarc-analysis/dmarc-analysis?var-fromdomain=${__data.fields[\"header_from.keyword\"]}&var-sourceip=${__value.raw}&from=${__from}&to=${__to}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "PTR hostname" },
+            "properties": [{ "id": "custom.width", "value": 230 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "DMARC outcome" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Fail" },
+                      "1": { "color": "green", "index": 1, "text": "Pass" },
+                      "false": { "color": "red", "index": 2, "text": "Fail" },
+                      "true": { "color": "green", "index": 3, "text": "Pass" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "SPF aligned" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Not aligned" },
+                      "1": { "color": "green", "index": 1, "text": "Aligned" },
+                      "false": { "color": "red", "index": 2, "text": "Not aligned" },
+                      "true": { "color": "green", "index": 3, "text": "Aligned" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last seen" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsSystem" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 13, "w": 12, "x": 12, "y": 17 },
       "id": 4,
-      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "header_from.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "25" }, "type": "terms" }, { "fake": true, "field": "envelope_from.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "spf_results.result.keyword", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "spf_aligned", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
-      "title": "SPF alignment details",
-      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 4, "envelope_from.keyword": 1, "header_from.keyword": 0, "spf_aligned": 3, "spf_results.result.keyword": 2 }, "renameByName": { "Sum": "Messages", "envelope_from.keyword": "Envelope from", "header_from.keyword": "Email domain", "spf_aligned": "SPF aligned", "spf_results.result.keyword": "SPF result" } } }],
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Messages" }]
+      },
+      "targets": [
+        {
+          "bucketAggs": [
+            { "fake": true, "field": "source_ip_address.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" },
+            { "fake": true, "field": "source_reverse_dns.keyword", "id": "3", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "source_base_domain.keyword", "id": "4", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "header_from.keyword", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" },
+            { "fake": true, "field": "dkim_results.domain.keyword", "id": "6", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" },
+            { "fake": true, "field": "dkim_results.selector.keyword", "id": "7", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" },
+            { "fake": true, "field": "dkim_results.result.keyword", "id": "8", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "5" }, "type": "terms" },
+            { "fake": true, "field": "spf_aligned", "id": "9", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" },
+            { "fake": true, "field": "passed_dmarc", "id": "10", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }
+          ],
+          "datasource": { "uid": "dfgfg0zezr5kwe" },
+          "metrics": [
+            { "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" },
+            { "field": "date_begin", "id": "11", "meta": {}, "settings": {}, "type": "max" }
+          ],
+          "query": "(header_from.keyword:$fromdomain) AND (source_ip_address.keyword:${sourceip:lucene}) AND dkim_aligned:false",
+          "refId": "A",
+          "timeField": "date_begin"
+        }
+      ],
+      "title": "DKIM not aligned: affected sending hosts",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Max": 10,
+              "Sum": 9,
+              "dkim_results.domain.keyword": 4,
+              "dkim_results.result.keyword": 6,
+              "dkim_results.selector.keyword": 5,
+              "header_from.keyword": 3,
+              "passed_dmarc": 8,
+              "source_base_domain.keyword": 2,
+              "source_ip_address.keyword": 0,
+              "source_reverse_dns.keyword": 1,
+              "spf_aligned": 7
+            },
+            "renameByName": {
+              "Max": "Last seen",
+              "Sum": "Messages",
+              "dkim_results.domain.keyword": "DKIM domain",
+              "dkim_results.result.keyword": "DKIM result",
+              "dkim_results.selector.keyword": "Selector",
+              "header_from.keyword": "Header From",
+              "passed_dmarc": "DMARC outcome",
+              "source_base_domain.keyword": "PTR base domain",
+              "source_ip_address.keyword": "Source IP",
+              "source_reverse_dns.keyword": "PTR hostname",
+              "spf_aligned": "SPF aligned"
+            }
+          }
+        }
+      ],
       "type": "table"
     },
     {
       "datasource": { "uid": "dfgfg0zezr5kwe" },
-      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 11, "w": 12, "x": 12, "y": 14 },
+      "description": "Complete inventory of observed source IPs and PTR hostnames, split by DMARC, SPF alignment, and DKIM alignment outcome.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": true,
+            "footer": { "reducers": [] },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Source IP" },
+            "properties": [
+              { "id": "custom.width", "value": 150 },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": false,
+                    "title": "Filter dashboard by this source IP",
+                    "url": "/d/dmarc-analysis/dmarc-analysis?var-fromdomain=${__data.fields[\"header_from.keyword\"]}&var-sourceip=${__value.raw}&from=${__from}&to=${__to}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "PTR hostname" },
+            "properties": [{ "id": "custom.width", "value": 270 }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "DMARC outcome" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Fail" },
+                      "1": { "color": "green", "index": 1, "text": "Pass" },
+                      "false": { "color": "red", "index": 2, "text": "Fail" },
+                      "true": { "color": "green", "index": 3, "text": "Pass" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "SPF aligned" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Not aligned" },
+                      "1": { "color": "green", "index": 1, "text": "Aligned" },
+                      "false": { "color": "red", "index": 2, "text": "Not aligned" },
+                      "true": { "color": "green", "index": 3, "text": "Aligned" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "DKIM aligned" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": { "color": "red", "index": 0, "text": "Not aligned" },
+                      "1": { "color": "green", "index": 1, "text": "Aligned" },
+                      "false": { "color": "red", "index": 2, "text": "Not aligned" },
+                      "true": { "color": "green", "index": 3, "text": "Aligned" }
+                    },
+                    "type": "value"
+                  }
+                ]
+              },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Last seen" },
+            "properties": [{ "id": "unit", "value": "dateTimeAsSystem" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 15, "w": 24, "x": 0, "y": 30 },
       "id": 5,
-      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "header_from.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "25" }, "type": "terms" }, { "fake": true, "field": "dkim_results.domain.keyword", "id": "3", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "dkim_results.selector.keyword", "id": "4", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "dkim_results.result.keyword", "id": "5", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" }, { "fake": true, "field": "dkim_aligned", "id": "6", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
-      "title": "DKIM alignment details",
-      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 5, "dkim_aligned": 4, "dkim_results.domain.keyword": 1, "dkim_results.result.keyword": 3, "dkim_results.selector.keyword": 2, "header_from.keyword": 0 }, "renameByName": { "Sum": "Messages", "dkim_aligned": "DKIM aligned", "dkim_results.domain.keyword": "DKIM domain", "dkim_results.result.keyword": "DKIM result", "dkim_results.selector.keyword": "Selector", "header_from.keyword": "Email domain" } } }],
-      "type": "table"
-    },
-    {
-      "datasource": { "uid": "dfgfg0zezr5kwe" },
-      "fieldConfig": { "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true, "footer": { "reducers": [] }, "inspect": false }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": 0 }] } }, "overrides": [] },
-      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 25 },
-      "id": 6,
-      "options": { "cellHeight": "sm", "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Messages" }] },
-      "targets": [{ "bucketAggs": [{ "fake": true, "field": "source_country.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "50" }, "type": "terms" }], "datasource": { "uid": "dfgfg0zezr5kwe" }, "metrics": [{ "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" }], "query": "header_from.keyword:$fromdomain", "refId": "A", "timeField": "date_begin" }],
-      "title": "Message sources by country",
-      "transformations": [{ "id": "organize", "options": { "excludeByName": {}, "indexByName": { "Sum": 1, "source_country.keyword": 0 }, "renameByName": { "Sum": "Messages", "source_country.keyword": "Country" } } }],
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Messages" }]
+      },
+      "targets": [
+        {
+          "bucketAggs": [
+            { "fake": true, "field": "source_ip_address.keyword", "id": "2", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "100" }, "type": "terms" },
+            { "fake": true, "field": "source_reverse_dns.keyword", "id": "3", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "source_base_domain.keyword", "id": "4", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "source_country.keyword", "id": "5", "settings": { "min_doc_count": 1, "missing": "-", "order": "desc", "orderBy": "1", "size": "3" }, "type": "terms" },
+            { "fake": true, "field": "header_from.keyword", "id": "6", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "10" }, "type": "terms" },
+            { "fake": true, "field": "passed_dmarc", "id": "7", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" },
+            { "fake": true, "field": "spf_aligned", "id": "8", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" },
+            { "fake": true, "field": "dkim_aligned", "id": "9", "settings": { "min_doc_count": 1, "order": "desc", "orderBy": "1", "size": "2" }, "type": "terms" }
+          ],
+          "datasource": { "uid": "dfgfg0zezr5kwe" },
+          "metrics": [
+            { "field": "message_count", "id": "1", "meta": {}, "settings": {}, "type": "sum" },
+            { "field": "date_begin", "id": "10", "meta": {}, "settings": {}, "type": "max" }
+          ],
+          "query": "(header_from.keyword:$fromdomain) AND (source_ip_address.keyword:${sourceip:lucene})",
+          "refId": "A",
+          "timeField": "date_begin"
+        }
+      ],
+      "title": "Sending host inventory by authentication outcome",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Max": 9,
+              "Sum": 8,
+              "dkim_aligned": 7,
+              "header_from.keyword": 4,
+              "passed_dmarc": 5,
+              "source_base_domain.keyword": 2,
+              "source_country.keyword": 3,
+              "source_ip_address.keyword": 0,
+              "source_reverse_dns.keyword": 1,
+              "spf_aligned": 6
+            },
+            "renameByName": {
+              "Max": "Last seen",
+              "Sum": "Messages",
+              "dkim_aligned": "DKIM aligned",
+              "header_from.keyword": "Header From",
+              "passed_dmarc": "DMARC outcome",
+              "source_base_domain.keyword": "PTR base domain",
+              "source_country.keyword": "Country",
+              "source_ip_address.keyword": "Source IP",
+              "source_reverse_dns.keyword": "PTR hostname",
+              "spf_aligned": "SPF aligned"
+            }
+          }
+        }
+      ],
       "type": "table"
     }
   ],
@@ -94,6 +645,21 @@
         "refresh": 2,
         "sort": 5,
         "type": "query"
+      },
+      {
+        "allValue": "*",
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "uid": "dfgfg0zezr5kwe" },
+        "definition": "{\"find\":\"terms\",\"field\":\"source_ip_address.keyword\"}",
+        "includeAll": true,
+        "label": "Source IP",
+        "multi": true,
+        "name": "sourceip",
+        "options": [],
+        "query": "{\"find\":\"terms\",\"field\":\"source_ip_address.keyword\"}",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
       }
     ]
   },
@@ -102,6 +668,6 @@
   "timezone": "browser",
   "title": "DMARC Analysis",
   "uid": "dmarc-analysis",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
