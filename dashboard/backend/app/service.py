@@ -689,6 +689,7 @@ class DashboardService:
                             "priority": "critical",
                             "title": title,
                             "source_ip": host["source_ip"],
+                            "country": host["country"],
                             "domain": alert_domain,
                             "trigger": f"{host['dmarc_fail']} × passed_dmarc:false",
                             "report_time": host["last_seen"],
@@ -712,6 +713,7 @@ class DashboardService:
                             "priority": "warning",
                             "title": "Neue Source-IP erkannt",
                             "source_ip": host["source_ip"],
+                            "country": host["country"],
                             "domain": alert_domain,
                             "trigger": (
                                 f"Erstmals gesehen am "
@@ -743,6 +745,7 @@ class DashboardService:
                             "priority": "info",
                             "title": "Kompensiertes Alignment-Problem",
                             "source_ip": host["source_ip"],
+                            "country": host["country"],
                             "domain": alert_domain,
                             "trigger": f"{', '.join(mechanisms)} · DMARC bestanden",
                             "report_time": host["last_seen"],
@@ -768,6 +771,7 @@ class DashboardService:
                             "priority": "warning",
                             "title": "DMARC-Reports bleiben aus",
                             "source_ip": None,
+                            "country": None,
                             "domain": domain,
                             "trigger": (
                                 f"Letzter Report vor {age.days} Tagen; "

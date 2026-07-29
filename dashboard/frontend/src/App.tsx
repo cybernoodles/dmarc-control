@@ -12,15 +12,25 @@ import {
   Globe2,
   Info,
   LayoutDashboard,
+  Palette,
   RefreshCw,
   Save,
   Search,
   Server,
+  Settings2,
   ShieldCheck,
   TriangleAlert,
   X,
 } from "lucide-react";
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   Alert,
   AlertStatus,
@@ -33,7 +43,11 @@ import {
 } from "./api";
 import { TrendChart } from "./TrendChart";
 
-type View = "overview" | "hosts" | "alerts" | "forensics";
+type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
+
+const DEFAULT_BRAND_COLOR = "#173f43";
+const COMPANY_BRAND_COLOR = "#940084";
+const BRAND_STORAGE_KEY = "dmarc-control-brand-color";
 
 const numberFormat = new Intl.NumberFormat("de-CH");
 const percentFormat = new Intl.NumberFormat("de-CH", {
@@ -77,6 +91,101 @@ function reportAge(value: string | null | undefined) {
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
+}
+
+function normalizeHex(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(normalized) ? normalized : null;
+}
+
+function hexToRgb(value: string) {
+  const normalized = normalizeHex(value) ?? DEFAULT_BRAND_COLOR;
+  return {
+    r: Number.parseInt(normalized.slice(1, 3), 16),
+    g: Number.parseInt(normalized.slice(3, 5), 16),
+    b: Number.parseInt(normalized.slice(5, 7), 16),
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  const channel = (value: number) =>
+    Math.min(255, Math.max(0, Math.round(value)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(r)}${channel(g)}${channel(b)}`;
+}
+
+function contrastColor(r: number, g: number, b: number) {
+  const linear = [r, g, b].map((channel) => {
+    const value = channel / 255;
+    return value <= 0.03928
+      ? value / 12.92
+      : Math.pow((value + 0.055) / 1.055, 2.4);
+  });
+  const luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  return luminance > 0.46 ? "#102326" : "#ffffff";
+}
+
+function applyBrandPalette(color: string | null) {
+  const root = document.documentElement;
+  const properties = [
+    "--primary",
+    "--primary-soft",
+    "--primary-hover",
+    "--primary-contrast",
+    "--brand-glow",
+    "--focus-ring",
+  ];
+  if (!color) {
+    properties.forEach((property) => root.style.removeProperty(property));
+    return;
+  }
+
+  const normalized = normalizeHex(color);
+  if (!normalized) return;
+  const { r, g, b } = hexToRgb(normalized);
+  root.style.setProperty("--primary", normalized);
+  root.style.setProperty("--primary-soft", `rgba(${r}, ${g}, ${b}, 0.13)`);
+  root.style.setProperty(
+    "--primary-hover",
+    rgbToHex(r * 0.8, g * 0.8, b * 0.8),
+  );
+  root.style.setProperty("--primary-contrast", contrastColor(r, g, b));
+  root.style.setProperty("--brand-glow", `rgba(${r}, ${g}, ${b}, 0.09)`);
+  root.style.setProperty("--focus-ring", `rgba(${r}, ${g}, ${b}, 0.25)`);
+}
+
+function flagForCountry(country: string | null | undefined) {
+  if (!country || !/^[A-Za-z]{2}$/.test(country)) return "🌐";
+  return country
+    .toUpperCase()
+    .split("")
+    .map((character) =>
+      String.fromCodePoint(127397 + character.charCodeAt(0)),
+    )
+    .join("");
+}
+
+function IpWithFlag({
+  ip,
+  country,
+}: {
+  ip: string;
+  country: string | null | undefined;
+}) {
+  const normalized = country?.toUpperCase();
+  const label =
+    normalized && /^[A-Z]{2}$/.test(normalized)
+      ? `Herkunftsland ${normalized}`
+      : "Herkunftsland unbekannt";
+  return (
+    <span className="ip-with-flag">
+      <span className="country-flag" role="img" aria-label={label}>
+        {flagForCountry(country)}
+      </span>
+      <span className="mono">{ip}</span>
+    </span>
+  );
 }
 
 function StatusPill({
@@ -224,6 +333,49 @@ export function App() {
   const [days, setDays] = useState(30);
   const [domainError, setDomainError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [brandColor, setBrandColorState] = useState(() => {
+    try {
+      return (
+        normalizeHex(localStorage.getItem(BRAND_STORAGE_KEY) ?? "") ??
+        DEFAULT_BRAND_COLOR
+      );
+    } catch {
+      return DEFAULT_BRAND_COLOR;
+    }
+  });
+  const [hasCustomBrand, setHasCustomBrand] = useState(() => {
+    try {
+      return Boolean(normalizeHex(localStorage.getItem(BRAND_STORAGE_KEY) ?? ""));
+    } catch {
+      return false;
+    }
+  });
+
+  useLayoutEffect(() => {
+    applyBrandPalette(hasCustomBrand ? brandColor : null);
+  }, [brandColor, hasCustomBrand]);
+
+  const updateBrandColor = (color: string) => {
+    const normalized = normalizeHex(color);
+    if (!normalized) return;
+    setBrandColorState(normalized);
+    setHasCustomBrand(true);
+    try {
+      localStorage.setItem(BRAND_STORAGE_KEY, normalized);
+    } catch {
+      // The live preview still works if storage is unavailable.
+    }
+  };
+
+  const resetBrandColor = () => {
+    setBrandColorState(DEFAULT_BRAND_COLOR);
+    setHasCustomBrand(false);
+    try {
+      localStorage.removeItem(BRAND_STORAGE_KEY);
+    } catch {
+      // Reset remains effective for the current page.
+    }
+  };
 
   const loadDomains = useCallback(() => {
     setDomainError("");
@@ -281,49 +433,64 @@ export function App() {
             </button>
           );
         })}
+        <button
+          type="button"
+          className={classNames(
+            "nav-button",
+            "nav-settings-button",
+            view === "settings" && "active",
+          )}
+          aria-current={view === "settings" ? "page" : undefined}
+          onClick={() => setView("settings")}
+        >
+          <Settings2 aria-hidden="true" />
+          Einstellungen
+        </button>
       </nav>
 
-      <div className="scope-bar">
-        <div className="filters">
-          <label>
-            <span>Domain</span>
-            <select value={domain} onChange={(event) => setDomain(event.target.value)}>
-              <option value="*">Alle Domains</option>
-              {domains.map((item) => (
-                <option value={item.domain} key={item.domain}>
-                  {item.domain}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Zeitraum</span>
-            <select
-              value={days}
-              onChange={(event) => setDays(Number(event.target.value))}
+      {view !== "settings" && (
+        <div className="scope-bar">
+          <div className="filters">
+            <label>
+              <span>Domain</span>
+              <select value={domain} onChange={(event) => setDomain(event.target.value)}>
+                <option value="*">Alle Domains</option>
+                {domains.map((item) => (
+                  <option value={item.domain} key={item.domain}>
+                    {item.domain}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Zeitraum</span>
+              <select
+                value={days}
+                onChange={(event) => setDays(Number(event.target.value))}
+              >
+                <option value={7}>Letzte 7 Tage</option>
+                <option value={30}>Letzte 30 Tage</option>
+                <option value={90}>Letzte 90 Tage</option>
+                <option value={365}>Letzte 12 Monate</option>
+              </select>
+            </label>
+          </div>
+          <div className="scope-meta">
+            <span>{scopeLabel}</span>
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Daten aktualisieren"
+              title="Daten aktualisieren"
+              onClick={() => setRefreshKey((value) => value + 1)}
             >
-              <option value={7}>Letzte 7 Tage</option>
-              <option value={30}>Letzte 30 Tage</option>
-              <option value={90}>Letzte 90 Tage</option>
-              <option value={365}>Letzte 12 Monate</option>
-            </select>
-          </label>
+              <RefreshCw aria-hidden="true" />
+            </button>
+          </div>
         </div>
-        <div className="scope-meta">
-          <span>{scopeLabel}</span>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Daten aktualisieren"
-            title="Daten aktualisieren"
-            onClick={() => setRefreshKey((value) => value + 1)}
-          >
-            <RefreshCw aria-hidden="true" />
-          </button>
-        </div>
-      </div>
+      )}
 
-      {domainError && (
+      {domainError && view !== "settings" && (
         <div className="inline-warning">
           <TriangleAlert aria-hidden="true" />
           Domain-Liste nicht verfügbar: {domainError}
@@ -349,12 +516,191 @@ export function App() {
         {view === "forensics" && (
           <ForensicsView domain={domain} days={days} refreshKey={refreshKey} />
         )}
+        {view === "settings" && (
+          <SettingsView
+            color={brandColor}
+            custom={hasCustomBrand}
+            updateColor={updateBrandColor}
+            resetColor={resetBrandColor}
+          />
+        )}
       </main>
 
       <footer>
         <span>DMARC Control MVP</span>
         <span>OpenSearch ist ausschließlich über die kontrollierte API erreichbar.</span>
       </footer>
+    </div>
+  );
+}
+
+function SettingsView({
+  color,
+  custom,
+  updateColor,
+  resetColor,
+}: {
+  color: string;
+  custom: boolean;
+  updateColor: (color: string) => void;
+  resetColor: () => void;
+}) {
+  const rgb = hexToRgb(color);
+  const updateChannel = (channel: "r" | "g" | "b", value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    const next = {
+      ...rgb,
+      [channel]: Number.isFinite(parsed)
+        ? Math.min(255, Math.max(0, parsed))
+        : 0,
+    };
+    updateColor(rgbToHex(next.r, next.g, next.b));
+  };
+
+  return (
+    <div className="page-stack settings-page">
+      <SectionHeader
+        title="Einstellungen"
+        subtitle="Branding und Darstellung dieses Browsers"
+        action={
+          <StatusPill tone={custom ? "info" : "neutral"}>
+            {custom ? "Eigenes Branding aktiv" : "Standardgrün"}
+          </StatusPill>
+        }
+      />
+
+      <div className="settings-grid">
+        <section className="surface brand-settings">
+          <div className="settings-title">
+            <span className="settings-icon">
+              <Palette aria-hidden="true" />
+            </span>
+            <div>
+              <h3>Markenfarbe</h3>
+              <p>
+                Die Grundfarbe steuert Navigation, Akzente, Fokus und alle
+                zugehörigen Fades. Statusfarben für Fehler und Warnungen bleiben
+                semantisch eindeutig.
+              </p>
+            </div>
+          </div>
+
+          <div className="color-picker-row">
+            <label className="color-picker-label">
+              <span>Farbe wählen</span>
+              <input
+                className="color-picker"
+                type="color"
+                value={color}
+                onChange={(event) => updateColor(event.target.value)}
+              />
+            </label>
+            <div className="color-value" aria-live="polite">
+              <span
+                className="color-swatch"
+                style={{ backgroundColor: color }}
+                aria-hidden="true"
+              />
+              <div>
+                <strong>{color.toUpperCase()}</strong>
+                <small>
+                  RGB {rgb.r} / {rgb.g} / {rgb.b}
+                </small>
+              </div>
+            </div>
+          </div>
+
+          <div className="rgb-grid" aria-label="RGB-Farbwerte">
+            {(["r", "g", "b"] as const).map((channel) => (
+              <label key={channel}>
+                <span>{channel.toUpperCase()}</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={255}
+                  inputMode="numeric"
+                  value={rgb[channel]}
+                  onChange={(event) =>
+                    updateChannel(channel, event.target.value)
+                  }
+                />
+              </label>
+            ))}
+          </div>
+
+          <div className="preset-list">
+            <button
+              className="preset-button"
+              type="button"
+              onClick={() => updateColor(COMPANY_BRAND_COLOR)}
+            >
+              <span
+                className="preset-swatch"
+                style={{ backgroundColor: COMPANY_BRAND_COLOR }}
+                aria-hidden="true"
+              />
+              <span>
+                <strong>Firmenbeispiel</strong>
+                <small>RGB 148 / 0 / 132</small>
+              </span>
+            </button>
+            <button
+              className="preset-button"
+              type="button"
+              onClick={resetColor}
+            >
+              <span
+                className="preset-swatch"
+                style={{ backgroundColor: DEFAULT_BRAND_COLOR }}
+                aria-hidden="true"
+              />
+              <span>
+                <strong>Standardgrün</strong>
+                <small>Ursprüngliche Gestaltung</small>
+              </span>
+            </button>
+          </div>
+        </section>
+
+        <section className="surface brand-preview-section">
+          <div>
+            <h3>Live-Vorschau</h3>
+            <p>Änderungen werden unmittelbar auf die gesamte Oberfläche angewendet.</p>
+          </div>
+          <div className="brand-preview">
+            <div className="preview-brand">
+              <span className="brand-mark">
+                <ShieldCheck aria-hidden="true" />
+              </span>
+              <div>
+                <strong>DMARC Control</strong>
+                <small>Gebrandete Oberfläche</small>
+              </div>
+            </div>
+            <div className="preview-navigation">
+              <span className="preview-active">Aktiver Bereich</span>
+              <span>Inaktiver Bereich</span>
+            </div>
+            <div className="preview-content">
+              <span className="preview-accent" />
+              <div>
+                <strong>Akzent und Fading</strong>
+                <small>Automatisch aus {color.toUpperCase()} abgeleitet</small>
+              </div>
+              <button className="button button-primary" type="button">
+                Beispielaktion
+              </button>
+            </div>
+          </div>
+          <div className="settings-note">
+            <Info aria-hidden="true" />
+            <span>
+              Die Auswahl wird lokal in diesem Browser gespeichert und verändert
+              keine DMARC- oder Serverdaten.
+            </span>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
@@ -465,7 +811,10 @@ function OverviewView({
                       </td>
                       <td>
                         <button className="cell-link" type="button" onClick={openHosts}>
-                          <strong>{source.source_ip}</strong>
+                          <IpWithFlag
+                            ip={source.source_ip}
+                            country={source.country}
+                          />
                           <small>{source.reverse_dns || "Kein PTR"}</small>
                         </button>
                       </td>
@@ -713,7 +1062,7 @@ function HostsView({
                     key={host.source_ip}
                   >
                     <td>
-                      <strong className="mono">{host.source_ip}</strong>
+                      <IpWithFlag ip={host.source_ip} country={host.country} />
                       <small>{host.reverse_dns || "Kein PTR"}</small>
                       <small>
                         {[host.country, host.as_name].filter(Boolean).join(" · ") || "–"}
@@ -855,7 +1204,9 @@ function HostDetail({
       <div className="host-detail-head">
         <div>
           <div className="eyebrow">Host-Detail</div>
-          <h2 className="mono">{host.source_ip}</h2>
+          <h2>
+            <IpWithFlag ip={host.source_ip} country={host.country} />
+          </h2>
           <p>{host.reverse_dns || "Kein Reverse-DNS-Name vorhanden"}</p>
         </div>
         <div className="host-detail-actions">
@@ -1061,9 +1412,15 @@ function AlertsView({
                     <td><PriorityPill priority={alert.priority} /></td>
                     <td>
                       <strong>{alert.title}</strong>
-                      <small>
-                        {[alert.source_ip, alert.domain].filter(Boolean).join(" · ")}
-                      </small>
+                      {alert.source_ip && (
+                        <small>
+                          <IpWithFlag
+                            ip={alert.source_ip}
+                            country={alert.country}
+                          />
+                        </small>
+                      )}
+                      <small>{alert.domain}</small>
                     </td>
                     <td>
                       <span>{alert.trigger}</span>
@@ -1306,7 +1663,12 @@ function ForensicsView({
                 <tbody>
                   {data.sources.map((source) => (
                     <tr key={source.source_ip}>
-                      <td><strong className="mono">{source.source_ip}</strong></td>
+                      <td>
+                        <IpWithFlag
+                          ip={source.source_ip}
+                          country={source.country}
+                        />
+                      </td>
                       <td>
                         <span>{source.reverse_dns || "–"}</span>
                         <small>{source.base_domain || "–"}</small>

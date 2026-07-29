@@ -107,6 +107,7 @@ export interface Alert {
   priority: "critical" | "warning" | "info";
   title: string;
   source_ip: string | null;
+  country: string | null;
   domain: string;
   trigger: string;
   report_time: string | null;
