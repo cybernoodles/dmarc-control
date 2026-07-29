@@ -195,6 +195,28 @@ ebenfalls unter **Einstellungen → Postfachanbindung** verwaltet. Der Verbindun
 öffnet die Ordner mit `read-only`; Abruf und Verarbeitung beginnen erst nach
 der expliziten Aktivierung.
 
+## E-Mail-Benachrichtigungen
+
+Das Alerting wird unter **Einstellungen → Benachrichtigungen** eingerichtet und
+ist nach Installation oder Update standardmäßig deaktiviert. Unterstützt werden:
+
+- SMTP mit STARTTLS, implizitem TLS oder einem explizit gewählten internen Relay,
+  jeweils mit optionaler Benutzeranmeldung
+- Microsoft Graph mit einer eigenen App-Registrierung oder wiederverwendeten
+  Zugangsdaten der gespeicherten Microsoft-365-Postfachanbindung
+
+Für Graph-Versand benötigt die App-Registrierung die Application-Berechtigung
+`Mail.Send`. Der Zugriff sollte in Exchange Online auf das konfigurierte
+Absenderpostfach begrenzt werden.
+
+Empfänger, E-Mail-Sprache, öffentliche Dashboard-URL und auslösende Fälle sind
+im GUI wählbar. Ein expliziter Testversand ist möglich, ohne das automatische
+Alerting einzuschalten. Jede Nachricht enthält eine HTML- und Klartext-Version,
+stabile `X-DMARC-Control-*`-Header und den versionierten JSON-Anhang
+`dmarc-alert.json`. Erfolgreich versendete Ereignisse werden in
+`dashboard.db` dedupliziert; vorübergehende Fehler werden höchstens dreimal mit
+ansteigendem Abstand versucht.
+
 ## Grafana
 
 | URL | Credentials |
@@ -221,15 +243,18 @@ Informationsumfang in einer risikoorientierten Oberfläche:
 - vollständiges Sending-Host-Inventar mit IP, PTR, ASN/Land, Identitäten und Last Seen
 - mehrstufige Dienst-Erkennung mit Konfidenz und manueller Bestätigung
 - deduplizierte Warnungen mit Status `offen`, `bestätigt`, `behoben` und `ignoriert`
+- konfigurierbares E-Mail-Alerting über SMTP oder Microsoft Graph
 - datenschutzreduzierte Forensik ohne Laden von Rohinhalt, Empfängern, Betreff oder Headern
 
 Der Browser spricht ausschließlich mit FastAPI. OpenSearch ist nicht direkt aus
 dem Browser erreichbar und wird von der API ausschließlich lesend abgefragt.
-Warnungsstatus, manuelle Zuordnungen, der globale UI-Farbstandard und
-verschlüsselte Mailbox-Verbindungsrevisionen liegen getrennt in
+Warnungsstatus, Benachrichtigungszustellungen, manuelle Zuordnungen, der globale
+UI-Farbstandard sowie verschlüsselte Mailbox- und Benachrichtigungszugänge
+liegen getrennt in
 `data/dashboard/dashboard.db`. Lokale Farbanpassungen bleiben als
 Browser-Präferenz erhalten. Globale Farb- und Mailboxänderungen sind mit dem
-separaten Admin-Passwort geschützt. Das Passwort wird ausschließlich als
+separaten Admin-Passwort geschützt. Gleiches gilt für
+Benachrichtigungseinstellungen und Testversand. Das Passwort wird ausschließlich als
 gesalzener Hash gespeichert und kann unter Einstellungen geändert werden.
 
 Weitere Details und der Dockge-Betriebsablauf stehen in

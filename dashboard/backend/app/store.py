@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
-import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +103,34 @@ class StateStore:
                     singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
                     status_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS notification_settings (
+                    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                    settings_json TEXT NOT NULL,
+                    secret_ciphertext TEXT NOT NULL,
+                    test_status TEXT NOT NULL DEFAULT 'untested',
+                    test_message TEXT,
+                    tested_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS notification_deliveries (
+                    alert_id TEXT NOT NULL,
+                    destination_hash TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    attempts INTEGER NOT NULL,
+                    last_attempt_at TEXT NOT NULL,
+                    next_attempt_at TEXT,
+                    sent_at TEXT,
+                    last_error TEXT,
+                    PRIMARY KEY (alert_id, destination_hash)
                 )
                 """
             )
@@ -380,6 +408,209 @@ class StateStore:
                 (payload, timestamp),
             )
         return {**status, "updated_at": timestamp}
+
+    def notification_settings(self) -> dict[str, Any] | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT settings_json, secret_ciphertext, test_status,
+                       test_message, tested_at, updated_at
+                FROM notification_settings
+                WHERE singleton_id = 1
+                """
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "settings": json.loads(row["settings_json"]),
+            "secret_ciphertext": row["secret_ciphertext"],
+            "test_status": row["test_status"],
+            "test_message": row["test_message"],
+            "tested_at": row["tested_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def save_notification_settings(
+        self,
+        *,
+        settings: dict[str, Any],
+        secret_ciphertext: str,
+    ) -> dict[str, Any]:
+        timestamp = datetime.now(UTC).isoformat()
+        payload = json.dumps(settings, sort_keys=True, separators=(",", ":"))
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO notification_settings (
+                    singleton_id, settings_json, secret_ciphertext,
+                    test_status, test_message, tested_at, updated_at
+                )
+                VALUES (1, ?, ?, 'untested', NULL, NULL, ?)
+                ON CONFLICT(singleton_id) DO UPDATE SET
+                    settings_json = excluded.settings_json,
+                    secret_ciphertext = excluded.secret_ciphertext,
+                    test_status = 'untested',
+                    test_message = NULL,
+                    tested_at = NULL,
+                    updated_at = excluded.updated_at
+                """,
+                (payload, secret_ciphertext, timestamp),
+            )
+        return self.notification_settings() or {}
+
+    def record_notification_test(
+        self,
+        *,
+        status: str,
+        message: str,
+    ) -> dict[str, Any] | None:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE notification_settings
+                SET test_status = ?, test_message = ?, tested_at = ?
+                WHERE singleton_id = 1
+                """,
+                (status, message[:500], timestamp),
+            )
+        return self.notification_settings()
+
+    def claim_notification_delivery(
+        self,
+        *,
+        alert_id: str,
+        destination_hash: str,
+        max_attempts: int = 3,
+    ) -> bool:
+        now = datetime.now(UTC)
+        timestamp = now.isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT status, attempts, last_attempt_at, next_attempt_at
+                FROM notification_deliveries
+                WHERE alert_id = ? AND destination_hash = ?
+                """,
+                (alert_id, destination_hash),
+            ).fetchone()
+            if row is not None:
+                if row["status"] == "sent":
+                    return False
+                if (
+                    row["status"] == "sending"
+                    and row["last_attempt_at"]
+                    > (now - timedelta(minutes=15)).isoformat()
+                ):
+                    return False
+                if int(row["attempts"]) >= max_attempts:
+                    return False
+                if (
+                    row["next_attempt_at"]
+                    and row["next_attempt_at"] > timestamp
+                ):
+                    return False
+                attempts = int(row["attempts"]) + 1
+                connection.execute(
+                    """
+                    UPDATE notification_deliveries
+                    SET status = 'sending', attempts = ?,
+                        last_attempt_at = ?, next_attempt_at = NULL,
+                        last_error = NULL
+                    WHERE alert_id = ? AND destination_hash = ?
+                    """,
+                    (attempts, timestamp, alert_id, destination_hash),
+                )
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO notification_deliveries (
+                        alert_id, destination_hash, status, attempts,
+                        last_attempt_at, next_attempt_at, sent_at, last_error
+                    )
+                    VALUES (?, ?, 'sending', 1, ?, NULL, NULL, NULL)
+                    """,
+                    (alert_id, destination_hash, timestamp),
+                )
+        return True
+
+    def finish_notification_delivery(
+        self,
+        *,
+        alert_id: str,
+        destination_hash: str,
+        success: bool,
+        error: str | None = None,
+    ) -> None:
+        now = datetime.now(UTC)
+        timestamp = now.isoformat()
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT attempts
+                FROM notification_deliveries
+                WHERE alert_id = ? AND destination_hash = ?
+                """,
+                (alert_id, destination_hash),
+            ).fetchone()
+            if row is None:
+                return
+            attempts = int(row["attempts"])
+            if success:
+                connection.execute(
+                    """
+                    UPDATE notification_deliveries
+                    SET status = 'sent', sent_at = ?,
+                        next_attempt_at = NULL, last_error = NULL
+                    WHERE alert_id = ? AND destination_hash = ?
+                    """,
+                    (timestamp, alert_id, destination_hash),
+                )
+                return
+            retry_minutes = min(60, 5 * (2 ** max(0, attempts - 1)))
+            next_attempt = datetime.fromtimestamp(
+                now.timestamp() + retry_minutes * 60,
+                tz=UTC,
+            ).isoformat()
+            connection.execute(
+                """
+                UPDATE notification_deliveries
+                SET status = 'failed', next_attempt_at = ?, last_error = ?
+                WHERE alert_id = ? AND destination_hash = ?
+                """,
+                (
+                    next_attempt,
+                    (error or "Notification delivery failed")[:500],
+                    alert_id,
+                    destination_hash,
+                ),
+            )
+
+    def notification_delivery_summary(self) -> dict[str, Any]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM notification_deliveries
+                GROUP BY status
+                """
+            ).fetchall()
+            latest = connection.execute(
+                """
+                SELECT status, last_attempt_at, sent_at, last_error
+                FROM notification_deliveries
+                ORDER BY last_attempt_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        counts = {row["status"]: int(row["count"]) for row in rows}
+        return {
+            "sent": counts.get("sent", 0),
+            "failed": counts.get("failed", 0),
+            "pending": counts.get("sending", 0),
+            "latest": dict(latest) if latest else None,
+        }
 
     def alert_states(self) -> dict[str, dict[str, str]]:
         with self._lock, self._connect() as connection:

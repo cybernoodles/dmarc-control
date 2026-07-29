@@ -218,6 +218,78 @@ export interface MailboxConnectionUpdate {
   archive_folder: string;
 }
 
+export type NotificationTransport = "smtp" | "msgraph";
+export type NotificationCase =
+  | "new-host-fail"
+  | "host-degradation"
+  | "host-fail"
+  | "dynamic-ip-fail"
+  | "new-source-ip"
+  | "compensated-alignment"
+  | "stale-reports";
+
+export interface NotificationSettings {
+  configured: boolean;
+  enabled: boolean;
+  transport: NotificationTransport;
+  recipients: string[];
+  sender: string;
+  language: "de" | "en";
+  dashboard_url: string;
+  cases: NotificationCase[];
+  smtp: {
+    host: string;
+    port: number;
+    security: "starttls" | "tls" | "plain";
+    username: string;
+    password_configured: boolean;
+  };
+  graph: {
+    reuse_mailbox_connection: boolean;
+    tenant_id: string;
+    client_id: string;
+    client_secret_configured: boolean;
+  };
+  test_status: "untested" | "success" | "failure";
+  test_message: string | null;
+  tested_at: string | null;
+  updated_at: string | null;
+  delivery: {
+    sent: number;
+    failed: number;
+    pending: number;
+    latest: {
+      status: string;
+      last_attempt_at: string;
+      sent_at: string | null;
+      last_error: string | null;
+    } | null;
+  };
+}
+
+export interface NotificationSettingsUpdate {
+  enabled: boolean;
+  transport: NotificationTransport;
+  recipients: string[];
+  sender: string;
+  language: "de" | "en";
+  dashboard_url: string;
+  cases: NotificationCase[];
+  smtp: {
+    host: string;
+    port: number;
+    security: "starttls" | "tls" | "plain";
+    username: string;
+    password?: string;
+  };
+  graph: {
+    reuse_mailbox_connection: boolean;
+    tenant_id: string;
+    client_id: string;
+    client_secret?: string;
+  };
+}
+
 const query = (values: Record<string, string | number>) => {
   const params = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) =>
@@ -282,6 +354,17 @@ export const api = {
     }),
   activateMailboxSettings: () =>
     request<MailboxConnectionState>("/api/settings/mailbox/activate", {
+      method: "POST",
+    }),
+  notificationSettings: () =>
+    request<NotificationSettings>("/api/settings/notifications"),
+  saveNotificationSettings: (update: NotificationSettingsUpdate) =>
+    request<NotificationSettings>("/api/settings/notifications", {
+      method: "PUT",
+      body: JSON.stringify(update),
+    }),
+  testNotificationSettings: () =>
+    request<NotificationSettings>("/api/settings/notifications/test", {
       method: "POST",
     }),
   appearance: () =>

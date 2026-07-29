@@ -54,9 +54,107 @@ const english: Record<string, string> = {
     "Connection, language, UI color scheme and administration",
   "Darstellung, Postfachanbindung und geschützte Administration":
     "Appearance, mailbox connection and protected administration",
+  "Darstellung, Benachrichtigungen, Postfachanbindung und geschützte Administration":
+    "Appearance, notifications, mailbox connection and protected administration",
   Einstellungsbereiche: "Settings sections",
   "Darstellung & Sprache": "Appearance & language",
   "Branding und Benutzeroberfläche": "Branding and user interface",
+  Benachrichtigungen: "Notifications",
+  "E-Mail-Alerting und Versandwege": "Email alerting and delivery methods",
+  "E-Mail-Benachrichtigungen": "Email notifications",
+  "Kritische Fälle und Hinweise als strukturierte HTML-E-Mail über SMTP oder Microsoft Graph versenden.":
+    "Send critical cases and advisories as structured HTML email through SMTP or Microsoft Graph.",
+  "E-Mail-Alerting aktiv": "Email alerting active",
+  "E-Mail-Alerting pausiert": "Email alerting paused",
+  "Versandwege, Empfänger und auslösende Fälle sind ausschließlich für Administratoren sichtbar.":
+    "Delivery methods, recipients and triggering cases are visible only to administrators.",
+  "Benachrichtigungen werden geladen": "Loading notifications",
+  "Automatischen E-Mail-Versand aktivieren": "Enable automatic email delivery",
+  "Neue offene Ereignisse werden einmalig versendet und über Container-Neustarts hinweg dedupliziert.":
+    "New open events are sent once and deduplicated across container restarts.",
+  Versandweg: "Delivery method",
+  "STARTTLS, TLS oder internes Relay":
+    "STARTTLS, TLS or an internal relay",
+  "Microsoft 365 · App-only Mail.Send": "Microsoft 365 · app-only Mail.Send",
+  Empfänger: "Recipients",
+  "Eine Adresse pro Zeile; maximal 20 Empfänger.":
+    "One address per line; no more than 20 recipients.",
+  Absender: "Sender",
+  "Sprache der E-Mail": "Email language",
+  "Öffentliche Dashboard-URL": "Public dashboard URL",
+  "Optional. Wird für den direkten Link zur Warnungszentrale verwendet.":
+    "Optional. Used for the direct link to the alert center.",
+  "SMTP-Server": "SMTP server",
+  Transportverschlüsselung: "Transport encryption",
+  "Implizites TLS": "Implicit TLS",
+  "Unverschlüsselt · internes Relay": "Unencrypted · internal relay",
+  Passwort: "Password",
+  "Optional bei Relay ohne Anmeldung": "Optional for relay without sign-in",
+  "Unverschlüsseltes SMTP nur in einem vertrauenswürdigen internen Netz verwenden.":
+    "Use unencrypted SMTP only on a trusted internal network.",
+  "Vorhandene Microsoft-365-Anbindung wiederverwenden":
+    "Reuse existing Microsoft 365 connection",
+  "Tenant, Client-ID und Client Secret werden aus der gespeicherten Graph-Postfachanbindung übernommen.":
+    "Tenant, client ID and client secret are taken from the stored Graph mailbox connection.",
+  "Die App-Registrierung benötigt Application Mail.Send. Der Zugriff sollte in Exchange Online auf das Absenderpostfach begrenzt werden.":
+    "The app registration requires Application Mail.Send. Access should be restricted to the sender mailbox in Exchange Online.",
+  "Welche Fälle lösen eine E-Mail aus?": "Which cases trigger an email?",
+  "Neuer Host mit DMARC-Fail": "New host with a DMARC failure",
+  "Erstmals beobachtete Quelle mit echtem DMARC-Fail.":
+    "First observed source with an actual DMARC failure.",
+  "Verschlechterung eines Hosts": "Host degradation",
+  "Zuvor unauffälliger Host liefert neu DMARC-Fails.":
+    "A previously healthy host now produces DMARC failures.",
+  "DMARC-Fehlerquelle": "DMARC failure source",
+  "Bekannte Quelle mit mindestens einem echten DMARC-Fail.":
+    "Known source with at least one actual DMARC failure.",
+  "DMARC-Fail aus einem erkannten Endkunden- oder Zugangsnetz.":
+    "DMARC failure from a detected consumer or access network.",
+  "Neue Source-IP": "New source IP",
+  "Neue Quelle, auch wenn DMARC noch bestanden wurde.":
+    "New source, even when DMARC still passed.",
+  "Kompensiertes Alignment": "Compensated alignment",
+  "SPF oder DKIM nicht aligned, finales DMARC aber bestanden.":
+    "SPF or DKIM not aligned while final DMARC still passed.",
+  "Ausbleibende Reports": "Missing reports",
+  "Keine neuen DMARC-Reports nach berücksichtigter Verzögerung.":
+    "No new DMARC reports after accounting for the usual delay.",
+  "Einstellungen speichern": "Save settings",
+  "Speichere Änderungen vor dem Testversand.":
+    "Save changes before sending a test.",
+  "Test-E-Mail wird versendet …": "Sending test email …",
+  "Test-E-Mail senden": "Send test email",
+  "Erfolgreich zugestellt": "Successfully delivered",
+  Fehlgeschlagen: "Failed",
+  "Letzter Test": "Latest test",
+  "Jede E-Mail enthält HTML, Klartext, stabile X-DMARC-Control-Header und einen versionierten JSON-Anhang für Mailregeln oder SIEM-Workflows.":
+    "Each email contains HTML, plain text, stable X-DMARC-Control headers and a versioned JSON attachment for mail rules or SIEM workflows.",
+  "Benachrichtigungseinstellungen konnten nicht geladen werden.":
+    "Notification settings could not be loaded.",
+  "Der SMTP-Server ist ungültig.": "The SMTP server is invalid.",
+  "Bei gesetztem SMTP-Benutzernamen ist ein Passwort erforderlich.":
+    "A password is required when an SMTP username is set.",
+  "Die Graph Tenant-ID muss eine gültige UUID sein.":
+    "The Graph tenant ID must be a valid UUID.",
+  "Die Graph Client-ID muss eine gültige UUID sein.":
+    "The Graph client ID must be a valid UUID.",
+  "Ein Graph Client Secret muss hinterlegt werden.":
+    "A Graph client secret must be stored.",
+  "Es ist keine Microsoft-Graph-Postfachanbindung zur Wiederverwendung vorhanden.":
+    "No Microsoft Graph mailbox connection is available for reuse.",
+  "Die Dashboard-URL muss mit http:// oder https:// beginnen.":
+    "The dashboard URL must begin with http:// or https://.",
+  "Mindestens ein Empfänger ist erforderlich.":
+    "At least one recipient is required.",
+  "Wähle mindestens einen Benachrichtigungsfall.":
+    "Select at least one notification case.",
+  "Benachrichtigungseinstellungen wurden gespeichert.":
+    "Notification settings were saved.",
+  "Test-E-Mail wurde erfolgreich versendet.":
+    "The test email was sent successfully.",
+  "Test-E-Mail konnte nicht versendet werden.":
+    "The test email could not be sent.",
+  "Letzter Versandfehler: {error}": "Latest delivery error: {error}",
   Postfachanbindung: "Mailbox connection",
   "Microsoft 365 oder IMAP": "Microsoft 365 or IMAP",
   "Einrichtung ausstehend": "Setup pending",

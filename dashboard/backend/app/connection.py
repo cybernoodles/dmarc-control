@@ -29,8 +29,9 @@ class ConnectionTestError(RuntimeError):
 
 
 class SecretVault:
-    def __init__(self, key_path: Path) -> None:
+    def __init__(self, key_path: Path, aad: bytes = VAULT_AAD) -> None:
         self._key_path = key_path
+        self._aad = aad
 
     def _key(self) -> bytes:
         try:
@@ -62,7 +63,11 @@ class SecretVault:
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-        ciphertext = AESGCM(self._key()).encrypt(nonce, plaintext, VAULT_AAD)
+        ciphertext = AESGCM(self._key()).encrypt(
+            nonce,
+            plaintext,
+            self._aad,
+        )
         return base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
 
     def decrypt(self, encoded: str) -> dict[str, str]:
@@ -71,7 +76,7 @@ class SecretVault:
             plaintext = AESGCM(self._key()).decrypt(
                 payload[:12],
                 payload[12:],
-                VAULT_AAD,
+                self._aad,
             )
             values = json.loads(plaintext.decode("utf-8"))
         except (

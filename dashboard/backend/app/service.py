@@ -737,6 +737,30 @@ class DashboardService:
         for host in hosts:
             report_day = (host.get("last_seen") or "unknown")[:10]
             alert_domain = host["header_froms"][0] if host["header_froms"] else domain
+            notification_context = {
+                "source_profile": host["service_detection"].get("profile"),
+                "reverse_dns": host.get("reverse_dns"),
+                "asn": host.get("asn"),
+                "as_name": host.get("as_name"),
+                "service": host["service_detection"].get("service"),
+                "service_confidence": host["service_detection"].get(
+                    "confidence"
+                ),
+                "service_evidence": host["service_detection"].get(
+                    "evidence", []
+                ),
+                "header_froms": host.get("header_froms", []),
+                "envelope_froms": host.get("envelope_froms", []),
+                "spf_domains": host.get("spf_domains", []),
+                "dkim_domains": host.get("dkim_domains", []),
+                "dkim_selectors": host.get("dkim_selectors", []),
+                "dmarc_pass": host.get("dmarc_pass", 0),
+                "dmarc_fail": host.get("dmarc_fail", 0),
+                "spf_aligned": host.get("spf_aligned", 0),
+                "spf_not_aligned": host.get("spf_not_aligned", 0),
+                "dkim_aligned": host.get("dkim_aligned", 0),
+                "dkim_not_aligned": host.get("dkim_not_aligned", 0),
+            }
             if host["dmarc_fail"]:
                 degraded = (
                     host["previous_dmarc_pass"] > 0
@@ -772,6 +796,7 @@ class DashboardService:
                             "report_time": host["last_seen"],
                             "messages": host["dmarc_fail"],
                             "kind": trigger,
+                            **notification_context,
                         },
                         states,
                     )
@@ -799,6 +824,7 @@ class DashboardService:
                             "report_time": host["last_seen"],
                             "messages": host["messages"],
                             "kind": "new-source-ip",
+                            **notification_context,
                         },
                         states,
                     )
@@ -828,6 +854,7 @@ class DashboardService:
                             "report_time": host["last_seen"],
                             "messages": host["messages"],
                             "kind": "compensated-alignment",
+                            **notification_context,
                         },
                         states,
                     )

@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Send,
   Server,
   Settings2,
   ShieldCheck,
@@ -46,6 +47,9 @@ import {
   MailboxConnectionState,
   MailboxConnectionUpdate,
   MailboxProvider,
+  NotificationCase,
+  NotificationSettings,
+  NotificationSettingsUpdate,
   Overview,
   TrustStatus,
   api,
@@ -54,7 +58,11 @@ import { LanguageProvider, useI18n } from "./i18n";
 import { TrendChart } from "./TrendChart";
 
 type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
-type SettingsSection = "appearance" | "connection" | "administration";
+type SettingsSection =
+  | "appearance"
+  | "notifications"
+  | "connection"
+  | "administration";
 
 const DEFAULT_BRAND_COLOR = "#173f43";
 const BRAND_STORAGE_KEY = "dmarc-control-brand-color";
@@ -542,7 +550,16 @@ function DashboardApp({
   setAuth: (status: AuthStatus) => void;
 }) {
   const { t } = useI18n();
-  const [view, setView] = useState<View>("overview");
+  const [view, setView] = useState<View>(() => {
+    const requested = new URLSearchParams(window.location.search).get("view");
+    return ["overview", "hosts", "alerts", "forensics", "settings"].includes(
+      requested ?? "",
+    )
+      ? (requested as View)
+      : "overview";
+  });
+  const targetAlertId =
+    new URLSearchParams(window.location.search).get("alert") ?? undefined;
   const [domains, setDomains] = useState<DomainItem[]>([]);
   const [domain, setDomain] = useState("*");
   const [days, setDays] = useState(30);
@@ -665,6 +682,14 @@ function DashboardApp({
   useEffect(() => {
     loadDomains();
   }, [loadDomains, refreshKey]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (view === "overview") url.searchParams.delete("view");
+    else url.searchParams.set("view", view);
+    if (view !== "alerts") url.searchParams.delete("alert");
+    window.history.replaceState(null, "", url);
+  }, [view]);
 
   const scopeLabel = `${domain === "*" ? t("Alle Domains") : domain} · ${t(
     "{days} Tage",
@@ -794,7 +819,12 @@ function DashboardApp({
           <HostsView domain={domain} days={days} refreshKey={refreshKey} />
         )}
         {view === "alerts" && (
-          <AlertsView domain={domain} days={days} refreshKey={refreshKey} />
+          <AlertsView
+            domain={domain}
+            days={days}
+            refreshKey={refreshKey}
+            targetAlertId={targetAlertId}
+          />
         )}
         {view === "forensics" && (
           <ForensicsView domain={domain} days={days} refreshKey={refreshKey} />
@@ -1520,6 +1550,753 @@ function MailboxConnectionSettings({
   );
 }
 
+const DEFAULT_NOTIFICATION_CASES: NotificationCase[] = [
+  "new-host-fail",
+  "host-degradation",
+  "host-fail",
+  "dynamic-ip-fail",
+  "stale-reports",
+];
+
+const NOTIFICATION_CASE_OPTIONS: Array<{
+  value: NotificationCase;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "new-host-fail",
+    label: "Neuer Host mit DMARC-Fail",
+    description: "Erstmals beobachtete Quelle mit echtem DMARC-Fail.",
+  },
+  {
+    value: "host-degradation",
+    label: "Verschlechterung eines Hosts",
+    description: "Zuvor unauffälliger Host liefert neu DMARC-Fails.",
+  },
+  {
+    value: "host-fail",
+    label: "DMARC-Fehlerquelle",
+    description: "Bekannte Quelle mit mindestens einem echten DMARC-Fail.",
+  },
+  {
+    value: "dynamic-ip-fail",
+    label: "Dynamischer IP-Bereich",
+    description: "DMARC-Fail aus einem erkannten Endkunden- oder Zugangsnetz.",
+  },
+  {
+    value: "new-source-ip",
+    label: "Neue Source-IP",
+    description: "Neue Quelle, auch wenn DMARC noch bestanden wurde.",
+  },
+  {
+    value: "compensated-alignment",
+    label: "Kompensiertes Alignment",
+    description: "SPF oder DKIM nicht aligned, finales DMARC aber bestanden.",
+  },
+  {
+    value: "stale-reports",
+    label: "Ausbleibende Reports",
+    description: "Keine neuen DMARC-Reports nach berücksichtigter Verzögerung.",
+  },
+];
+
+function defaultNotificationForm(): NotificationSettingsUpdate {
+  return {
+    enabled: false,
+    transport: "smtp",
+    recipients: [],
+    sender: "",
+    language: "de",
+    dashboard_url: "",
+    cases: DEFAULT_NOTIFICATION_CASES,
+    smtp: {
+      host: "",
+      port: 587,
+      security: "starttls",
+      username: "",
+    },
+    graph: {
+      reuse_mailbox_connection: true,
+      tenant_id: "",
+      client_id: "",
+    },
+  };
+}
+
+function NotificationSettingsPanel({
+  auth,
+  setAuth,
+}: {
+  auth: AuthStatus;
+  setAuth: (status: AuthStatus) => void;
+}) {
+  const { t, formatDate } = useI18n();
+  const [settingsState, setSettingsState] =
+    useState<NotificationSettings | null>(null);
+  const [form, setForm] = useState<NotificationSettingsUpdate>(
+    defaultNotificationForm,
+  );
+  const [recipientText, setRecipientText] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [graphSecret, setGraphSecret] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<"save" | "test" | null>(null);
+  const [feedback, setFeedback] = useState("");
+  const [feedbackTone, setFeedbackTone] = useState<
+    "success" | "critical" | "info"
+  >("info");
+
+  const handleError = useCallback(
+    (reason: unknown, fallback: string) => {
+      const rawMessage =
+        reason instanceof Error ? reason.message : fallback;
+      if (rawMessage === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+        return t("Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.");
+      }
+      const messages: Record<string, string> = {
+        "SMTP host is invalid": t("Der SMTP-Server ist ungültig."),
+        "SMTP password is required when a username is set": t(
+          "Bei gesetztem SMTP-Benutzernamen ist ein Passwort erforderlich.",
+        ),
+        "Graph tenant ID must be a UUID": t(
+          "Die Graph Tenant-ID muss eine gültige UUID sein.",
+        ),
+        "Graph client ID must be a UUID": t(
+          "Die Graph Client-ID muss eine gültige UUID sein.",
+        ),
+        "Graph client secret is required": t(
+          "Ein Graph Client Secret muss hinterlegt werden.",
+        ),
+        "No Microsoft Graph mailbox connection is available for reuse": t(
+          "Es ist keine Microsoft-Graph-Postfachanbindung zur Wiederverwendung vorhanden.",
+        ),
+        "Dashboard URL must be an HTTP or HTTPS URL": t(
+          "Die Dashboard-URL muss mit http:// oder https:// beginnen.",
+        ),
+      };
+      return messages[rawMessage] ?? rawMessage;
+    },
+    [auth, setAuth, t],
+  );
+
+  const hydrate = useCallback((next: NotificationSettings) => {
+    setSettingsState(next);
+    setForm({
+      enabled: next.enabled,
+      transport: next.transport,
+      recipients: next.recipients,
+      sender: next.sender,
+      language: next.language,
+      dashboard_url: next.dashboard_url,
+      cases: next.cases,
+      smtp: {
+        host: next.smtp.host,
+        port: next.smtp.port,
+        security: next.smtp.security,
+        username: next.smtp.username,
+      },
+      graph: {
+        reuse_mailbox_connection: next.graph.reuse_mailbox_connection,
+        tenant_id: next.graph.tenant_id,
+        client_id: next.graph.client_id,
+      },
+    });
+    setRecipientText(next.recipients.join("\n"));
+    setSmtpPassword("");
+    setGraphSecret("");
+    setDirty(false);
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!auth.authenticated) return;
+    setLoading(true);
+    try {
+      hydrate(await api.notificationSettings());
+    } catch (reason) {
+      setFeedbackTone("critical");
+      setFeedback(
+        handleError(
+          reason,
+          t("Benachrichtigungseinstellungen konnten nicht geladen werden."),
+        ),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [auth.authenticated, handleError, hydrate, t]);
+
+  useEffect(() => {
+    if (auth.authenticated) load();
+    else setSettingsState(null);
+  }, [auth.authenticated, load]);
+
+  const updateForm = (
+    updater: (current: NotificationSettingsUpdate) => NotificationSettingsUpdate,
+  ) => {
+    setForm(updater);
+    setDirty(true);
+    setFeedback("");
+  };
+
+  const toggleCase = (notificationCase: NotificationCase) => {
+    updateForm((current) => ({
+      ...current,
+      cases: current.cases.includes(notificationCase)
+        ? current.cases.filter((item) => item !== notificationCase)
+        : [...current.cases, notificationCase],
+    }));
+  };
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const recipients = recipientText
+      .split(/[\n,;]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!recipients.length) {
+      setFeedbackTone("critical");
+      setFeedback(t("Mindestens ein Empfänger ist erforderlich."));
+      return;
+    }
+    if (!form.cases.length) {
+      setFeedbackTone("critical");
+      setFeedback(t("Wähle mindestens einen Benachrichtigungsfall."));
+      return;
+    }
+    const update: NotificationSettingsUpdate = {
+      ...form,
+      recipients,
+      smtp: {
+        ...form.smtp,
+        password: smtpPassword || undefined,
+      },
+      graph: {
+        ...form.graph,
+        client_secret: graphSecret || undefined,
+      },
+    };
+    setBusy("save");
+    setFeedback("");
+    try {
+      hydrate(await api.saveNotificationSettings(update));
+      setFeedbackTone("success");
+      setFeedback(t("Benachrichtigungseinstellungen wurden gespeichert."));
+    } catch (reason) {
+      setFeedbackTone("critical");
+      setFeedback(handleError(reason, t("Speichern fehlgeschlagen.")));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const sendTest = async () => {
+    setBusy("test");
+    setFeedback("");
+    try {
+      const tested = await api.testNotificationSettings();
+      setSettingsState(tested);
+      const success = tested.test_status === "success";
+      setFeedbackTone(success ? "success" : "critical");
+      setFeedback(
+        success
+          ? t("Test-E-Mail wurde erfolgreich versendet.")
+          : tested.test_message
+            ? handleError(
+                new Error(tested.test_message),
+                t("Test-E-Mail konnte nicht versendet werden."),
+              )
+            : t("Test-E-Mail konnte nicht versendet werden."),
+      );
+    } catch (reason) {
+      setFeedbackTone("critical");
+      setFeedback(
+        handleError(reason, t("Test-E-Mail konnte nicht versendet werden.")),
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const statusTone = !settingsState?.configured
+    ? ("neutral" as const)
+    : settingsState.enabled
+      ? ("success" as const)
+      : ("info" as const);
+  const statusLabel = !settingsState?.configured
+    ? t("Nicht eingerichtet")
+    : settingsState.enabled
+      ? t("E-Mail-Alerting aktiv")
+      : t("E-Mail-Alerting pausiert");
+
+  return (
+    <section className="surface notification-settings">
+      <div className="settings-title connection-title">
+        <span className="settings-icon">
+          <Bell aria-hidden="true" />
+        </span>
+        <div>
+          <h3>{t("E-Mail-Benachrichtigungen")}</h3>
+          <p>
+            {t(
+              "Kritische Fälle und Hinweise als strukturierte HTML-E-Mail über SMTP oder Microsoft Graph versenden.",
+            )}
+          </p>
+        </div>
+        <StatusPill tone={statusTone}>{statusLabel}</StatusPill>
+      </div>
+
+      {!auth.authenticated ? (
+        <div className="connection-locked">
+          <LockKeyhole aria-hidden="true" />
+          <div>
+            <strong>{t("Admin-Anmeldung erforderlich")}</strong>
+            <small>
+              {t(
+                "Versandwege, Empfänger und auslösende Fälle sind ausschließlich für Administratoren sichtbar.",
+              )}
+            </small>
+          </div>
+        </div>
+      ) : loading && !settingsState ? (
+        <LoadingState label={t("Benachrichtigungen werden geladen")} />
+      ) : (
+        <form className="notification-form" onSubmit={save}>
+          <label className="notification-enable">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(event) =>
+                updateForm((current) => ({
+                  ...current,
+                  enabled: event.target.checked,
+                }))
+              }
+            />
+            <span>
+              <strong>{t("Automatischen E-Mail-Versand aktivieren")}</strong>
+              <small>
+                {t(
+                  "Neue offene Ereignisse werden einmalig versendet und über Container-Neustarts hinweg dedupliziert.",
+                )}
+              </small>
+            </span>
+          </label>
+
+          <div
+            className="connection-provider-switch"
+            role="group"
+            aria-label={t("Versandweg")}
+          >
+            <button
+              type="button"
+              className={classNames(form.transport === "smtp" && "active")}
+              aria-pressed={form.transport === "smtp"}
+              onClick={() =>
+                updateForm((current) => ({
+                  ...current,
+                  transport: "smtp",
+                }))
+              }
+            >
+              <Mail aria-hidden="true" />
+              <span>
+                <strong>SMTP</strong>
+                <small>{t("STARTTLS, TLS oder internes Relay")}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={classNames(form.transport === "msgraph" && "active")}
+              aria-pressed={form.transport === "msgraph"}
+              onClick={() =>
+                updateForm((current) => ({
+                  ...current,
+                  transport: "msgraph",
+                }))
+              }
+            >
+              <Cloud aria-hidden="true" />
+              <span>
+                <strong>Microsoft Graph</strong>
+                <small>{t("Microsoft 365 · App-only Mail.Send")}</small>
+              </span>
+            </button>
+          </div>
+
+          <div className="notification-fields notification-addresses">
+            <label>
+              <span>{t("Empfänger")}</span>
+              <textarea
+                required
+                rows={3}
+                value={recipientText}
+                placeholder={"security@example.com\nsoc@example.com"}
+                onChange={(event) => {
+                  setRecipientText(event.target.value);
+                  setDirty(true);
+                }}
+              />
+              <small>{t("Eine Adresse pro Zeile; maximal 20 Empfänger.")}</small>
+            </label>
+            <div>
+              <label>
+                <span>{t("Absender")}</span>
+                <input
+                  type="email"
+                  required
+                  value={form.sender}
+                  placeholder="dmarc-alerts@example.com"
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      sender: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>{t("Sprache der E-Mail")}</span>
+                <select
+                  value={form.language}
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      language: event.target.value as "de" | "en",
+                    }))
+                  }
+                >
+                  <option value="de">Deutsch</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <label>
+            <span>{t("Öffentliche Dashboard-URL")}</span>
+            <input
+              type="url"
+              value={form.dashboard_url}
+              placeholder="https://dmarc.example.com"
+              onChange={(event) =>
+                updateForm((current) => ({
+                  ...current,
+                  dashboard_url: event.target.value,
+                }))
+              }
+            />
+            <small>
+              {t(
+                "Optional. Wird für den direkten Link zur Warnungszentrale verwendet.",
+              )}
+            </small>
+          </label>
+
+          {form.transport === "smtp" ? (
+            <div className="notification-transport-fields">
+              <div className="notification-fields smtp-notification-fields">
+                <label>
+                  <span>{t("SMTP-Server")}</span>
+                  <input
+                    type="text"
+                    required
+                    value={form.smtp.host}
+                    placeholder="smtp.example.com"
+                    onChange={(event) =>
+                      updateForm((current) => ({
+                        ...current,
+                        smtp: { ...current.smtp, host: event.target.value },
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>{t("Port")}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    required
+                    value={form.smtp.port}
+                    onChange={(event) =>
+                      updateForm((current) => ({
+                        ...current,
+                        smtp: {
+                          ...current.smtp,
+                          port: Number(event.target.value),
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>{t("Transportverschlüsselung")}</span>
+                  <select
+                    value={form.smtp.security}
+                    onChange={(event) =>
+                      updateForm((current) => ({
+                        ...current,
+                        smtp: {
+                          ...current.smtp,
+                          security: event.target.value as
+                            | "starttls"
+                            | "tls"
+                            | "plain",
+                        },
+                      }))
+                    }
+                  >
+                    <option value="starttls">STARTTLS</option>
+                    <option value="tls">{t("Implizites TLS")}</option>
+                    <option value="plain">
+                      {t("Unverschlüsselt · internes Relay")}
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  <span>{t("Benutzername")}</span>
+                  <input
+                    type="text"
+                    autoComplete="username"
+                    value={form.smtp.username}
+                    onChange={(event) =>
+                      updateForm((current) => ({
+                        ...current,
+                        smtp: {
+                          ...current.smtp,
+                          username: event.target.value,
+                        },
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>{t("Passwort")}</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    required={
+                      Boolean(form.smtp.username) &&
+                      !settingsState?.smtp.password_configured
+                    }
+                    value={smtpPassword}
+                    placeholder={
+                      settingsState?.smtp.password_configured
+                        ? t("Passwort hinterlegt · leer lassen zum Beibehalten")
+                        : t("Optional bei Relay ohne Anmeldung")
+                    }
+                    onChange={(event) => {
+                      setSmtpPassword(event.target.value);
+                      setDirty(true);
+                    }}
+                  />
+                </label>
+              </div>
+              {form.smtp.security === "plain" && (
+                <div className="inline-warning">
+                  <TriangleAlert aria-hidden="true" />
+                  {t(
+                    "Unverschlüsseltes SMTP nur in einem vertrauenswürdigen internen Netz verwenden.",
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="notification-transport-fields">
+              <label className="notification-enable compact">
+                <input
+                  type="checkbox"
+                  checked={form.graph.reuse_mailbox_connection}
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      graph: {
+                        ...current.graph,
+                        reuse_mailbox_connection: event.target.checked,
+                      },
+                    }))
+                  }
+                />
+                <span>
+                  <strong>
+                    {t("Vorhandene Microsoft-365-Anbindung wiederverwenden")}
+                  </strong>
+                  <small>
+                    {t(
+                      "Tenant, Client-ID und Client Secret werden aus der gespeicherten Graph-Postfachanbindung übernommen.",
+                    )}
+                  </small>
+                </span>
+              </label>
+              {!form.graph.reuse_mailbox_connection && (
+                <div className="notification-fields graph-notification-fields">
+                  <label>
+                    <span>{t("Tenant-ID")}</span>
+                    <input
+                      type="text"
+                      required
+                      value={form.graph.tenant_id}
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                      onChange={(event) =>
+                        updateForm((current) => ({
+                          ...current,
+                          graph: {
+                            ...current.graph,
+                            tenant_id: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t("Client-ID")}</span>
+                    <input
+                      type="text"
+                      required
+                      value={form.graph.client_id}
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                      onChange={(event) =>
+                        updateForm((current) => ({
+                          ...current,
+                          graph: {
+                            ...current.graph,
+                            client_id: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t("Client Secret")}</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      required={!settingsState?.graph.client_secret_configured}
+                      value={graphSecret}
+                      placeholder={
+                        settingsState?.graph.client_secret_configured
+                          ? t("Secret hinterlegt · leer lassen zum Beibehalten")
+                          : t("Secret-Wert, nicht die Secret-ID")
+                      }
+                      onChange={(event) => {
+                        setGraphSecret(event.target.value);
+                        setDirty(true);
+                      }}
+                    />
+                  </label>
+                </div>
+              )}
+              <div className="settings-note">
+                <ShieldCheck aria-hidden="true" />
+                <span>
+                  {t(
+                    "Die App-Registrierung benötigt Application Mail.Send. Der Zugriff sollte in Exchange Online auf das Absenderpostfach begrenzt werden.",
+                  )}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <fieldset className="notification-cases">
+            <legend>{t("Welche Fälle lösen eine E-Mail aus?")}</legend>
+            <div>
+              {NOTIFICATION_CASE_OPTIONS.map((option) => (
+                <label key={option.value}>
+                  <input
+                    type="checkbox"
+                    checked={form.cases.includes(option.value)}
+                    onChange={() => toggleCase(option.value)}
+                  />
+                  <span>
+                    <strong>{t(option.label)}</strong>
+                    <small>{t(option.description)}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <div className="connection-actions">
+            <button
+              className="button button-primary"
+              type="submit"
+              disabled={busy !== null}
+            >
+              <Save aria-hidden="true" />
+              {busy === "save"
+                ? t("Wird gespeichert …")
+                : t("Einstellungen speichern")}
+            </button>
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={
+                busy !== null || dirty || !settingsState?.configured
+              }
+              title={
+                dirty
+                  ? t("Speichere Änderungen vor dem Testversand.")
+                  : undefined
+              }
+              onClick={sendTest}
+            >
+              <Send aria-hidden="true" />
+              {busy === "test"
+                ? t("Test-E-Mail wird versendet …")
+                : t("Test-E-Mail senden")}
+            </button>
+          </div>
+
+          <div className="notification-delivery-summary">
+            <div>
+              <span>{t("Erfolgreich zugestellt")}</span>
+              <strong>{settingsState?.delivery.sent ?? 0}</strong>
+            </div>
+            <div>
+              <span>{t("Fehlgeschlagen")}</span>
+              <strong>{settingsState?.delivery.failed ?? 0}</strong>
+            </div>
+            <div>
+              <span>{t("Letzter Test")}</span>
+              <strong>
+                {settingsState?.tested_at
+                  ? formatDate(settingsState.tested_at, true)
+                  : t("Noch nicht durchgeführt")}
+              </strong>
+            </div>
+          </div>
+
+          <div className="settings-note">
+            <Info aria-hidden="true" />
+            <span>
+              {t(
+                "Jede E-Mail enthält HTML, Klartext, stabile X-DMARC-Control-Header und einen versionierten JSON-Anhang für Mailregeln oder SIEM-Workflows.",
+              )}
+            </span>
+          </div>
+
+          {settingsState?.delivery.latest?.last_error && (
+            <div className="inline-warning">
+              <TriangleAlert aria-hidden="true" />
+              {t("Letzter Versandfehler: {error}", {
+                error: settingsState.delivery.latest.last_error,
+              })}
+            </div>
+          )}
+
+          {feedback && (
+            <div className="settings-feedback" aria-live="polite">
+              <StatusPill tone={feedbackTone}>{feedback}</StatusPill>
+            </div>
+          )}
+        </form>
+      )}
+    </section>
+  );
+}
+
 function SettingsView({
   color,
   customColor,
@@ -1745,7 +2522,7 @@ function SettingsView({
       <SectionHeader
         title={t("Einstellungen")}
         subtitle={t(
-          "Darstellung, Postfachanbindung und geschützte Administration",
+          "Darstellung, Benachrichtigungen, Postfachanbindung und geschützte Administration",
         )}
         action={
           <StatusPill tone={sectionStatus.tone}>
@@ -1773,6 +2550,23 @@ function SettingsView({
             <span>
               <strong>{t("Darstellung & Sprache")}</strong>
               <small>{t("Branding und Benutzeroberfläche")}</small>
+            </span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={classNames(
+              settingsSection === "notifications" && "active",
+            )}
+            aria-current={
+              settingsSection === "notifications" ? "page" : undefined
+            }
+            onClick={() => setSettingsSection("notifications")}
+          >
+            <Bell aria-hidden="true" />
+            <span>
+              <strong>{t("Benachrichtigungen")}</strong>
+              <small>{t("E-Mail-Alerting und Versandwege")}</small>
             </span>
             <ChevronRight aria-hidden="true" />
           </button>
@@ -1851,6 +2645,13 @@ function SettingsView({
             </span>
           </button>
         )}
+
+        <div
+          className="settings-notification-slot"
+          hidden={settingsSection !== "notifications"}
+        >
+          <NotificationSettingsPanel auth={auth} setAuth={setAuth} />
+        </div>
 
         <div
           className="settings-connection-slot"
@@ -3110,10 +3911,12 @@ function AlertsView({
   domain,
   days,
   refreshKey,
+  targetAlertId,
 }: {
   domain: string;
   days: number;
   refreshKey: number;
+  targetAlertId?: string;
 }) {
   const { language, t, formatNumber, formatDate, reportAge } = useI18n();
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -3229,7 +4032,12 @@ function AlertsView({
               </thead>
               <tbody>
                 {alerts.map((alert) => (
-                  <tr key={alert.id}>
+                  <tr
+                    key={alert.id}
+                    className={classNames(
+                      targetAlertId === alert.id && "selected-row",
+                    )}
+                  >
                     <td><PriorityPill priority={alert.priority} /></td>
                     <td>
                       <strong>{alertTitle(alert)}</strong>

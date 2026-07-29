@@ -49,7 +49,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   color: inherit;
   font: inherit;
 }
@@ -65,7 +66,8 @@ button:disabled {
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -353,12 +355,17 @@ label > span,
 }
 
 input,
-select {
+select,
+textarea {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: 0.55rem;
   min-height: 2.45rem;
   padding: 0.48rem 0.7rem;
+}
+
+textarea {
+  resize: vertical;
 }
 
 select {
@@ -1174,7 +1181,8 @@ td > strong {
   width: 0.8rem;
 }
 
-.settings-connection-slot {
+.settings-connection-slot,
+.settings-notification-slot {
   grid-column: 2 / -1;
 }
 
@@ -1182,14 +1190,16 @@ td > strong {
 .brand-preview-section,
 .profile-settings,
 .admin-settings,
-.connection-settings {
+.connection-settings,
+.notification-settings {
   display: grid;
   gap: 1.2rem;
 }
 
 .profile-settings,
 .admin-settings,
-.connection-settings {
+.connection-settings,
+.notification-settings {
   grid-column: 2 / -1;
 }
 
@@ -1383,6 +1393,156 @@ td > strong {
   color: var(--ink);
   display: block;
   font-size: 0.78rem;
+}
+
+.notification-form,
+.notification-transport-fields {
+  display: grid;
+  gap: 1rem;
+}
+
+.notification-enable {
+  align-items: flex-start;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.72rem;
+  cursor: pointer;
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.notification-enable:has(input:checked) {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.notification-enable.compact {
+  padding: 0.7rem 0.8rem;
+}
+
+.notification-enable input,
+.notification-cases input {
+  accent-color: var(--primary);
+  flex: 0 0 auto;
+  margin: 0.18rem 0 0;
+  min-height: auto;
+}
+
+.notification-enable strong,
+.notification-enable small,
+.notification-cases strong,
+.notification-cases small {
+  display: block;
+}
+
+.notification-enable strong,
+.notification-cases strong {
+  color: var(--ink);
+  font-size: 0.76rem;
+}
+
+.notification-enable small,
+.notification-cases small {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  margin-top: 0.15rem;
+}
+
+.notification-fields {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.notification-fields input,
+.notification-fields select,
+.notification-fields textarea,
+.notification-form > label input {
+  min-width: 0;
+  width: 100%;
+}
+
+.notification-addresses {
+  grid-template-columns: minmax(15rem, 1fr) minmax(15rem, 1fr);
+}
+
+.notification-addresses > div {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.smtp-notification-fields {
+  grid-template-columns: minmax(12rem, 1.4fr) 7rem minmax(12rem, 1fr);
+}
+
+.smtp-notification-fields label:nth-child(4),
+.smtp-notification-fields label:nth-child(5) {
+  grid-column: span 1;
+}
+
+.graph-notification-fields {
+  grid-template-columns: repeat(2, minmax(12rem, 1fr));
+}
+
+.notification-cases {
+  border: 1px solid var(--line);
+  border-radius: 0.72rem;
+  margin: 0;
+  padding: 0.8rem;
+}
+
+.notification-cases legend {
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0 0.25rem;
+}
+
+.notification-cases > div {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.notification-cases label {
+  align-items: flex-start;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.62rem;
+  cursor: pointer;
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.65rem 0.7rem;
+}
+
+.notification-cases label:has(input:checked) {
+  border-color: var(--primary);
+}
+
+.notification-delivery-summary {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.notification-delivery-summary > div {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.62rem;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.notification-delivery-summary span {
+  color: var(--ink-muted);
+  font-size: 0.66rem;
+  font-weight: 650;
+}
+
+.notification-delivery-summary strong {
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .activation-confirmation {
@@ -1869,11 +2029,13 @@ footer {
 
   .settings-setup-hint,
   .settings-connection-slot,
+  .settings-notification-slot,
   .brand-settings,
   .brand-preview-section,
   .profile-settings,
   .admin-settings,
   .connection-settings,
+  .notification-settings,
   .language-settings {
     grid-column: 1;
   }
@@ -1999,7 +2161,12 @@ footer {
   .connection-provider-switch,
   .graph-fields,
   .imap-fields,
-  .folder-fields {
+  .folder-fields,
+  .notification-addresses,
+  .smtp-notification-fields,
+  .graph-notification-fields,
+  .notification-cases > div,
+  .notification-delivery-summary {
     grid-template-columns: 1fr;
   }
 

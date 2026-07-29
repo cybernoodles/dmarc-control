@@ -30,6 +30,10 @@ class Settings:
     request_timeout_seconds: float = float(os.getenv("OPENSEARCH_TIMEOUT_SECONDS", "20"))
     new_host_window_days: int = int(os.getenv("NEW_HOST_WINDOW_DAYS", "7"))
     stale_report_days: int = int(os.getenv("STALE_REPORT_DAYS", "3"))
+    notification_poll_seconds: int = max(
+        30,
+        int(os.getenv("NOTIFICATION_POLL_SECONDS", "300")),
+    )
 
 
 settings = Settings()

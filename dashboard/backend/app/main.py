@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 import os
 import re
 import secrets
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -32,10 +35,21 @@ from .connection import (
     test_mailbox_connection,
 )
 from .opensearch import OpenSearchClient, OpenSearchError
+from .notifications import (
+    NOTIFICATION_CASES,
+    NotificationDeliveryError,
+    build_message,
+    destination_hash,
+    notification_case,
+    send_message,
+    test_alert,
+)
 from .service import DashboardService
 from .store import StateStore
 
 VERSION = "2.0.0-mvp"
+NOTIFICATION_VAULT_AAD = b"dmarc-control-notifications-v1"
+logger = logging.getLogger(__name__)
 
 client = OpenSearchClient(
     settings.opensearch_url,
@@ -44,11 +58,25 @@ client = OpenSearchClient(
 store = StateStore(settings.database_path)
 service = DashboardService(client, store, settings)
 
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    application.state.notification_wakeup = asyncio.Event()
+    task = asyncio.create_task(notification_delivery_loop(application))
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
 app = FastAPI(
     title="DMARC Control API",
     version=VERSION,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 
@@ -109,6 +137,57 @@ class ParserStatusUpdate(BaseModel):
     version: str | None = Field(default=None, max_length=40)
     message: str | None = Field(default=None, max_length=500)
     pid: int | None = Field(default=None, ge=1)
+
+
+NotificationCase = Literal[
+    "new-host-fail",
+    "host-degradation",
+    "host-fail",
+    "dynamic-ip-fail",
+    "new-source-ip",
+    "compensated-alignment",
+    "stale-reports",
+]
+
+
+class SmtpNotificationUpdate(BaseModel):
+    host: str = Field(default="", max_length=255)
+    port: int = Field(default=587, ge=1, le=65535)
+    security: Literal["starttls", "tls", "plain"] = "starttls"
+    username: str = Field(default="", max_length=320)
+    password: str | None = Field(default=None, max_length=2048)
+
+
+class GraphNotificationUpdate(BaseModel):
+    reuse_mailbox_connection: bool = True
+    tenant_id: str = Field(default="", max_length=120)
+    client_id: str = Field(default="", max_length=120)
+    client_secret: str | None = Field(default=None, max_length=2048)
+
+
+class NotificationSettingsUpdate(BaseModel):
+    enabled: bool = False
+    transport: Literal["smtp", "msgraph"] = "smtp"
+    recipients: list[str] = Field(default_factory=list, min_length=1, max_length=20)
+    sender: str = Field(min_length=3, max_length=320)
+    language: Literal["de", "en"] = "de"
+    dashboard_url: str = Field(default="", max_length=500)
+    cases: list[NotificationCase] = Field(
+        default_factory=lambda: [
+            "new-host-fail",
+            "host-degradation",
+            "host-fail",
+            "dynamic-ip-fail",
+            "stale-reports",
+        ],
+        min_length=1,
+    )
+    smtp: SmtpNotificationUpdate = Field(
+        default_factory=SmtpNotificationUpdate
+    )
+    graph: GraphNotificationUpdate = Field(
+        default_factory=GraphNotificationUpdate
+    )
 
 
 UUID_PATTERN = re.compile(
@@ -294,6 +373,344 @@ def public_mailbox_state(state: dict | None = None) -> dict:
         "updated_at": current["updated_at"],
         "parser": current["runtime"],
     }
+
+
+def notification_vault() -> SecretVault:
+    return SecretVault(
+        settings.connection_key_path,
+        aad=NOTIFICATION_VAULT_AAD,
+    )
+
+
+def _clean_email(value: str, label: str) -> str:
+    cleaned = value.strip()
+    if (
+        len(cleaned) > 320
+        or cleaned.count("@") != 1
+        or any(character.isspace() for character in cleaned)
+        or any(character in cleaned for character in ("\r", "\n", "\x00"))
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label} must be an email address",
+        )
+    local, domain = cleaned.rsplit("@", 1)
+    if not local or "." not in domain or domain.startswith("."):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label} must be an email address",
+        )
+    return cleaned
+
+
+def _existing_notification_secret() -> dict[str, str]:
+    current = store.notification_settings()
+    if not current:
+        return {}
+    try:
+        return notification_vault().decrypt(current["secret_ciphertext"])
+    except ConnectionSecretError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def normalize_notification_update(
+    update: NotificationSettingsUpdate,
+) -> tuple[dict, dict[str, str]]:
+    recipients: list[str] = []
+    for index, recipient in enumerate(update.recipients, start=1):
+        cleaned = _clean_email(recipient, f"Recipient {index}")
+        if cleaned.casefold() not in {
+            existing.casefold() for existing in recipients
+        }:
+            recipients.append(cleaned)
+    sender = _clean_email(update.sender, "Sender")
+    selected_cases = list(dict.fromkeys(update.cases))
+    if not selected_cases or any(
+        item not in NOTIFICATION_CASES for item in selected_cases
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="At least one supported notification case is required",
+        )
+    dashboard_url = update.dashboard_url.strip().rstrip("/")
+    if dashboard_url:
+        parsed_url = urlparse(dashboard_url)
+        if (
+            parsed_url.scheme not in {"http", "https"}
+            or not parsed_url.netloc
+            or parsed_url.username
+            or parsed_url.password
+            or parsed_url.query
+            or parsed_url.fragment
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Dashboard URL must be an HTTP or HTTPS URL",
+            )
+
+    existing_secret = _existing_notification_secret()
+    smtp_host = update.smtp.host.strip()
+    smtp_username = update.smtp.username.strip()
+    if update.transport == "smtp":
+        if (
+            not smtp_host
+            or not HOST_PATTERN.fullmatch(smtp_host)
+            or "://" in smtp_host
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="SMTP host is invalid",
+            )
+        if smtp_username and not update.smtp.password:
+            if not existing_secret.get("smtp_password"):
+                raise HTTPException(
+                    status_code=422,
+                    detail="SMTP password is required when a username is set",
+                )
+
+    graph_tenant_id = update.graph.tenant_id.strip()
+    graph_client_id = update.graph.client_id.strip()
+    if update.transport == "msgraph" and not update.graph.reuse_mailbox_connection:
+        if not UUID_PATTERN.fullmatch(graph_tenant_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Graph tenant ID must be a UUID",
+            )
+        if not UUID_PATTERN.fullmatch(graph_client_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Graph client ID must be a UUID",
+            )
+        if (
+            not update.graph.client_secret
+            and not existing_secret.get("graph_client_secret")
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Graph client secret is required",
+            )
+
+    normalized = {
+        "enabled": update.enabled,
+        "transport": update.transport,
+        "recipients": recipients,
+        "sender": sender,
+        "language": update.language,
+        "dashboard_url": dashboard_url,
+        "cases": selected_cases,
+        "lookback_days": 30,
+        "smtp": {
+            "host": smtp_host,
+            "port": update.smtp.port,
+            "security": update.smtp.security,
+            "username": smtp_username,
+        },
+        "graph": {
+            "reuse_mailbox_connection": (
+                update.graph.reuse_mailbox_connection
+            ),
+            "tenant_id": graph_tenant_id,
+            "client_id": graph_client_id,
+        },
+    }
+    secret = {
+        "smtp_password": (
+            update.smtp.password
+            if update.smtp.password is not None
+            else existing_secret.get("smtp_password", "")
+        ),
+        "graph_client_secret": (
+            update.graph.client_secret
+            if update.graph.client_secret is not None
+            else existing_secret.get("graph_client_secret", "")
+        ),
+    }
+    return normalized, secret
+
+
+def _resolved_notification_configuration(
+    current: dict | None = None,
+) -> tuple[dict, dict[str, str]]:
+    stored = current or store.notification_settings()
+    if not stored:
+        raise NotificationDeliveryError(
+            "Notification settings are not configured"
+        )
+    try:
+        secret = notification_vault().decrypt(stored["secret_ciphertext"])
+    except ConnectionSecretError as exc:
+        raise NotificationDeliveryError(str(exc)) from exc
+    configuration = {
+        **stored["settings"],
+        "smtp": dict(stored["settings"]["smtp"]),
+        "graph": dict(stored["settings"]["graph"]),
+    }
+    graph = configuration["graph"]
+    if (
+        configuration["transport"] == "msgraph"
+        and graph["reuse_mailbox_connection"]
+    ):
+        mailbox_state = store.mailbox_connection_state()
+        version = next(
+            (
+                candidate
+                for candidate in (
+                    mailbox_state.get("active"),
+                    mailbox_state.get("draft"),
+                )
+                if candidate and candidate["provider"] == "msgraph"
+            ),
+            None,
+        )
+        if not version:
+            raise NotificationDeliveryError(
+                "No Microsoft Graph mailbox connection is available for reuse"
+            )
+        try:
+            mailbox_secret = mailbox_vault().decrypt(
+                version["secret_ciphertext"]
+            )
+        except ConnectionSecretError as exc:
+            raise NotificationDeliveryError(str(exc)) from exc
+        graph["tenant_id"] = version["settings"]["tenant_id"]
+        graph["client_id"] = version["settings"]["client_id"]
+        secret["graph_client_secret"] = mailbox_secret["client_secret"]
+    return configuration, secret
+
+
+def public_notification_state(current: dict | None = None) -> dict:
+    stored = current if current is not None else store.notification_settings()
+    if not stored:
+        return {
+            "configured": False,
+            "enabled": False,
+            "transport": "smtp",
+            "recipients": [],
+            "sender": "",
+            "language": "de",
+            "dashboard_url": "",
+            "cases": [
+                "new-host-fail",
+                "host-degradation",
+                "host-fail",
+                "dynamic-ip-fail",
+                "stale-reports",
+            ],
+            "smtp": {
+                "host": "",
+                "port": 587,
+                "security": "starttls",
+                "username": "",
+                "password_configured": False,
+            },
+            "graph": {
+                "reuse_mailbox_connection": True,
+                "tenant_id": "",
+                "client_id": "",
+                "client_secret_configured": False,
+            },
+            "test_status": "untested",
+            "test_message": None,
+            "tested_at": None,
+            "updated_at": None,
+            "delivery": store.notification_delivery_summary(),
+        }
+    try:
+        secret = notification_vault().decrypt(stored["secret_ciphertext"])
+    except ConnectionSecretError:
+        secret = {}
+    public_settings = stored["settings"]
+    return {
+        "configured": True,
+        "enabled": public_settings["enabled"],
+        "transport": public_settings["transport"],
+        "recipients": public_settings["recipients"],
+        "sender": public_settings["sender"],
+        "language": public_settings["language"],
+        "dashboard_url": public_settings["dashboard_url"],
+        "cases": public_settings["cases"],
+        "smtp": {
+            **public_settings["smtp"],
+            "password_configured": bool(secret.get("smtp_password")),
+        },
+        "graph": {
+            **public_settings["graph"],
+            "client_secret_configured": bool(
+                secret.get("graph_client_secret")
+            ),
+        },
+        "test_status": stored["test_status"],
+        "test_message": stored["test_message"],
+        "tested_at": stored["tested_at"],
+        "updated_at": stored["updated_at"],
+        "delivery": store.notification_delivery_summary(),
+    }
+
+
+async def dispatch_notification_cycle() -> None:
+    current = store.notification_settings()
+    if not current or not current["settings"].get("enabled"):
+        return
+    configuration, secret = _resolved_notification_configuration(current)
+    alerts_to_send = await service.alerts(
+        "*",
+        int(configuration.get("lookback_days", 30)),
+    )
+    selected_cases = set(configuration["cases"])
+    delivery_target = destination_hash(configuration)
+    for alert in alerts_to_send:
+        event_type = notification_case(alert)
+        if alert.get("status") != "open" or event_type not in selected_cases:
+            continue
+        if not store.claim_notification_delivery(
+            alert_id=alert["id"],
+            destination_hash=delivery_target,
+        ):
+            continue
+        try:
+            message = build_message(alert, configuration)
+            await asyncio.to_thread(
+                send_message,
+                message,
+                configuration,
+                secret,
+            )
+        except Exception as exc:
+            store.finish_notification_delivery(
+                alert_id=alert["id"],
+                destination_hash=delivery_target,
+                success=False,
+                error=(
+                    str(exc)
+                    if isinstance(exc, NotificationDeliveryError)
+                    else "Notification message could not be generated"
+                ),
+            )
+        else:
+            store.finish_notification_delivery(
+                alert_id=alert["id"],
+                destination_hash=delivery_target,
+                success=True,
+            )
+
+
+async def notification_delivery_loop(application: FastAPI) -> None:
+    wakeup: asyncio.Event = application.state.notification_wakeup
+    while True:
+        try:
+            await asyncio.wait_for(
+                wakeup.wait(),
+                timeout=settings.notification_poll_seconds,
+            )
+        except TimeoutError:
+            pass
+        wakeup.clear()
+        try:
+            await dispatch_notification_cycle()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Notification delivery cycle failed")
 
 
 def configured_parser_control_token() -> str:
@@ -570,6 +987,66 @@ async def activate_mailbox_settings(request: Request):
             detail="The current mailbox settings require a successful test",
         )
     return public_mailbox_state()
+
+
+@app.get("/api/settings/notifications")
+async def notification_settings(request: Request):
+    require_admin(request)
+    return public_notification_state()
+
+
+@app.put("/api/settings/notifications")
+async def update_notification_settings(
+    update: NotificationSettingsUpdate,
+    request: Request,
+):
+    require_admin(request)
+    normalized, secret = normalize_notification_update(update)
+    try:
+        encrypted_secret = notification_vault().encrypt(secret)
+    except ConnectionSecretError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    saved = store.save_notification_settings(
+        settings=normalized,
+        secret_ciphertext=encrypted_secret,
+    )
+    if normalized["enabled"] and hasattr(app.state, "notification_wakeup"):
+        app.state.notification_wakeup.set()
+    return public_notification_state(saved)
+
+
+@app.post("/api/settings/notifications/test")
+async def test_notification_settings(request: Request):
+    require_admin(request)
+    current = store.notification_settings()
+    if not current:
+        raise HTTPException(
+            status_code=409,
+            detail="Save notification settings before sending a test email",
+        )
+    try:
+        configuration, secret = _resolved_notification_configuration(current)
+        message = build_message(
+            test_alert(),
+            configuration,
+            test=True,
+        )
+        await asyncio.to_thread(
+            send_message,
+            message,
+            configuration,
+            secret,
+        )
+        status = "success"
+        result_message = "Test email was delivered to the configured transport"
+    except NotificationDeliveryError as exc:
+        status = "failure"
+        result_message = str(exc)
+    tested = store.record_notification_test(
+        status=status,
+        message=result_message,
+    )
+    return public_notification_state(tested)
 
 
 @app.get("/api/internal/parser/config")

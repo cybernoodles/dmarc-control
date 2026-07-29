@@ -11,6 +11,7 @@ Browser ──HTTP──> DMARC Control (React + FastAPI) ──HTTP intern─�
 Browser ──HTTP──> Grafana                         ──HTTP intern──> OpenSearch
                          │
                          └── aktivierte Revision ──> Parser-Supervisor
+                         └── offene Warnungen ─────> SMTP / Microsoft Graph
 Mailbox ────────> genau ein parsedmarc-Kindprozess ──────────────> OpenSearch
 ```
 
@@ -48,17 +49,19 @@ folgende Felder nicht geladen oder ausgeliefert:
 
 ## Eigene Persistenz
 
-Statusänderungen an Warnungen, manuell bestätigte Sending Hosts, der globale
-UI-Farbstandard sowie versionierte Mailbox-Verbindungen werden in
+Statusänderungen an Warnungen, Benachrichtigungseinstellungen und
+-zustellungen, manuell bestätigte Sending Hosts, der globale UI-Farbstandard
+sowie versionierte Mailbox-Verbindungen werden in
 `data/dashboard/dashboard.db` gespeichert. Diese SQLite-Datei ist vollständig
 von den OpenSearch- und Grafana-Daten getrennt.
 
-Mailbox-Secrets werden mit AES-GCM verschlüsselt. Der Schlüssel wird beim
-ersten Bedarf als `data/dashboard/connection.key` mit restriktiven Rechten
-erzeugt. Datenbank und Schlüssel müssen gemeinsam gesichert werden; über die
-API werden weder Klartext-Secret noch Schlüssel ausgeliefert. Ein separat
-automatisch erzeugtes Token in `data/parser-control/control.token` schützt die
-nur im Compose-Netz erreichbare Verbindung zwischen Supervisor und API.
+Mailbox- und Benachrichtigungs-Secrets werden mit getrennten
+AES-GCM-Kontexten verschlüsselt. Der gemeinsame Schlüssel wird beim ersten
+Bedarf als `data/dashboard/connection.key` mit restriktiven Rechten erzeugt.
+Datenbank und Schlüssel müssen gemeinsam gesichert werden; über die API werden
+weder Klartext-Secret noch Schlüssel ausgeliefert. Ein separat automatisch
+erzeugtes Token in `data/parser-control/control.token` schützt die nur im
+Compose-Netz erreichbare Verbindung zwischen Supervisor und API.
 
 Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
 sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
@@ -67,7 +70,7 @@ ein Admin-Passwort mit mindestens zwölf Zeichen festgelegt wurde. Nur der
 gesalzene Passwort-Hash wird in `dashboard.db` gespeichert.
 
 Eine Admin-Anmeldung ist für globale Einstellungen und die
-Mailbox-Verbindungsverwaltung erforderlich.
+Mailbox- und Benachrichtigungsverwaltung erforderlich.
 Die Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden Gültigkeit
 gehalten. Das Passwort kann unter **Einstellungen → Administration** geändert
 werden; dabei werden andere bestehende Admin-Sitzungen beendet. Das lesende
@@ -76,6 +79,30 @@ Dashboard bleibt ohne Admin-Anmeldung verfügbar.
 Die Warnungs-IDs werden deterministisch aus Auslöser, Domain, Host und Reporttag
 gebildet. Damit werden wiederholte Anzeigen desselben Ereignisses dedupliziert,
 ohne ein neues Ereignis an einem späteren Reporttag zu unterdrücken.
+
+## E-Mail-Alerting
+
+Das Alerting ist standardmäßig deaktiviert. Wenn es ein Administrator
+einschaltet, bewertet ein Hintergrundprozess alle fünf Minuten die offenen
+Warnungen der letzten 30 Tage. Nur die im GUI ausgewählten Ereignistypen werden
+versendet. Eine Zustellung wird anhand von Warnungs-ID, Versandweg, Absender und
+Empfängerliste persistent dedupliziert. Vorübergehende Fehler werden höchstens
+dreimal mit ansteigendem Abstand erneut versucht.
+
+SMTP unterstützt STARTTLS, implizites TLS und ein bewusst gewähltes internes
+Relay. Microsoft Graph verwendet den app-only-Endpunkt
+`/users/{sender}/sendMail`; Zugangsdaten können separat gepflegt oder aus einer
+gespeicherten Graph-Postfachanbindung übernommen werden. In beiden Fällen wird
+derselbe MIME-Inhalt erzeugt:
+
+- menschenlesbare HTML-Version
+- Klartext-Fallback
+- stabile `X-DMARC-Control-*`-Header
+- JSON-Anhang `dmarc-alert.json` mit Schema
+  `dmarc-control.alert.v1`
+
+Der Testversand wird ausschließlich durch einen angemeldeten Administrator
+ausgelöst. Er schaltet den automatischen Versand nicht ein.
 
 ## Dienst-Erkennung
 
@@ -115,6 +142,9 @@ möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 | `PUT /api/settings/mailbox` | neuen Verbindungsentwurf als Admin speichern |
 | `POST /api/settings/mailbox/test` | gespeicherten Entwurf streng lesend prüfen |
 | `POST /api/settings/mailbox/activate` | erfolgreich getestete Revision aktivieren |
+| `GET /api/settings/notifications` | geschützte Alerting-Konfiguration und Zustellstatus lesen |
+| `PUT /api/settings/notifications` | SMTP-/Graph-Versand und Ereignisauswahl speichern |
+| `POST /api/settings/notifications/test` | explizite strukturierte Test-E-Mail versenden |
 | `GET /api/internal/parser/config` | aktive Konfiguration für den Supervisor |
 | `POST /api/internal/parser/status` | Laufzeitstatus des einzelnen Parsers melden |
 | `GET /api/domains` | verfügbare Header-From-Domains |
