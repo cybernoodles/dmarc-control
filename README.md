@@ -9,6 +9,7 @@ Self-hosted DMARC report parsing and visualization using [parsedmarc](https://gi
 | parsedmarc | gebaut aus GitHub | Parser, liest DMARC-Reports via Microsoft Graph oder IMAP |
 | OpenSearch 2.x | `opensearchproject/opensearch:2` | Datenspeicher |
 | Grafana | `grafana/grafana:latest` | Visualisierung |
+| DMARC Control | lokaler Multi-Stage-Build | Eigenes risikoorientiertes Webdashboard und API |
 
 ## Voraussetzungen
 
@@ -34,10 +35,16 @@ parsedmarc-stack/
 ├── README.md
 ├── docs/
 │   ├── M365.md                              ← M365-Setup und RBAC-Prüfung
-│   └── MIGRATION-TO-PORTABLE-DATA.md        ← Einmalmigration bestehender Docker-Volumes
+│   ├── MIGRATION-TO-PORTABLE-DATA.md        ← Einmalmigration bestehender Docker-Volumes
+│   └── CUSTOM-DASHBOARD.md                  ← Architektur und Betrieb von DMARC Control
+├── dashboard/
+│   ├── Dockerfile                           ← React-Build und FastAPI-Laufzeit
+│   ├── frontend/                            ← React, TypeScript und ECharts
+│   └── backend/                             ← Kontrollierte OpenSearch-API und lokale Zustände
 ├── data/                                    ← Persistente Laufzeitdaten (nicht im Git)
 │   ├── opensearch/                          ← Indizes und OpenSearch-Zustand
-│   └── grafana/                             ← Grafana SQLite, Benutzer und Plugins
+│   ├── grafana/                             ← Grafana SQLite, Benutzer und Plugins
+│   └── dashboard/                           ← Warnungsstatus und bestätigte Hostzuordnungen
 ├── config/
 │   ├── parsedmarc.ini                      ← Mailbox & OpenSearch Konfig (nicht ins Git!)
 │   ├── parsedmarc.ini.example              ← Vorlage ohne echte Credentials
@@ -197,11 +204,32 @@ Datasources und Dashboards sind schreibgeschützt provisioniert. Änderungen erf
 
 Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in `docker-compose.yml` definiert.
 
+## DMARC Control
+
+Das eigene Webdashboard läuft parallel zu Grafana und übernimmt dessen
+Informationsumfang in einer risikoorientierten Oberfläche:
+
+- Übersicht mit Volumen, Passrate, echten DMARC-Fails, Datenfrische und Trend
+- klare Trennung zwischen finalem DMARC-Fail und kompensiertem SPF-/DKIM-Alignment
+- vollständiges Sending-Host-Inventar mit IP, PTR, ASN/Land, Identitäten und Last Seen
+- mehrstufige Dienst-Erkennung mit Konfidenz und manueller Bestätigung
+- deduplizierte Warnungen mit Status `offen`, `bestätigt`, `behoben` und `ignoriert`
+- datenschutzreduzierte Forensik ohne Laden von Rohinhalt, Empfängern, Betreff oder Headern
+
+Der Browser spricht ausschließlich mit FastAPI. OpenSearch ist nicht direkt aus
+dem Browser erreichbar und wird von der API ausschließlich lesend abgefragt.
+Warnungsstatus und manuelle Zuordnungen liegen getrennt in
+`data/dashboard/dashboard.db`.
+
+Weitere Details und der Dockge-Betriebsablauf stehen in
+[docs/CUSTOM-DASHBOARD.md](docs/CUSTOM-DASHBOARD.md).
+
 ## Ports
 
 | Service | Port | Beschreibung |
 |---|---|---|
 | Grafana | 3020 | Haupt-Dashboard und Analyse |
+| DMARC Control | 3030 | Eigenes v2-Webdashboard |
 | OpenSearch API | 9200 | Nur intern |
 
 ## Ressourcenbedarf

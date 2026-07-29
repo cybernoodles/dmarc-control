@@ -1,0 +1,7 @@
+backend/__pycache__/
+backend/**/*.pyc
+backend/tests/
+frontend/dist/
+frontend/node_modules/
+.DS_Store
+**/._*

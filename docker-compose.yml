@@ -65,6 +65,37 @@ services:
     networks:
       - dmarc-net
 
+  # ── DMARC Control (eigenes v2 Webdashboard) ────────────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+    image: parsedmarc-dashboard:local
+    container_name: dmarc-dashboard
+    restart: unless-stopped
+    ports:
+      - "3030:8000"
+    environment:
+      - OPENSEARCH_URL=http://opensearch:9200
+      - DMARC_AGGREGATE_INDEX=dmarc_aggregate-*
+      - DMARC_FORENSIC_INDEX=dmarc_failure-*
+      - DASHBOARD_DATABASE_PATH=/app/data/dashboard.db
+      - STALE_REPORT_DAYS=3
+      - NEW_HOST_WINDOW_DAYS=7
+    volumes:
+      - ./data/dashboard:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks:
+      - dmarc-net
+
   # ── parsedmarc (Parser, läuft als Daemon und liest IMAP) ────────────────────
   # Kein offizielles Public Image vorhanden – wird direkt aus dem
   # offiziellen Dockerfile gebaut (einmalig beim ersten "docker compose up --build")
