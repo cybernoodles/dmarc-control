@@ -126,7 +126,19 @@ function contrastColor(r: number, g: number, b: number) {
   return luminance > 0.46 ? "#102326" : "#ffffff";
 }
 
-function applyBrandPalette(color: string | null) {
+function blendColor(
+  base: { r: number; g: number; b: number },
+  brand: { r: number; g: number; b: number },
+  brandWeight: number,
+) {
+  return rgbToHex(
+    base.r * (1 - brandWeight) + brand.r * brandWeight,
+    base.g * (1 - brandWeight) + brand.g * brandWeight,
+    base.b * (1 - brandWeight) + brand.b * brandWeight,
+  );
+}
+
+function applyBrandPalette(color: string | null, darkMode = false) {
   const root = document.documentElement;
   const properties = [
     "--primary",
@@ -135,6 +147,13 @@ function applyBrandPalette(color: string | null) {
     "--primary-contrast",
     "--brand-glow",
     "--focus-ring",
+    "--canvas",
+    "--surface",
+    "--surface-soft",
+    "--line",
+    "--line-strong",
+    "--neutral-track",
+    "--shadow",
   ];
   if (!color) {
     properties.forEach((property) => root.style.removeProperty(property));
@@ -153,6 +172,35 @@ function applyBrandPalette(color: string | null) {
   root.style.setProperty("--primary-contrast", contrastColor(r, g, b));
   root.style.setProperty("--brand-glow", `rgba(${r}, ${g}, ${b}, 0.09)`);
   root.style.setProperty("--focus-ring", `rgba(${r}, ${g}, ${b}, 0.25)`);
+
+  const brand = { r, g, b };
+  const surfaces = darkMode
+    ? {
+        canvas: blendColor({ r: 16, g: 23, b: 25 }, brand, 0.08),
+        surface: blendColor({ r: 23, g: 33, b: 36 }, brand, 0.08),
+        surfaceSoft: blendColor({ r: 28, g: 41, b: 45 }, brand, 0.12),
+        line: blendColor({ r: 43, g: 58, b: 63 }, brand, 0.15),
+        lineStrong: blendColor({ r: 59, g: 76, b: 81 }, brand, 0.18),
+        neutralTrack: blendColor({ r: 41, g: 52, b: 56 }, brand, 0.1),
+        shadow: `0 10px 34px rgba(${r}, ${g}, ${b}, 0.11)`,
+      }
+    : {
+        canvas: blendColor({ r: 246, g: 248, b: 249 }, brand, 0.035),
+        surface: blendColor({ r: 255, g: 255, b: 255 }, brand, 0.018),
+        surfaceSoft: blendColor({ r: 250, g: 251, b: 252 }, brand, 0.045),
+        line: blendColor({ r: 220, g: 228, b: 231 }, brand, 0.08),
+        lineStrong: blendColor({ r: 203, g: 214, b: 218 }, brand, 0.12),
+        neutralTrack: blendColor({ r: 237, g: 241, b: 242 }, brand, 0.08),
+        shadow: `0 10px 34px rgba(${r}, ${g}, ${b}, 0.065)`,
+      };
+
+  root.style.setProperty("--canvas", surfaces.canvas);
+  root.style.setProperty("--surface", surfaces.surface);
+  root.style.setProperty("--surface-soft", surfaces.surfaceSoft);
+  root.style.setProperty("--line", surfaces.line);
+  root.style.setProperty("--line-strong", surfaces.lineStrong);
+  root.style.setProperty("--neutral-track", surfaces.neutralTrack);
+  root.style.setProperty("--shadow", surfaces.shadow);
 }
 
 function flagForCountry(country: string | null | undefined) {
@@ -352,7 +400,12 @@ export function App() {
   });
 
   useLayoutEffect(() => {
-    applyBrandPalette(hasCustomBrand ? brandColor : null);
+    const color = hasCustomBrand ? brandColor : null;
+    const colorScheme = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyPalette = () => applyBrandPalette(color, colorScheme.matches);
+    applyPalette();
+    colorScheme.addEventListener("change", applyPalette);
+    return () => colorScheme.removeEventListener("change", applyPalette);
   }, [brandColor, hasCustomBrand]);
 
   const updateBrandColor = (color: string) => {
@@ -578,9 +631,9 @@ function SettingsView({
             <div>
               <h3>Markenfarbe</h3>
               <p>
-                Die Grundfarbe steuert Navigation, Akzente, Fokus und alle
-                zugehörigen Fades. Statusfarben für Fehler und Warnungen bleiben
-                semantisch eindeutig.
+                Die Grundfarbe steuert Navigation, Akzente, Fokus sowie die
+                feine Tönung von Karten, Flächen und Trennlinien. Statusfarben
+                für Fehler und Warnungen bleiben semantisch eindeutig.
               </p>
             </div>
           </div>
@@ -685,7 +738,9 @@ function SettingsView({
               <span className="preview-accent" />
               <div>
                 <strong>Akzent und Fading</strong>
-                <small>Automatisch aus {color.toUpperCase()} abgeleitet</small>
+                <small>
+                  Akzente und Flächentöne aus {color.toUpperCase()} abgeleitet
+                </small>
               </div>
               <button className="button button-primary" type="button">
                 Beispielaktion

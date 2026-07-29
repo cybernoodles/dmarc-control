@@ -11,6 +11,7 @@
   --ink-muted: #65747b;
   --line: #dce4e7;
   --line-strong: #cbd6da;
+  --neutral-track: #edf1f2;
   --primary: #173f43;
   --primary-soft: #dceceb;
   --primary-hover: #0f3033;
@@ -519,7 +520,7 @@ td > strong {
 }
 
 .bar-track {
-  background: #edf1f2;
+  background: var(--neutral-track);
   border-radius: 999px;
   height: 0.55rem;
   overflow: hidden;
@@ -599,7 +600,7 @@ td > strong {
 }
 
 .mini-track {
-  background: #edf1f2;
+  background: var(--neutral-track);
   border-radius: 99px;
   height: 0.25rem;
   margin-top: 0.27rem;
@@ -1362,6 +1363,7 @@ footer {
     --ink-muted: #9eafb3;
     --line: #2b3a3f;
     --line-strong: #3b4c51;
+    --neutral-track: #293438;
     --primary: #82b9b0;
     --primary-soft: #233d3a;
     --primary-hover: #9bc9c1;
