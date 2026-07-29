@@ -1,5 +1,7 @@
-# parsedmarc.ini – Konfigurationsvorlage
-# Ablageort auf docker01: ./config/parsedmarc.ini
+# parsedmarc.ini – Legacy-/Migrationsvorlage
+# Neue Installationen konfigurieren die Mailbox im DMARC-Control-Webdashboard.
+# Nur bestehende Installationen legen diese Fallback-Datei als
+# ./config/parsedmarc.ini ab, bis die GUI-Verbindung getestet und aktiviert ist.
 # Dokumentation: https://domainaware.github.io/parsedmarc/usage.html
 #
 # ╔══════════════════════════════════════════════════════════════╗

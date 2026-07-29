@@ -50,6 +50,108 @@ const english: Record<string, string> = {
   "Sprache und visuelle Darstellung": "Language and visual appearance",
   "Sprache, UI-Farbgebung und Administration":
     "Language, UI color scheme and administration",
+  "Anbindung, Sprache, UI-Farbgebung und Administration":
+    "Connection, language, UI color scheme and administration",
+  "Darstellung, Postfachanbindung und geschützte Administration":
+    "Appearance, mailbox connection and protected administration",
+  Einstellungsbereiche: "Settings sections",
+  "Darstellung & Sprache": "Appearance & language",
+  "Branding und Benutzeroberfläche": "Branding and user interface",
+  Postfachanbindung: "Mailbox connection",
+  "Microsoft 365 oder IMAP": "Microsoft 365 or IMAP",
+  "Einrichtung ausstehend": "Setup pending",
+  "Anmeldung und Admin-Passwort": "Sign-in and admin password",
+  "Postfachanbindung wartet auf Aktivierung":
+    "Mailbox connection is awaiting activation",
+  "Postfachanbindung im GUI einrichten":
+    "Set up the mailbox connection in the UI",
+  "Der gespeicherte Entwurf ist noch nicht als aktive Verbindung übernommen.":
+    "The saved draft has not yet been applied as the active connection.",
+  "Die bestehende Parser-Konfiguration läuft weiter, bis eine geprüfte GUI-Verbindung aktiviert wird.":
+    "The existing parser configuration continues running until a tested UI connection is activated.",
+  "Anbindung prüfen": "Review connection",
+  "Jetzt einrichten": "Set up now",
+  Anbindung: "Connection",
+  "Microsoft 365 oder IMAP verbinden, ohne eine Docker-Konfigurationsdatei manuell zu bearbeiten.":
+    "Connect Microsoft 365 or IMAP without manually editing a Docker configuration file.",
+  Parserfehler: "Parser error",
+  "Verwaltete Anbindung aktiv": "Managed connection active",
+  "Parser übernimmt Konfiguration": "Parser is applying the configuration",
+  "Bereit zur Aktivierung": "Ready to activate",
+  "Entwurf gespeichert": "Draft saved",
+  "Bestehende Konfiguration aktiv": "Existing configuration active",
+  "Nicht eingerichtet": "Not configured",
+  "Verbindungsdaten und Tests sind ausschließlich für angemeldete Administratoren verfügbar.":
+    "Connection details and tests are available only to signed-in administrators.",
+  "Anbindung wird geladen": "Loading connection",
+  "Aktiver Modus": "Active mode",
+  "GUI-verwaltet": "GUI-managed",
+  "Bestehende Konfiguration": "Existing configuration",
+  "Letzter Verbindungstest": "Latest connection test",
+  "Noch nicht durchgeführt": "Not run yet",
+  Verbindungsart: "Connection type",
+  "Graph API · App-Registrierung": "Graph API · App registration",
+  "TLS · Benutzer oder App-Passwort": "TLS · User or app password",
+  "Tenant-ID": "Tenant ID",
+  "Client-ID": "Client ID",
+  "Client Secret": "Client secret",
+  "Secret hinterlegt · leer lassen zum Beibehalten":
+    "Secret stored · leave empty to keep it",
+  "Secret-Wert, nicht die Secret-ID": "Secret value, not the secret ID",
+  "DMARC-Postfach": "DMARC mailbox",
+  "IMAP-Server": "IMAP server",
+  Port: "Port",
+  Benutzername: "Username",
+  "Passwort / App-Passwort": "Password / app password",
+  "Passwort hinterlegt · leer lassen zum Beibehalten":
+    "Password stored · leave empty to keep it",
+  "IMAP- oder App-Passwort": "IMAP or app password",
+  Eingangsordner: "Reports folder",
+  Archivordner: "Archive folder",
+  "Erforderlich: Application Mail.ReadWrite, begrenzt auf dieses Postfach. Die Anwendung erstellt keine Entra-App.":
+    "Required: Application Mail.ReadWrite, scoped to this mailbox. The application does not create an Entra app.",
+  "TLS und Zertifikatsprüfung sind immer aktiv. OAuth-only-Anbieter benötigen einen eigenen API-Adapter.":
+    "TLS and certificate verification are always enabled. OAuth-only providers require a dedicated API adapter.",
+  "Entwurf speichern": "Save draft",
+  "Speichere Änderungen vor dem Verbindungstest.":
+    "Save your changes before testing the connection.",
+  "Verbindung wird geprüft …": "Testing connection …",
+  "Verbindung testen": "Test connection",
+  Aktivieren: "Activate",
+  "Der Test meldet sich an und prüft die Ordner ausschließlich lesend. Er lädt, verarbeitet, verschiebt und löscht keine Nachrichten.":
+    "The test signs in and checks the folders read-only. It does not download, process, move or delete any messages.",
+  "Neue Anbindung jetzt aktivieren?": "Activate the new connection now?",
+  "Der bestehende einzelne Parser-Prozess wird kurz gestoppt und mit dem geprüften Entwurf neu gestartet. Grafana und OpenSearch laufen weiter.":
+    "The existing single parser process is briefly stopped and restarted with the tested draft. Grafana and OpenSearch continue running.",
+  "Wird aktiviert …": "Activating …",
+  "Geprüfte Anbindung aktivieren": "Activate tested connection",
+  Abbrechen: "Cancel",
+  "Anbindung konnte nicht geladen werden.":
+    "The connection could not be loaded.",
+  "Die Tenant-ID muss eine gültige UUID sein.":
+    "The tenant ID must be a valid UUID.",
+  "Die Client-ID muss eine gültige UUID sein.":
+    "The client ID must be a valid UUID.",
+  "Das Postfach muss eine gültige E-Mail-Adresse sein.":
+    "The mailbox must be a valid email address.",
+  "Ein Client Secret muss hinterlegt werden.":
+    "A client secret must be stored.",
+  "Ein IMAP-Passwort muss hinterlegt werden.":
+    "An IMAP password must be stored.",
+  "Eingangs- und Archivordner müssen unterschiedlich sein.":
+    "Reports and archive folders must be different.",
+  "Verbindungsentwurf gespeichert. Führe jetzt den read-only Test aus.":
+    "Connection draft saved. Run the read-only test now.",
+  "Speichern fehlgeschlagen.": "Saving failed.",
+  "Microsoft-365-Postfach und Ordner sind erreichbar.":
+    "Microsoft 365 mailbox and folders are accessible.",
+  "IMAP-Postfach und Ordner sind erreichbar.":
+    "IMAP mailbox and folders are accessible.",
+  "Verbindungstest erfolgreich.": "Connection test successful.",
+  "Verbindungstest fehlgeschlagen.": "Connection test failed.",
+  "Anbindung aktiviert. Der einzelne Parser-Prozess übernimmt die neue Konfiguration.":
+    "Connection activated. The single parser process is applying the new configuration.",
+  "Aktivierung fehlgeschlagen.": "Activation failed.",
   "Die Anwendung konnte nicht gestartet werden.":
     "The application could not be started.",
   "Sichere Anwendung wird vorbereitet …": "Preparing the secure application …",

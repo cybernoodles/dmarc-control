@@ -157,6 +157,66 @@ export interface AuthStatus {
   authenticated: boolean;
 }
 
+export type MailboxProvider = "msgraph" | "imap";
+
+export interface MailboxConnectionVersion {
+  revision: number;
+  provider: MailboxProvider;
+  settings: {
+    auth_method?: "ClientSecret";
+    tenant_id?: string;
+    client_id?: string;
+    mailbox?: string;
+    host?: string;
+    port?: number;
+    ssl?: boolean;
+    skip_certificate_verification?: boolean;
+    user?: string;
+    reports_folder: string;
+    archive_folder: string;
+  };
+  secret_configured: boolean;
+  created_at: string;
+}
+
+export interface ParserRuntimeStatus {
+  mode: "legacy" | "managed";
+  state: "starting" | "running" | "restarting" | "error" | "stopped";
+  revision: number | null;
+  version: string | null;
+  message: string | null;
+  pid: number | null;
+  updated_at: string;
+}
+
+export interface MailboxConnectionState {
+  configured: boolean;
+  draft: MailboxConnectionVersion | null;
+  active: MailboxConnectionVersion | null;
+  draft_revision: number | null;
+  tested_revision: number | null;
+  active_revision: number | null;
+  test_status: "untested" | "success" | "failure";
+  test_message: string | null;
+  tested_at: string | null;
+  updated_at: string | null;
+  parser: ParserRuntimeStatus | null;
+}
+
+export interface MailboxConnectionUpdate {
+  provider: MailboxProvider;
+  tenant_id?: string;
+  client_id?: string;
+  client_secret?: string;
+  mailbox?: string;
+  host?: string;
+  port?: number;
+  user?: string;
+  password?: string;
+  reports_folder: string;
+  archive_folder: string;
+}
+
 const query = (values: Record<string, string | number>) => {
   const params = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) =>
@@ -207,6 +267,21 @@ export const api = {
         current_password: currentPassword,
         new_password: newPassword,
       }),
+    }),
+  mailboxSettings: () =>
+    request<MailboxConnectionState>("/api/settings/mailbox"),
+  saveMailboxSettings: (update: MailboxConnectionUpdate) =>
+    request<MailboxConnectionState>("/api/settings/mailbox", {
+      method: "PUT",
+      body: JSON.stringify(update),
+    }),
+  testMailboxSettings: () =>
+    request<MailboxConnectionState>("/api/settings/mailbox/test", {
+      method: "POST",
+    }),
+  activateMailboxSettings: () =>
+    request<MailboxConnectionState>("/api/settings/mailbox/activate", {
+      method: "POST",
     }),
   appearance: () =>
     request<AppearanceSettings>("/api/settings/appearance"),

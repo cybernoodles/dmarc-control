@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -68,6 +69,40 @@ class StateStore:
                     session_hash TEXT PRIMARY KEY,
                     expires_at TEXT NOT NULL,
                     created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mailbox_connection_versions (
+                    revision INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider TEXT NOT NULL,
+                    settings_json TEXT NOT NULL,
+                    secret_ciphertext TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mailbox_connection_state (
+                    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                    draft_revision INTEGER,
+                    tested_revision INTEGER,
+                    active_revision INTEGER,
+                    test_status TEXT NOT NULL DEFAULT 'untested',
+                    test_message TEXT,
+                    tested_at TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS parser_runtime_status (
+                    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                    status_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 )
                 """
             )
@@ -167,6 +202,184 @@ class StateStore:
                 "DELETE FROM admin_sessions WHERE session_hash = ?",
                 (session_hash,),
             )
+
+    @staticmethod
+    def _mailbox_version_from_row(
+        row: sqlite3.Row | None,
+    ) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        return {
+            "revision": row["revision"],
+            "provider": row["provider"],
+            "settings": json.loads(row["settings_json"]),
+            "secret_ciphertext": row["secret_ciphertext"],
+            "created_at": row["created_at"],
+        }
+
+    def mailbox_connection_state(self) -> dict[str, Any]:
+        with self._lock, self._connect() as connection:
+            state = connection.execute(
+                """
+                SELECT draft_revision, tested_revision, active_revision,
+                       test_status, test_message, tested_at, updated_at
+                FROM mailbox_connection_state
+                WHERE singleton_id = 1
+                """
+            ).fetchone()
+            if state is None:
+                draft = None
+                active = None
+            else:
+                draft = connection.execute(
+                    """
+                    SELECT revision, provider, settings_json,
+                           secret_ciphertext, created_at
+                    FROM mailbox_connection_versions
+                    WHERE revision = ?
+                    """,
+                    (state["draft_revision"],),
+                ).fetchone()
+                active = connection.execute(
+                    """
+                    SELECT revision, provider, settings_json,
+                           secret_ciphertext, created_at
+                    FROM mailbox_connection_versions
+                    WHERE revision = ?
+                    """,
+                    (state["active_revision"],),
+                ).fetchone()
+            runtime = connection.execute(
+                """
+                SELECT status_json, updated_at
+                FROM parser_runtime_status
+                WHERE singleton_id = 1
+                """
+            ).fetchone()
+
+        return {
+            "draft": self._mailbox_version_from_row(draft),
+            "active": self._mailbox_version_from_row(active),
+            "draft_revision": state["draft_revision"] if state else None,
+            "tested_revision": state["tested_revision"] if state else None,
+            "active_revision": state["active_revision"] if state else None,
+            "test_status": state["test_status"] if state else "untested",
+            "test_message": state["test_message"] if state else None,
+            "tested_at": state["tested_at"] if state else None,
+            "updated_at": state["updated_at"] if state else None,
+            "runtime": (
+                {
+                    **json.loads(runtime["status_json"]),
+                    "updated_at": runtime["updated_at"],
+                }
+                if runtime
+                else None
+            ),
+        }
+
+    def save_mailbox_connection(
+        self,
+        *,
+        provider: str,
+        settings: dict[str, Any],
+        secret_ciphertext: str,
+    ) -> dict[str, Any]:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO mailbox_connection_versions (
+                    provider, settings_json, secret_ciphertext, created_at
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    provider,
+                    json.dumps(settings, sort_keys=True, separators=(",", ":")),
+                    secret_ciphertext,
+                    timestamp,
+                ),
+            )
+            revision = int(cursor.lastrowid)
+            connection.execute(
+                """
+                INSERT INTO mailbox_connection_state (
+                    singleton_id, draft_revision, tested_revision,
+                    active_revision, test_status, test_message,
+                    tested_at, updated_at
+                )
+                VALUES (1, ?, NULL, NULL, 'untested', NULL, NULL, ?)
+                ON CONFLICT(singleton_id) DO UPDATE SET
+                    draft_revision = excluded.draft_revision,
+                    tested_revision = NULL,
+                    test_status = 'untested',
+                    test_message = NULL,
+                    tested_at = NULL,
+                    updated_at = excluded.updated_at
+                """,
+                (revision, timestamp),
+            )
+        return self.mailbox_connection_state()
+
+    def record_mailbox_test(
+        self,
+        *,
+        revision: int,
+        status: str,
+        message: str,
+    ) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE mailbox_connection_state
+                SET tested_revision = ?,
+                    test_status = ?,
+                    test_message = ?,
+                    tested_at = ?,
+                    updated_at = ?
+                WHERE singleton_id = 1 AND draft_revision = ?
+                """,
+                (revision, status, message, timestamp, timestamp, revision),
+            )
+        return cursor.rowcount == 1
+
+    def activate_mailbox_connection(self, revision: int) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE mailbox_connection_state
+                SET active_revision = ?, updated_at = ?
+                WHERE singleton_id = 1
+                  AND draft_revision = ?
+                  AND tested_revision = ?
+                  AND test_status = 'success'
+                """,
+                (revision, timestamp, revision, revision),
+            )
+        return cursor.rowcount == 1
+
+    def set_parser_runtime_status(
+        self,
+        status: dict[str, Any],
+    ) -> dict[str, Any]:
+        timestamp = datetime.now(UTC).isoformat()
+        payload = json.dumps(status, sort_keys=True, separators=(",", ":"))
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO parser_runtime_status (
+                    singleton_id, status_json, updated_at
+                )
+                VALUES (1, ?, ?)
+                ON CONFLICT(singleton_id) DO UPDATE SET
+                    status_json = excluded.status_json,
+                    updated_at = excluded.updated_at
+                """,
+                (payload, timestamp),
+            )
+        return {**status, "updated_at": timestamp}
 
     def alert_states(self) -> dict[str, dict[str, str]]:
         with self._lock, self._connect() as connection:

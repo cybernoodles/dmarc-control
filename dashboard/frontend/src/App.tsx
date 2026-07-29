@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleAlert,
+  Cloud,
   Clock3,
   Database,
   EyeOff,
@@ -13,7 +14,9 @@ import {
   Info,
   LayoutDashboard,
   LockKeyhole,
+  Mail,
   Palette,
+  PlugZap,
   RefreshCw,
   Save,
   Search,
@@ -40,6 +43,9 @@ import {
   DomainItem,
   Forensics,
   Host,
+  MailboxConnectionState,
+  MailboxConnectionUpdate,
+  MailboxProvider,
   Overview,
   TrustStatus,
   api,
@@ -48,6 +54,7 @@ import { LanguageProvider, useI18n } from "./i18n";
 import { TrendChart } from "./TrendChart";
 
 type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
+type SettingsSection = "appearance" | "connection" | "administration";
 
 const DEFAULT_BRAND_COLOR = "#173f43";
 const BRAND_STORAGE_KEY = "dmarc-control-brand-color";
@@ -821,6 +828,698 @@ function DashboardApp({
   );
 }
 
+interface MailboxFormState {
+  provider: MailboxProvider;
+  tenant_id: string;
+  client_id: string;
+  mailbox: string;
+  host: string;
+  port: number;
+  user: string;
+  reports_folder: string;
+  archive_folder: string;
+}
+
+const defaultMailboxForm = (): MailboxFormState => ({
+  provider: "msgraph",
+  tenant_id: "",
+  client_id: "",
+  mailbox: "",
+  host: "",
+  port: 993,
+  user: "",
+  reports_folder: "Inbox/DMARC",
+  archive_folder: "Inbox/DMARC/Processed",
+});
+
+function MailboxConnectionSettings({
+  auth,
+  setAuth,
+  onStateChange,
+}: {
+  auth: AuthStatus;
+  setAuth: (status: AuthStatus) => void;
+  onStateChange: (state: MailboxConnectionState | null) => void;
+}) {
+  const { t, formatDate } = useI18n();
+  const [connection, setConnection] =
+    useState<MailboxConnectionState | null>(null);
+  const [form, setForm] = useState<MailboxFormState>(defaultMailboxForm);
+  const [clientSecret, setClientSecret] = useState("");
+  const [imapPassword, setImapPassword] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<
+    "save" | "test" | "activate" | null
+  >(null);
+  const [feedback, setFeedback] = useState("");
+  const [feedbackTone, setFeedbackTone] = useState<
+    "success" | "critical" | "info"
+  >("info");
+  const [confirmActivation, setConfirmActivation] = useState(false);
+  const publishConnection = useCallback(
+    (next: MailboxConnectionState | null) => {
+      setConnection(next);
+      onStateChange(next);
+    },
+    [onStateChange],
+  );
+
+  const translateError = useCallback(
+    (rawMessage: string) => {
+      const messages: Record<string, string> = {
+        "Admin login required": t(
+          "Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.",
+        ),
+        "Tenant ID must be a UUID": t(
+          "Die Tenant-ID muss eine gültige UUID sein.",
+        ),
+        "Client ID must be a UUID": t(
+          "Die Client-ID muss eine gültige UUID sein.",
+        ),
+        "Mailbox must be an email address": t(
+          "Das Postfach muss eine gültige E-Mail-Adresse sein.",
+        ),
+        "Client secret is required": t(
+          "Ein Client Secret muss hinterlegt werden.",
+        ),
+        "IMAP password is required": t(
+          "Ein IMAP-Passwort muss hinterlegt werden.",
+        ),
+        "Reports and archive folders must be different": t(
+          "Eingangs- und Archivordner müssen unterschiedlich sein.",
+        ),
+      };
+      return messages[rawMessage] ?? rawMessage;
+    },
+    [t],
+  );
+
+  const hydrate = useCallback((next: MailboxConnectionState) => {
+    publishConnection(next);
+    const draft = next.draft;
+    if (!draft) {
+      setForm(defaultMailboxForm());
+      setClientSecret("");
+      setImapPassword("");
+      setDirty(false);
+      return;
+    }
+    const values = draft.settings;
+    setForm({
+      provider: draft.provider,
+      tenant_id: values.tenant_id ?? "",
+      client_id: values.client_id ?? "",
+      mailbox: values.mailbox ?? "",
+      host: values.host ?? "",
+      port: values.port ?? 993,
+      user: values.user ?? "",
+      reports_folder: values.reports_folder,
+      archive_folder: values.archive_folder,
+    });
+    setClientSecret("");
+    setImapPassword("");
+    setDirty(false);
+  }, [publishConnection]);
+
+  const load = useCallback(
+    async (hydrateValues = false) => {
+      if (!auth.authenticated) return;
+      setLoading(true);
+      try {
+        const next = await api.mailboxSettings();
+        if (hydrateValues) hydrate(next);
+        else publishConnection(next);
+      } catch (reason) {
+        const rawMessage =
+          reason instanceof Error
+            ? reason.message
+            : t("Anbindung konnte nicht geladen werden.");
+        if (rawMessage === "Admin login required") {
+          setAuth({ ...auth, authenticated: false });
+        }
+        setFeedbackTone("critical");
+        setFeedback(translateError(rawMessage));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [auth, hydrate, publishConnection, setAuth, t, translateError],
+  );
+
+  useEffect(() => {
+    if (auth.authenticated) {
+      load(true);
+    } else {
+      publishConnection(null);
+    }
+  }, [auth.authenticated, load, publishConnection]);
+
+  useEffect(() => {
+    if (!auth.authenticated) return;
+    const interval = window.setInterval(() => {
+      api
+        .mailboxSettings()
+        .then(publishConnection)
+        .catch(() => undefined);
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [auth.authenticated, publishConnection]);
+
+  const updateField = (
+    field: keyof MailboxFormState,
+    value: string | number,
+  ) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    setDirty(true);
+    setConfirmActivation(false);
+  };
+
+  const selectProvider = (provider: MailboxProvider) => {
+    setForm((current) => ({
+      ...current,
+      provider,
+      reports_folder:
+        provider === "msgraph" ? "Inbox/DMARC" : "INBOX",
+      archive_folder:
+        provider === "msgraph" ? "Inbox/DMARC/Processed" : "Archive",
+    }));
+    setDirty(true);
+    setConfirmActivation(false);
+    setFeedback("");
+  };
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const update: MailboxConnectionUpdate = {
+      provider: form.provider,
+      reports_folder: form.reports_folder,
+      archive_folder: form.archive_folder,
+      ...(form.provider === "msgraph"
+        ? {
+            tenant_id: form.tenant_id,
+            client_id: form.client_id,
+            client_secret: clientSecret || undefined,
+            mailbox: form.mailbox,
+          }
+        : {
+            host: form.host,
+            port: form.port,
+            user: form.user,
+            password: imapPassword || undefined,
+          }),
+    };
+    setBusy("save");
+    setFeedback("");
+    try {
+      const saved = await api.saveMailboxSettings(update);
+      hydrate(saved);
+      setFeedbackTone("success");
+      setFeedback(
+        t(
+          "Verbindungsentwurf gespeichert. Führe jetzt den read-only Test aus.",
+        ),
+      );
+    } catch (reason) {
+      const rawMessage =
+        reason instanceof Error ? reason.message : t("Speichern fehlgeschlagen.");
+      if (rawMessage === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+      }
+      setFeedbackTone("critical");
+      setFeedback(translateError(rawMessage));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const testConnection = async () => {
+    setBusy("test");
+    setFeedback("");
+    try {
+      const tested = await api.testMailboxSettings();
+      publishConnection(tested);
+      const successful = tested.test_status === "success";
+      setFeedbackTone(successful ? "success" : "critical");
+      setFeedback(
+        tested.test_message
+          ? t(tested.test_message)
+          : successful
+            ? t("Verbindungstest erfolgreich.")
+            : t("Verbindungstest fehlgeschlagen."),
+      );
+    } catch (reason) {
+      const rawMessage =
+        reason instanceof Error
+          ? reason.message
+          : t("Verbindungstest fehlgeschlagen.");
+      if (rawMessage === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+      }
+      setFeedbackTone("critical");
+      setFeedback(translateError(rawMessage));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const activate = async () => {
+    setBusy("activate");
+    setFeedback("");
+    try {
+      const activated = await api.activateMailboxSettings();
+      publishConnection(activated);
+      setConfirmActivation(false);
+      setFeedbackTone("success");
+      setFeedback(
+        t(
+          "Anbindung aktiviert. Der einzelne Parser-Prozess übernimmt die neue Konfiguration.",
+        ),
+      );
+      window.setTimeout(() => load(false), 6000);
+    } catch (reason) {
+      const rawMessage =
+        reason instanceof Error
+          ? reason.message
+          : t("Aktivierung fehlgeschlagen.");
+      if (rawMessage === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+      }
+      setFeedbackTone("critical");
+      setFeedback(translateError(rawMessage));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const testedCurrent =
+    connection?.test_status === "success" &&
+    connection.tested_revision === connection.draft_revision;
+  const currentIsActive =
+    connection?.active_revision !== null &&
+    connection?.active_revision === connection?.draft_revision;
+  const parserManaged =
+    connection?.parser?.mode === "managed" &&
+    connection.parser.state === "running" &&
+    connection.parser.revision === connection.active_revision;
+  const statusTone =
+    connection?.parser?.state === "error"
+      ? "critical"
+      : parserManaged
+        ? "success"
+        : testedCurrent
+          ? "info"
+          : "neutral";
+  const statusLabel =
+    connection?.parser?.state === "error"
+      ? t("Parserfehler")
+      : parserManaged
+        ? t("Verwaltete Anbindung aktiv")
+        : currentIsActive
+          ? t("Parser übernimmt Konfiguration")
+          : testedCurrent
+            ? t("Bereit zur Aktivierung")
+            : connection?.configured
+              ? t("Entwurf gespeichert")
+              : connection?.parser?.mode === "legacy"
+                ? t("Bestehende Konfiguration aktiv")
+                : t("Nicht eingerichtet");
+
+  return (
+    <section className="surface connection-settings">
+      <div className="settings-title connection-title">
+        <span className="settings-icon">
+          <PlugZap aria-hidden="true" />
+        </span>
+        <div>
+          <h3>{t("Anbindung")}</h3>
+          <p>
+            {t(
+              "Microsoft 365 oder IMAP verbinden, ohne eine Docker-Konfigurationsdatei manuell zu bearbeiten.",
+            )}
+          </p>
+        </div>
+        <StatusPill tone={statusTone}>{statusLabel}</StatusPill>
+      </div>
+
+      {!auth.authenticated ? (
+        <div className="connection-locked">
+          <LockKeyhole aria-hidden="true" />
+          <div>
+            <strong>{t("Admin-Anmeldung erforderlich")}</strong>
+            <small>
+              {t(
+                "Verbindungsdaten und Tests sind ausschließlich für angemeldete Administratoren verfügbar.",
+              )}
+            </small>
+          </div>
+        </div>
+      ) : loading && !connection ? (
+        <LoadingState label={t("Anbindung wird geladen")} />
+      ) : (
+        <>
+          <div className="connection-status-grid">
+            <div>
+              <span>{t("Aktiver Modus")}</span>
+              <strong>
+                {connection?.parser?.mode === "managed"
+                  ? t("GUI-verwaltet")
+                  : t("Bestehende Konfiguration")}
+              </strong>
+            </div>
+            <div>
+              <span>parsedmarc</span>
+              <strong>{connection?.parser?.version ?? "10.4.0"}</strong>
+            </div>
+            <div>
+              <span>{t("Letzter Verbindungstest")}</span>
+              <strong>
+                {connection?.tested_at
+                  ? formatDate(connection.tested_at, true)
+                  : t("Noch nicht durchgeführt")}
+              </strong>
+            </div>
+          </div>
+
+          <div
+            className="connection-provider-switch"
+            role="group"
+            aria-label={t("Verbindungsart")}
+          >
+            <button
+              type="button"
+              className={classNames(form.provider === "msgraph" && "active")}
+              aria-pressed={form.provider === "msgraph"}
+              onClick={() => selectProvider("msgraph")}
+            >
+              <Cloud aria-hidden="true" />
+              <span>
+                <strong>Microsoft 365</strong>
+                <small>{t("Graph API · App-Registrierung")}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={classNames(form.provider === "imap" && "active")}
+              aria-pressed={form.provider === "imap"}
+              onClick={() => selectProvider("imap")}
+            >
+              <Mail aria-hidden="true" />
+              <span>
+                <strong>IMAP</strong>
+                <small>{t("TLS · Benutzer oder App-Passwort")}</small>
+              </span>
+            </button>
+          </div>
+
+          <form className="connection-form" onSubmit={save}>
+            {form.provider === "msgraph" ? (
+              <div className="connection-fields graph-fields">
+                <label>
+                  <span>{t("Tenant-ID")}</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    required
+                    value={form.tenant_id}
+                    placeholder="00000000-0000-0000-0000-000000000000"
+                    onChange={(event) =>
+                      updateField("tenant_id", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  <span>{t("Client-ID")}</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    required
+                    value={form.client_id}
+                    placeholder="00000000-0000-0000-0000-000000000000"
+                    onChange={(event) =>
+                      updateField("client_id", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  <span>{t("Client Secret")}</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    required={
+                      !(
+                        connection?.draft?.provider === "msgraph" &&
+                        connection.draft.secret_configured
+                      )
+                    }
+                    value={clientSecret}
+                    placeholder={
+                      connection?.draft?.provider === "msgraph" &&
+                      connection.draft.secret_configured
+                        ? t("Secret hinterlegt · leer lassen zum Beibehalten")
+                        : t("Secret-Wert, nicht die Secret-ID")
+                    }
+                    onChange={(event) => {
+                      setClientSecret(event.target.value);
+                      setDirty(true);
+                    }}
+                  />
+                </label>
+                <label>
+                  <span>{t("DMARC-Postfach")}</span>
+                  <input
+                    type="email"
+                    autoComplete="off"
+                    required
+                    value={form.mailbox}
+                    placeholder="dmarc-reports@example.com"
+                    onChange={(event) =>
+                      updateField("mailbox", event.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="connection-fields imap-fields">
+                <label>
+                  <span>{t("IMAP-Server")}</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    required
+                    value={form.host}
+                    placeholder="imap.example.com"
+                    onChange={(event) =>
+                      updateField("host", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  <span>{t("Port")}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    required
+                    value={form.port}
+                    onChange={(event) =>
+                      updateField("port", Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>{t("Benutzername")}</span>
+                  <input
+                    type="text"
+                    autoComplete="username"
+                    required
+                    value={form.user}
+                    placeholder="dmarc@example.com"
+                    onChange={(event) =>
+                      updateField("user", event.target.value)
+                    }
+                  />
+                </label>
+                <label>
+                  <span>{t("Passwort / App-Passwort")}</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    required={
+                      !(
+                        connection?.draft?.provider === "imap" &&
+                        connection.draft.secret_configured
+                      )
+                    }
+                    value={imapPassword}
+                    placeholder={
+                      connection?.draft?.provider === "imap" &&
+                      connection.draft.secret_configured
+                        ? t("Passwort hinterlegt · leer lassen zum Beibehalten")
+                        : t("IMAP- oder App-Passwort")
+                    }
+                    onChange={(event) => {
+                      setImapPassword(event.target.value);
+                      setDirty(true);
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="connection-fields folder-fields">
+              <label>
+                <span>{t("Eingangsordner")}</span>
+                <input
+                  type="text"
+                  required
+                  value={form.reports_folder}
+                  onChange={(event) =>
+                    updateField("reports_folder", event.target.value)
+                  }
+                />
+              </label>
+              <label>
+                <span>{t("Archivordner")}</span>
+                <input
+                  type="text"
+                  required
+                  value={form.archive_folder}
+                  onChange={(event) =>
+                    updateField("archive_folder", event.target.value)
+                  }
+                />
+              </label>
+            </div>
+
+            {form.provider === "msgraph" ? (
+              <div className="settings-note">
+                <ShieldCheck aria-hidden="true" />
+                <span>
+                  {t(
+                    "Erforderlich: Application Mail.ReadWrite, begrenzt auf dieses Postfach. Die Anwendung erstellt keine Entra-App.",
+                  )}
+                </span>
+              </div>
+            ) : (
+              <div className="settings-note">
+                <ShieldCheck aria-hidden="true" />
+                <span>
+                  {t(
+                    "TLS und Zertifikatsprüfung sind immer aktiv. OAuth-only-Anbieter benötigen einen eigenen API-Adapter.",
+                  )}
+                </span>
+              </div>
+            )}
+
+            <div className="connection-actions">
+              <button
+                className="button button-primary"
+                type="submit"
+                disabled={busy !== null}
+              >
+                <Save aria-hidden="true" />
+                {busy === "save"
+                  ? t("Wird gespeichert …")
+                  : t("Entwurf speichern")}
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={
+                  busy !== null ||
+                  dirty ||
+                  !connection?.draft_revision
+                }
+                title={
+                  dirty
+                    ? t("Speichere Änderungen vor dem Verbindungstest.")
+                    : undefined
+                }
+                onClick={testConnection}
+              >
+                <RefreshCw aria-hidden="true" />
+                {busy === "test"
+                  ? t("Verbindung wird geprüft …")
+                  : t("Verbindung testen")}
+              </button>
+              <button
+                className="button button-ghost"
+                type="button"
+                disabled={
+                  busy !== null ||
+                  !testedCurrent ||
+                  currentIsActive ||
+                  dirty
+                }
+                onClick={() => setConfirmActivation(true)}
+              >
+                <CheckCircle2 aria-hidden="true" />
+                {t("Aktivieren")}
+              </button>
+            </div>
+          </form>
+
+          <div className="connection-readonly-note">
+            <EyeOff aria-hidden="true" />
+            <span>
+              {t(
+                "Der Test meldet sich an und prüft die Ordner ausschließlich lesend. Er lädt, verarbeitet, verschiebt und löscht keine Nachrichten.",
+              )}
+            </span>
+          </div>
+
+          {confirmActivation && (
+            <div className="activation-confirmation">
+              <TriangleAlert aria-hidden="true" />
+              <div>
+                <strong>{t("Neue Anbindung jetzt aktivieren?")}</strong>
+                <p>
+                  {t(
+                    "Der bestehende einzelne Parser-Prozess wird kurz gestoppt und mit dem geprüften Entwurf neu gestartet. Grafana und OpenSearch laufen weiter.",
+                  )}
+                </p>
+                <div>
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={activate}
+                  >
+                    {busy === "activate"
+                      ? t("Wird aktiviert …")
+                      : t("Geprüfte Anbindung aktivieren")}
+                  </button>
+                  <button
+                    className="button button-ghost"
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={() => setConfirmActivation(false)}
+                  >
+                    {t("Abbrechen")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {connection?.parser?.message && (
+            <div className="inline-warning">
+              <TriangleAlert aria-hidden="true" />
+              {connection.parser.message}
+            </div>
+          )}
+          {feedback && (
+            <div className="settings-feedback" aria-live="polite">
+              <StatusPill tone={feedbackTone}>{feedback}</StatusPill>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function SettingsView({
   color,
   customColor,
@@ -855,6 +1554,10 @@ function SettingsView({
     "success" | "critical" | "info"
   >("info");
   const [savingGlobal, setSavingGlobal] = useState(false);
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection>("appearance");
+  const [mailboxSummary, setMailboxSummary] =
+    useState<MailboxConnectionState | null>(null);
   const [loginPassword, setLoginPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -1006,21 +1709,164 @@ function SettingsView({
     : appearance?.global_profile === "custom"
       ? t("Globaler Standard: Custom")
       : t("Globaler Standard: Standardgrün");
+  const mailboxNeedsAttention =
+    auth.authenticated &&
+    mailboxSummary !== null &&
+    mailboxSummary.active_revision === null;
+  const sectionStatus =
+    settingsSection === "appearance"
+      ? {
+          tone: hasLocalBrand ? ("info" as const) : ("neutral" as const),
+          label: activeLabel,
+        }
+      : settingsSection === "connection"
+        ? {
+            tone:
+              mailboxSummary?.parser?.state === "error"
+                ? ("critical" as const)
+                : mailboxSummary?.active_revision
+                  ? ("success" as const)
+                  : ("neutral" as const),
+            label: mailboxSummary?.active_revision
+              ? t("GUI-verwaltet")
+              : t("Bestehende Konfiguration"),
+          }
+        : {
+            tone: auth.authenticated
+              ? ("success" as const)
+              : ("neutral" as const),
+            label: auth.authenticated
+              ? t("Admin angemeldet")
+              : t("Nicht angemeldet"),
+          };
 
   return (
     <div className="page-stack settings-page">
       <SectionHeader
         title={t("Einstellungen")}
-        subtitle={t("Sprache, UI-Farbgebung und Administration")}
+        subtitle={t(
+          "Darstellung, Postfachanbindung und geschützte Administration",
+        )}
         action={
-          <StatusPill tone={hasLocalBrand ? "info" : "neutral"}>
-            {activeLabel}
+          <StatusPill tone={sectionStatus.tone}>
+            {sectionStatus.label}
           </StatusPill>
         }
       />
 
       <div className="settings-grid">
-        <section className="surface language-settings">
+        <nav
+          className="settings-subnav surface"
+          aria-label={t("Einstellungsbereiche")}
+        >
+          <button
+            type="button"
+            className={classNames(
+              settingsSection === "appearance" && "active",
+            )}
+            aria-current={
+              settingsSection === "appearance" ? "page" : undefined
+            }
+            onClick={() => setSettingsSection("appearance")}
+          >
+            <Palette aria-hidden="true" />
+            <span>
+              <strong>{t("Darstellung & Sprache")}</strong>
+              <small>{t("Branding und Benutzeroberfläche")}</small>
+            </span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={classNames(
+              settingsSection === "connection" && "active",
+            )}
+            aria-current={
+              settingsSection === "connection" ? "page" : undefined
+            }
+            onClick={() => setSettingsSection("connection")}
+          >
+            <PlugZap aria-hidden="true" />
+            <span>
+              <strong>{t("Postfachanbindung")}</strong>
+              <small>{t("Microsoft 365 oder IMAP")}</small>
+            </span>
+            {mailboxNeedsAttention ? (
+              <span
+                className="settings-nav-indicator"
+                title={t("Einrichtung ausstehend")}
+                aria-label={t("Einrichtung ausstehend")}
+              />
+            ) : (
+              <ChevronRight aria-hidden="true" />
+            )}
+          </button>
+          <button
+            type="button"
+            className={classNames(
+              settingsSection === "administration" && "active",
+            )}
+            aria-current={
+              settingsSection === "administration" ? "page" : undefined
+            }
+            onClick={() => setSettingsSection("administration")}
+          >
+            <LockKeyhole aria-hidden="true" />
+            <span>
+              <strong>{t("Administration")}</strong>
+              <small>{t("Anmeldung und Admin-Passwort")}</small>
+            </span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+        </nav>
+
+        {mailboxNeedsAttention && settingsSection !== "connection" && (
+          <button
+            className="settings-setup-hint"
+            type="button"
+            onClick={() => setSettingsSection("connection")}
+          >
+            <PlugZap aria-hidden="true" />
+            <span>
+              <strong>
+                {mailboxSummary?.configured
+                  ? t("Postfachanbindung wartet auf Aktivierung")
+                  : t("Postfachanbindung im GUI einrichten")}
+              </strong>
+              <small>
+                {mailboxSummary?.configured
+                  ? t(
+                      "Der gespeicherte Entwurf ist noch nicht als aktive Verbindung übernommen.",
+                    )
+                  : t(
+                      "Die bestehende Parser-Konfiguration läuft weiter, bis eine geprüfte GUI-Verbindung aktiviert wird.",
+                    )}
+              </small>
+            </span>
+            <span className="settings-hint-action">
+              {mailboxSummary?.configured
+                ? t("Anbindung prüfen")
+                : t("Jetzt einrichten")}
+              <ChevronRight aria-hidden="true" />
+            </span>
+          </button>
+        )}
+
+        <div
+          className="settings-connection-slot"
+          hidden={settingsSection !== "connection"}
+        >
+          <MailboxConnectionSettings
+            auth={auth}
+            setAuth={setAuth}
+            onStateChange={setMailboxSummary}
+          />
+        </div>
+
+        <section
+          className="surface language-settings"
+          hidden={settingsSection !== "appearance"}
+        >
           <div className="settings-title">
             <span className="settings-icon">
               <Globe2 aria-hidden="true" />
@@ -1050,7 +1896,10 @@ function SettingsView({
           </div>
         </section>
 
-        <section className="surface admin-settings">
+        <section
+          className="surface admin-settings"
+          hidden={settingsSection !== "administration"}
+        >
           <div className="settings-title">
             <span className="settings-icon">
               <LockKeyhole aria-hidden="true" />
@@ -1161,7 +2010,10 @@ function SettingsView({
           )}
         </section>
 
-        <section className="surface brand-settings">
+        <section
+          className="surface brand-settings"
+          hidden={settingsSection !== "appearance"}
+        >
           <div className="settings-title">
             <span className="settings-icon">
               <Palette aria-hidden="true" />
@@ -1248,7 +2100,10 @@ function SettingsView({
           </div>
         </section>
 
-        <section className="surface brand-preview-section">
+        <section
+          className="surface brand-preview-section"
+          hidden={settingsSection !== "appearance"}
+        >
           <div>
             <h3>{t("Live-Vorschau")}</h3>
             <p>
@@ -1296,7 +2151,10 @@ function SettingsView({
           </div>
         </section>
 
-        <section className="surface profile-settings">
+        <section
+          className="surface profile-settings"
+          hidden={settingsSection !== "appearance"}
+        >
           <div className="settings-title">
             <span className="settings-icon">
               <Palette aria-hidden="true" />

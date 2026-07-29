@@ -986,29 +986,185 @@ td > strong {
 }
 
 .settings-grid {
+  align-items: start;
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(19rem, 0.85fr) minmax(22rem, 1.15fr);
+  grid-template-columns:
+    minmax(12.5rem, 0.32fr)
+    minmax(19rem, 0.85fr)
+    minmax(22rem, 1.15fr);
+}
+
+.settings-grid [hidden] {
+  display: none !important;
+}
+
+.settings-subnav {
+  display: grid;
+  gap: 0.22rem;
+  grid-column: 1;
+  grid-row: 1 / span 20;
+  padding: 0.38rem;
+  position: sticky;
+  top: 1rem;
+}
+
+.settings-subnav button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.62rem;
+  color: var(--ink-muted);
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 0.68rem 0.62rem;
+  text-align: left;
+  width: 100%;
+}
+
+.settings-subnav button:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.settings-subnav button.active {
+  background: var(--primary-soft);
+  border-color: var(--line-strong);
+  color: var(--primary);
+}
+
+.settings-subnav button > svg:first-child {
+  height: 1rem;
+  width: 1rem;
+}
+
+.settings-subnav button > svg:last-child {
+  height: 0.82rem;
+  opacity: 0.62;
+  width: 0.82rem;
+}
+
+.settings-subnav button span:not(.settings-nav-indicator) {
+  min-width: 0;
+}
+
+.settings-subnav strong,
+.settings-subnav small {
+  display: block;
+}
+
+.settings-subnav strong {
+  color: inherit;
+  font-size: 0.75rem;
+}
+
+.settings-subnav small {
+  color: var(--ink-muted);
+  font-size: 0.65rem;
+  line-height: 1.35;
+  margin-top: 0.12rem;
+}
+
+.settings-nav-indicator {
+  background: var(--warning);
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--warning);
+  height: 0.48rem;
+  margin-right: 0.18rem;
+  width: 0.48rem;
+}
+
+.settings-setup-hint {
+  align-items: center;
+  background:
+    linear-gradient(100deg, var(--primary-soft), transparent 75%),
+    var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 0.78rem;
+  color: var(--ink);
+  display: grid;
+  gap: 0.75rem;
+  grid-column: 2 / -1;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 0.78rem 0.9rem;
+  text-align: left;
+}
+
+.settings-setup-hint:hover {
+  border-color: var(--primary);
+}
+
+.settings-setup-hint > svg {
+  color: var(--primary);
+  height: 1.05rem;
+  width: 1.05rem;
+}
+
+.settings-setup-hint strong,
+.settings-setup-hint small {
+  display: block;
+}
+
+.settings-setup-hint strong {
+  font-size: 0.78rem;
+}
+
+.settings-setup-hint small {
+  color: var(--ink-muted);
+  font-size: 0.69rem;
+  line-height: 1.45;
+  margin-top: 0.12rem;
+}
+
+.settings-hint-action {
+  align-items: center;
+  color: var(--primary);
+  display: inline-flex;
+  font-size: 0.7rem;
+  font-weight: 700;
+  gap: 0.18rem;
+  white-space: nowrap;
+}
+
+.settings-hint-action svg {
+  height: 0.8rem;
+  width: 0.8rem;
+}
+
+.settings-connection-slot {
+  grid-column: 2 / -1;
 }
 
 .brand-settings,
 .brand-preview-section,
 .profile-settings,
-.admin-settings {
+.admin-settings,
+.connection-settings {
   display: grid;
   gap: 1.2rem;
 }
 
 .profile-settings,
-.admin-settings {
-  grid-column: 1 / -1;
+.admin-settings,
+.connection-settings {
+  grid-column: 2 / -1;
+}
+
+.brand-settings {
+  grid-column: 2;
+}
+
+.brand-preview-section {
+  grid-column: 3;
 }
 
 .language-settings {
   align-items: center;
   display: flex;
   gap: 1rem;
-  grid-column: 1 / -1;
+  grid-column: 2 / -1;
   justify-content: space-between;
 }
 
@@ -1049,6 +1205,179 @@ td > strong {
 
 .settings-title > .status-pill {
   margin-left: auto;
+}
+
+.connection-title > div {
+  min-width: 0;
+}
+
+.connection-status-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.connection-status-grid > div {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.75rem 0.85rem;
+}
+
+.connection-status-grid span {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.connection-status-grid strong {
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.connection-provider-switch {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.connection-provider-switch button {
+  align-items: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.72rem;
+  color: var(--ink);
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.85rem;
+  text-align: left;
+}
+
+.connection-provider-switch button:hover {
+  border-color: var(--line-strong);
+}
+
+.connection-provider-switch button.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary-soft);
+}
+
+.connection-provider-switch svg {
+  color: var(--primary);
+  flex: 0 0 auto;
+  height: 1.15rem;
+  width: 1.15rem;
+}
+
+.connection-provider-switch strong {
+  display: block;
+  font-size: 0.8rem;
+}
+
+.connection-provider-switch small {
+  margin-top: 0.1rem;
+}
+
+.connection-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.connection-fields {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.graph-fields,
+.imap-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.folder-fields {
+  border-top: 1px solid var(--line);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding-top: 1rem;
+}
+
+.connection-fields input {
+  min-width: 0;
+  width: 100%;
+}
+
+.connection-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.connection-readonly-note,
+.connection-locked {
+  align-items: flex-start;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  color: var(--ink-muted);
+  display: flex;
+  font-size: 0.73rem;
+  gap: 0.55rem;
+  line-height: 1.5;
+  padding: 0.7rem 0.8rem;
+}
+
+.connection-readonly-note svg,
+.connection-locked svg {
+  color: var(--primary);
+  flex: 0 0 auto;
+  height: 0.95rem;
+  margin-top: 0.12rem;
+  width: 0.95rem;
+}
+
+.connection-locked strong {
+  color: var(--ink);
+  display: block;
+  font-size: 0.78rem;
+}
+
+.activation-confirmation {
+  align-items: flex-start;
+  background: var(--warning-soft);
+  border: 1px solid color-mix(in srgb, var(--warning), transparent 58%);
+  border-radius: 0.72rem;
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.85rem;
+}
+
+.activation-confirmation > svg {
+  color: var(--warning);
+  flex: 0 0 auto;
+  height: 1rem;
+  margin-top: 0.1rem;
+  width: 1rem;
+}
+
+.activation-confirmation strong {
+  font-size: 0.8rem;
+}
+
+.activation-confirmation p {
+  color: var(--ink-muted);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  margin-top: 0.2rem;
+}
+
+.activation-confirmation > div > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
 }
 
 .settings-title p,
@@ -1477,9 +1806,35 @@ footer {
 
 @media (max-width: 980px) {
   .overview-grid,
-  .three-column-grid,
+  .three-column-grid {
+    grid-template-columns: 1fr;
+  }
+
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-subnav {
+    display: flex;
+    grid-column: 1;
+    grid-row: auto;
+    overflow-x: auto;
+    position: static;
+  }
+
+  .settings-subnav button {
+    flex: 1 0 12rem;
+  }
+
+  .settings-setup-hint,
+  .settings-connection-slot,
+  .brand-settings,
+  .brand-preview-section,
+  .profile-settings,
+  .admin-settings,
+  .connection-settings,
+  .language-settings {
+    grid-column: 1;
   }
 
   .alignment-panel {
@@ -1563,12 +1918,56 @@ footer {
     padding-left: 0.75rem;
   }
 
+  .settings-subnav {
+    scrollbar-width: none;
+  }
+
+  .settings-subnav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-subnav button {
+    flex-basis: auto;
+    min-width: max-content;
+    padding: 0.62rem 0.7rem;
+  }
+
+  .settings-subnav button > svg:last-child,
+  .settings-subnav small {
+    display: none;
+  }
+
+  .settings-setup-hint {
+    align-items: start;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-hint-action {
+    grid-column: 2;
+  }
+
   .preset-list {
     grid-template-columns: 1fr;
   }
 
   .profile-grid {
     grid-template-columns: 1fr;
+  }
+
+  .connection-status-grid,
+  .connection-provider-switch,
+  .graph-fields,
+  .imap-fields,
+  .folder-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .connection-title {
+    flex-wrap: wrap;
+  }
+
+  .connection-title > .status-pill {
+    margin-left: 2.85rem;
   }
 
   .language-settings {

@@ -7,6 +7,8 @@ data/grafana/*
 !data/grafana/.gitkeep
 data/dashboard/*
 !data/dashboard/.gitkeep
+data/parser-control/*
+!data/parser-control/.gitkeep
 dashboard/frontend/node_modules/
 dashboard/frontend/dist/
 dashboard/frontend/*.tsbuildinfo

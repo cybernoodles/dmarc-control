@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import hmac
+import os
+import re
+import secrets
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -20,6 +25,12 @@ from .auth import (
     verify_password,
 )
 from .config import settings
+from .connection import (
+    ConnectionSecretError,
+    ConnectionTestError,
+    SecretVault,
+    test_mailbox_connection,
+)
 from .opensearch import OpenSearchClient, OpenSearchError
 from .service import DashboardService
 from .store import StateStore
@@ -77,6 +88,36 @@ class PasswordChangeRequest(BaseModel):
     )
 
 
+class MailboxConnectionUpdate(BaseModel):
+    provider: Literal["msgraph", "imap"]
+    tenant_id: str | None = Field(default=None, max_length=120)
+    client_id: str | None = Field(default=None, max_length=120)
+    client_secret: str | None = Field(default=None, max_length=2048)
+    mailbox: str | None = Field(default=None, max_length=320)
+    host: str | None = Field(default=None, max_length=255)
+    port: int = Field(default=993, ge=1, le=65535)
+    user: str | None = Field(default=None, max_length=320)
+    password: str | None = Field(default=None, max_length=2048)
+    reports_folder: str = Field(default="INBOX", max_length=255)
+    archive_folder: str = Field(default="Archive", max_length=255)
+
+
+class ParserStatusUpdate(BaseModel):
+    mode: Literal["legacy", "managed"]
+    state: Literal["starting", "running", "restarting", "error", "stopped"]
+    revision: int | None = Field(default=None, ge=1)
+    version: str | None = Field(default=None, max_length=40)
+    message: str | None = Field(default=None, max_length=500)
+    pid: int | None = Field(default=None, ge=1)
+
+
+UUID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+HOST_PATTERN = re.compile(r"^[A-Za-z0-9._:-]+$")
+
+
 def current_session_hash(request: Request) -> str | None:
     token = request.cookies.get(SESSION_COOKIE)
     return session_hash(token) if token else None
@@ -103,6 +144,192 @@ def set_admin_cookie(response: Response, session: AdminSession) -> None:
         httponly=True,
         samesite="strict",
     )
+
+
+def mailbox_vault() -> SecretVault:
+    return SecretVault(settings.connection_key_path)
+
+
+def _clean_required(value: str | None, label: str) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=422, detail=f"{label} is required")
+    return cleaned
+
+
+def _clean_folder(value: str, label: str) -> str:
+    cleaned = value.strip().strip("/")
+    if not cleaned:
+        raise HTTPException(status_code=422, detail=f"{label} is required")
+    if any(character in cleaned for character in ("\x00", "\r", "\n")):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{label} contains invalid characters",
+        )
+    return cleaned
+
+
+def _existing_mailbox_secret(
+    state: dict,
+    provider: str,
+) -> dict[str, str] | None:
+    for candidate in (state.get("draft"), state.get("active")):
+        if candidate and candidate["provider"] == provider:
+            try:
+                return mailbox_vault().decrypt(candidate["secret_ciphertext"])
+            except ConnectionSecretError as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return None
+
+
+def normalize_mailbox_update(
+    update: MailboxConnectionUpdate,
+    state: dict,
+) -> tuple[dict, dict[str, str]]:
+    reports_folder = _clean_folder(update.reports_folder, "Reports folder")
+    archive_folder = _clean_folder(update.archive_folder, "Archive folder")
+    if reports_folder.casefold() == archive_folder.casefold():
+        raise HTTPException(
+            status_code=422,
+            detail="Reports and archive folders must be different",
+        )
+
+    existing_secret = _existing_mailbox_secret(state, update.provider) or {}
+    if update.provider == "msgraph":
+        tenant_id = _clean_required(update.tenant_id, "Tenant ID")
+        client_id = _clean_required(update.client_id, "Client ID")
+        mailbox = _clean_required(update.mailbox, "Mailbox")
+        if not UUID_PATTERN.fullmatch(tenant_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Tenant ID must be a UUID",
+            )
+        if not UUID_PATTERN.fullmatch(client_id):
+            raise HTTPException(
+                status_code=422,
+                detail="Client ID must be a UUID",
+            )
+        if "@" not in mailbox or any(
+            character.isspace() for character in mailbox
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Mailbox must be an email address",
+            )
+        client_secret = (
+            update.client_secret
+            if update.client_secret
+            else existing_secret.get("client_secret")
+        )
+        if not client_secret:
+            raise HTTPException(
+                status_code=422,
+                detail="Client secret is required",
+            )
+        return (
+            {
+                "auth_method": "ClientSecret",
+                "tenant_id": tenant_id,
+                "client_id": client_id,
+                "mailbox": mailbox,
+                "reports_folder": reports_folder,
+                "archive_folder": archive_folder,
+            },
+            {"client_secret": client_secret},
+        )
+
+    host = _clean_required(update.host, "IMAP host")
+    user = _clean_required(update.user, "IMAP user")
+    if not HOST_PATTERN.fullmatch(host) or "://" in host:
+        raise HTTPException(
+            status_code=422,
+            detail="IMAP host is invalid",
+        )
+    password = (
+        update.password if update.password else existing_secret.get("password")
+    )
+    if not password:
+        raise HTTPException(
+            status_code=422,
+            detail="IMAP password is required",
+        )
+    return (
+        {
+            "host": host,
+            "port": update.port,
+            "ssl": True,
+            "skip_certificate_verification": False,
+            "user": user,
+            "reports_folder": reports_folder,
+            "archive_folder": archive_folder,
+        },
+        {"password": password},
+    )
+
+
+def public_mailbox_state(state: dict | None = None) -> dict:
+    current = state or store.mailbox_connection_state()
+
+    def public_version(version: dict | None) -> dict | None:
+        if not version:
+            return None
+        return {
+            "revision": version["revision"],
+            "provider": version["provider"],
+            "settings": version["settings"],
+            "secret_configured": bool(version["secret_ciphertext"]),
+            "created_at": version["created_at"],
+        }
+
+    return {
+        "configured": current["draft"] is not None,
+        "draft": public_version(current["draft"]),
+        "active": public_version(current["active"]),
+        "draft_revision": current["draft_revision"],
+        "tested_revision": current["tested_revision"],
+        "active_revision": current["active_revision"],
+        "test_status": current["test_status"],
+        "test_message": current["test_message"],
+        "tested_at": current["tested_at"],
+        "updated_at": current["updated_at"],
+        "parser": current["runtime"],
+    }
+
+
+def configured_parser_control_token() -> str:
+    token_file = settings.parser_control_token_file
+    try:
+        return token_file.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_urlsafe(32)
+        try:
+            descriptor = os.open(
+                token_file,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o640,
+            )
+        except FileExistsError:
+            return token_file.read_text(encoding="utf-8").strip()
+        with os.fdopen(descriptor, "w", encoding="utf-8") as token_handle:
+            token_handle.write(f"{token}\n")
+        return token
+    except OSError:
+        return ""
+
+
+def require_parser_control_token(provided_token: str | None) -> None:
+    expected_token = configured_parser_control_token()
+    if not expected_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Parser control token is not available",
+        )
+    if not provided_token or not hmac.compare_digest(
+        provided_token.strip(),
+        expected_token,
+    ):
+        raise HTTPException(status_code=403, detail="Invalid parser control token")
 
 
 @app.middleware("http")
@@ -132,10 +359,14 @@ async def opensearch_error_handler(_request, exc: OpenSearchError):
 
 @app.get("/api/health")
 async def health():
+    parser_control_ready = bool(configured_parser_control_token())
     cluster = await client.health()
     return {
         "status": "ok",
         "version": VERSION,
+        "parser_control": {
+            "ready": parser_control_ready,
+        },
         "opensearch": {
             "status": cluster.get("status"),
             "cluster_name": cluster.get("cluster_name"),
@@ -261,6 +492,125 @@ async def update_appearance_settings(
         "write_protected": True,
         "admin_configured": True,
     }
+
+
+@app.get("/api/settings/mailbox")
+async def mailbox_settings(request: Request):
+    require_admin(request)
+    return public_mailbox_state()
+
+
+@app.put("/api/settings/mailbox")
+async def update_mailbox_settings(
+    update: MailboxConnectionUpdate,
+    request: Request,
+):
+    require_admin(request)
+    current = store.mailbox_connection_state()
+    normalized, secret = normalize_mailbox_update(update, current)
+    try:
+        encrypted_secret = mailbox_vault().encrypt(secret)
+    except ConnectionSecretError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    saved = store.save_mailbox_connection(
+        provider=update.provider,
+        settings=normalized,
+        secret_ciphertext=encrypted_secret,
+    )
+    return public_mailbox_state(saved)
+
+
+@app.post("/api/settings/mailbox/test")
+async def test_mailbox_settings(request: Request):
+    require_admin(request)
+    current = store.mailbox_connection_state()
+    draft = current["draft"]
+    if not draft:
+        raise HTTPException(
+            status_code=409,
+            detail="Save a mailbox connection before testing it",
+        )
+    try:
+        secret = mailbox_vault().decrypt(draft["secret_ciphertext"])
+        message = await asyncio.to_thread(
+            test_mailbox_connection,
+            draft["provider"],
+            draft["settings"],
+            secret,
+        )
+        test_status = "success"
+    except (ConnectionSecretError, ConnectionTestError) as exc:
+        message = str(exc)
+        test_status = "failure"
+    if not store.record_mailbox_test(
+        revision=draft["revision"],
+        status=test_status,
+        message=message,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Mailbox settings changed while the test was running",
+        )
+    return public_mailbox_state()
+
+
+@app.post("/api/settings/mailbox/activate")
+async def activate_mailbox_settings(request: Request):
+    require_admin(request)
+    current = store.mailbox_connection_state()
+    revision = current["draft_revision"]
+    if revision is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Save and test a mailbox connection before activating it",
+        )
+    if not store.activate_mailbox_connection(revision):
+        raise HTTPException(
+            status_code=409,
+            detail="The current mailbox settings require a successful test",
+        )
+    return public_mailbox_state()
+
+
+@app.get("/api/internal/parser/config")
+async def parser_configuration(
+    response: Response,
+    parser_token: str | None = Header(
+        default=None,
+        alias="X-Parser-Control-Token",
+    ),
+):
+    require_parser_control_token(parser_token)
+    response.headers["Cache-Control"] = "no-store"
+    current = store.mailbox_connection_state()
+    active = current["active"]
+    if not active:
+        return {"mode": "legacy", "revision": None, "connection": None}
+    try:
+        secret = mailbox_vault().decrypt(active["secret_ciphertext"])
+    except ConnectionSecretError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {
+        "mode": "managed",
+        "revision": active["revision"],
+        "connection": {
+            "provider": active["provider"],
+            **active["settings"],
+            **secret,
+        },
+    }
+
+
+@app.post("/api/internal/parser/status")
+async def update_parser_status(
+    update: ParserStatusUpdate,
+    parser_token: str | None = Header(
+        default=None,
+        alias="X-Parser-Control-Token",
+    ),
+):
+    require_parser_control_token(parser_token)
+    return store.set_parser_runtime_status(update.model_dump())
 
 
 @app.get("/api/overview")

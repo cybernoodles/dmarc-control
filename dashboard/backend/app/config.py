@@ -11,6 +11,18 @@ class Settings:
     aggregate_index: str = os.getenv("DMARC_AGGREGATE_INDEX", "dmarc_aggregate-*")
     forensic_index: str = os.getenv("DMARC_FORENSIC_INDEX", "dmarc_failure-*")
     database_path: Path = Path(os.getenv("DASHBOARD_DATABASE_PATH", "/app/data/dashboard.db"))
+    connection_key_path: Path = Path(
+        os.getenv(
+            "DASHBOARD_CONNECTION_KEY_PATH",
+            "/app/data/connection.key",
+        )
+    )
+    parser_control_token_file: Path = Path(
+        os.getenv(
+            "PARSER_CONTROL_TOKEN_FILE",
+            "/app/parser-control/control.token",
+        )
+    )
     session_secure_cookie: bool = os.getenv(
         "DASHBOARD_SESSION_SECURE_COOKIE",
         "false",

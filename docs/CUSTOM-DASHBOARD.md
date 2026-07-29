@@ -9,12 +9,22 @@ OpenSearch-Indizes.
 ```text
 Browser ──HTTP──> DMARC Control (React + FastAPI) ──HTTP intern──> OpenSearch
 Browser ──HTTP──> Grafana                         ──HTTP intern──> OpenSearch
-Mailbox ────────> parsedmarc                      ───────────────> OpenSearch
+                         │
+                         └── aktivierte Revision ──> Parser-Supervisor
+Mailbox ────────> genau ein parsedmarc-Kindprozess ──────────────> OpenSearch
 ```
 
 React wird beim Image-Build statisch erzeugt. FastAPI liefert danach sowohl die
 Oberfläche als auch die kontrollierten `/api`-Endpunkte aus. Es gibt keinen
 direkten OpenSearch-Zugriff aus dem Browser.
+
+Die Mailbox-Konfiguration wird als versionierter Entwurf gespeichert. Ein
+expliziter Verbindungstest prüft nur Anmeldung und lesenden Ordnerzugriff.
+Nach erfolgreichem Test kann exakt diese Revision aktiviert werden. Der
+Supervisor startet zu jeder Zeit höchstens einen parsedmarc-Kindprozess und
+wechselt Konfigurationen durch kontrolliertes Stoppen und anschließendes
+Starten. Bis zur ersten GUI-Aktivierung kann eine bestehende
+`config/parsedmarc.ini` unverändert als Legacy-Fallback weiterlaufen.
 
 ## Datenzugriff
 
@@ -38,10 +48,17 @@ folgende Felder nicht geladen oder ausgeliefert:
 
 ## Eigene Persistenz
 
-Statusänderungen an Warnungen, manuell bestätigte Sending Hosts sowie der
-globale UI-Farbstandard werden in `data/dashboard/dashboard.db` gespeichert.
-Diese SQLite-Datei ist vollständig von den OpenSearch- und Grafana-Daten
-getrennt.
+Statusänderungen an Warnungen, manuell bestätigte Sending Hosts, der globale
+UI-Farbstandard sowie versionierte Mailbox-Verbindungen werden in
+`data/dashboard/dashboard.db` gespeichert. Diese SQLite-Datei ist vollständig
+von den OpenSearch- und Grafana-Daten getrennt.
+
+Mailbox-Secrets werden mit AES-GCM verschlüsselt. Der Schlüssel wird beim
+ersten Bedarf als `data/dashboard/connection.key` mit restriktiven Rechten
+erzeugt. Datenbank und Schlüssel müssen gemeinsam gesichert werden; über die
+API werden weder Klartext-Secret noch Schlüssel ausgeliefert. Ein separat
+automatisch erzeugtes Token in `data/parser-control/control.token` schützt die
+nur im Compose-Netz erreichbare Verbindung zwischen Supervisor und API.
 
 Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
 sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
@@ -49,7 +66,8 @@ Abweichung. Beim ersten Aufruf blockiert ein Setup-Screen das Dashboard, bis
 ein Admin-Passwort mit mindestens zwölf Zeichen festgelegt wurde. Nur der
 gesalzene Passwort-Hash wird in `dashboard.db` gespeichert.
 
-Eine Admin-Anmeldung ist ausschließlich für globale Einstellungen erforderlich.
+Eine Admin-Anmeldung ist für globale Einstellungen und die
+Mailbox-Verbindungsverwaltung erforderlich.
 Die Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden Gültigkeit
 gehalten. Das Passwort kann unter **Einstellungen → Administration** geändert
 werden; dabei werden andere bestehende Admin-Sitzungen beendet. Das lesende
@@ -85,6 +103,12 @@ Ergebnis enthält eine Konfidenz und kann administrativ bestätigt oder
 | `POST /api/auth/change-password` | Admin-Passwort ändern |
 | `GET /api/settings/appearance` | globalen UI-Farbstandard lesen |
 | `PUT /api/settings/appearance` | globalen UI-Farbstandard als Admin ändern |
+| `GET /api/settings/mailbox` | Entwurf, aktive Revision und Parserstatus lesen |
+| `PUT /api/settings/mailbox` | neuen Verbindungsentwurf als Admin speichern |
+| `POST /api/settings/mailbox/test` | gespeicherten Entwurf streng lesend prüfen |
+| `POST /api/settings/mailbox/activate` | erfolgreich getestete Revision aktivieren |
+| `GET /api/internal/parser/config` | aktive Konfiguration für den Supervisor |
+| `POST /api/internal/parser/status` | Laufzeitstatus des einzelnen Parsers melden |
 | `GET /api/domains` | verfügbare Header-From-Domains |
 | `GET /api/overview` | Kennzahlen, Trend, Fehlerquellen, Reports und Policies |
 | `GET /api/hosts` | vollständiges Sending-Host-Inventar |
@@ -109,8 +133,11 @@ Dockge verwendet dort `compose.yaml`. Das Dashboard-Verzeichnis liegt relativ
 dazu unter `./dashboard`, die eigene Persistenz unter `./data/dashboard`.
 
 Beim Update werden nur der Dashboard-Quellcode und der zusätzliche
-`dashboard`-Service verändert. Die bestehenden Services `opensearch`,
-`parsedmarc` und `grafana` müssen dafür nicht neu erstellt werden.
+`dashboard`- und `parsedmarc`-Service verändert. OpenSearch und Grafana bleiben
+unangetastet. Beim ersten Rollout wird nur der bestehende Parser-Container
+ersetzt; der neue Supervisor startet darin genau einen Kindprozess mit der
+vorhandenen Legacy-Konfiguration. Erst eine später in der GUI getestete und
+aktivierte Revision ersetzt diese Konfiguration.
 
 Das neue Dashboard ist nach dem Start unter `http://HOSTNAME:3030` erreichbar;
 Grafana bleibt parallel unter Port `3020` verfügbar.
@@ -136,4 +163,6 @@ Gesamtes Image:
 
 ```bash
 docker build -t parsedmarc-dashboard:local dashboard
+docker build -t parsedmarc-managed:local parser
+python -m unittest discover -s parser/tests -v
 ```
