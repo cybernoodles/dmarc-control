@@ -7,6 +7,7 @@ import {
 import { init, use } from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { useEffect, useRef } from "react";
+import { useI18n } from "./i18n";
 
 use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
 
@@ -15,6 +16,7 @@ interface TrendChartProps {
 }
 
 export function TrendChart({ data }: TrendChartProps) {
+  const { language, t, formatNumber } = useI18n();
   const elementRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,10 +35,10 @@ export function TrendChart({ data }: TrendChartProps) {
       tooltip: {
         trigger: "axis",
         valueFormatter: (value: unknown) =>
-          `${new Intl.NumberFormat("de-CH").format(Number(value))} Nachrichten`,
+          `${formatNumber(Number(value))} ${t("Nachrichten")}`,
       },
       legend: {
-        data: ["DMARC bestanden", "DMARC fehlgeschlagen"],
+        data: [t("DMARC bestanden"), t("DMARC fehlgeschlagen")],
         bottom: 0,
         textStyle: { color: muted },
         icon: "circle",
@@ -51,7 +53,7 @@ export function TrendChart({ data }: TrendChartProps) {
         axisLabel: {
           color: muted,
           formatter: (value: string) =>
-            new Intl.DateTimeFormat("de-CH", {
+            new Intl.DateTimeFormat(language === "de" ? "de-CH" : "en-GB", {
               day: "2-digit",
               month: "2-digit",
             }).format(new Date(`${value}T00:00:00Z`)),
@@ -65,7 +67,7 @@ export function TrendChart({ data }: TrendChartProps) {
       },
       series: [
         {
-          name: "DMARC bestanden",
+          name: t("DMARC bestanden"),
           type: "line",
           smooth: 0.28,
           showSymbol: data.length < 14,
@@ -75,7 +77,7 @@ export function TrendChart({ data }: TrendChartProps) {
           data: data.map((item) => item.pass),
         },
         {
-          name: "DMARC fehlgeschlagen",
+          name: t("DMARC fehlgeschlagen"),
           type: "line",
           smooth: 0.28,
           showSymbol: data.length < 14,
@@ -93,14 +95,16 @@ export function TrendChart({ data }: TrendChartProps) {
       observer.disconnect();
       chart.dispose();
     };
-  }, [data]);
+  }, [data, formatNumber, language, t]);
 
   return (
     <div
       className="trend-chart"
       ref={elementRef}
       role="img"
-      aria-label="Zeitverlauf der bestandenen und fehlgeschlagenen DMARC-Nachrichten"
+      aria-label={t(
+        "Zeitverlauf der bestandenen und fehlgeschlagenen DMARC-Nachrichten",
+      )}
     />
   );
 }

@@ -884,6 +884,43 @@ td > strong {
   gap: 1.2rem;
 }
 
+.language-settings {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+}
+
+.language-toggle {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 0.2rem;
+  padding: 0.2rem;
+}
+
+.language-toggle button {
+  background: transparent;
+  border: 0;
+  border-radius: 0.46rem;
+  color: var(--ink-muted);
+  font-size: 0.74rem;
+  font-weight: 650;
+  padding: 0.52rem 0.72rem;
+}
+
+.language-toggle button:hover {
+  color: var(--ink);
+}
+
+.language-toggle button.active {
+  background: var(--primary);
+  color: var(--primary-contrast);
+}
+
 .settings-title {
   align-items: start;
   display: flex;
@@ -1326,6 +1363,15 @@ footer {
 
   .preset-list {
     grid-template-columns: 1fr;
+  }
+
+  .language-settings {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .language-toggle {
+    align-self: flex-start;
   }
 
   .preview-content {

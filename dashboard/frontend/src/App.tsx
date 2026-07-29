@@ -41,6 +41,7 @@ import {
   TrustStatus,
   api,
 } from "./api";
+import { LanguageProvider, useI18n } from "./i18n";
 import { TrendChart } from "./TrendChart";
 
 type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
@@ -48,46 +49,6 @@ type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
 const DEFAULT_BRAND_COLOR = "#173f43";
 const COMPANY_BRAND_COLOR = "#940084";
 const BRAND_STORAGE_KEY = "dmarc-control-brand-color";
-
-const numberFormat = new Intl.NumberFormat("de-CH");
-const percentFormat = new Intl.NumberFormat("de-CH", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
-const dateFormat = new Intl.DateTimeFormat("de-CH", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-});
-const dateTimeFormat = new Intl.DateTimeFormat("de-CH", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-function formatNumber(value: number | null | undefined) {
-  return numberFormat.format(value ?? 0);
-}
-
-function formatDate(value: string | null | undefined, withTime = false) {
-  if (!value) return "–";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return (withTime ? dateTimeFormat : dateFormat).format(parsed);
-}
-
-function reportAge(value: string | null | undefined) {
-  if (!value) return "Keine Reports";
-  const days = Math.max(
-    0,
-    Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000),
-  );
-  if (days === 0) return "Heute";
-  if (days === 1) return "Vor einem Tag";
-  return `Vor ${days} Tagen`;
-}
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -221,11 +182,12 @@ function IpWithFlag({
   ip: string;
   country: string | null | undefined;
 }) {
+  const { t } = useI18n();
   const normalized = country?.toUpperCase();
   const label =
     normalized && /^[A-Z]{2}$/.test(normalized)
-      ? `Herkunftsland ${normalized}`
-      : "Herkunftsland unbekannt";
+      ? t("Herkunftsland {country}", { country: normalized })
+      : t("Herkunftsland unbekannt");
   return (
     <span className="ip-with-flag">
       <span className="country-flag" role="img" aria-label={label}>
@@ -246,11 +208,12 @@ function StatusPill({
   return <span className={`status-pill status-${tone}`}>{children}</span>;
 }
 
-function LoadingState({ label = "Daten werden geladen" }: { label?: string }) {
+function LoadingState({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="state-box" role="status">
       <RefreshCw className="spin" aria-hidden="true" />
-      <span>{label}</span>
+      <span>{label ?? t("Daten werden geladen")}</span>
     </div>
   );
 }
@@ -274,15 +237,16 @@ function EmptyState({
 }
 
 function ErrorState({ message, retry }: { message: string; retry: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="state-box state-error" role="alert">
       <CircleAlert aria-hidden="true" />
       <div>
-        <strong>Daten konnten nicht geladen werden</strong>
+        <strong>{t("Daten konnten nicht geladen werden")}</strong>
         <p>{message}</p>
       </div>
       <button className="button button-secondary" type="button" onClick={retry}>
-        Erneut versuchen
+        {t("Erneut versuchen")}
       </button>
     </div>
   );
@@ -319,6 +283,7 @@ function AlignmentBar({
   total: number;
   tone: "success" | "danger" | "info" | "warning";
 }) {
+  const { formatNumber } = useI18n();
   const percentage = total ? Math.min(100, (value / total) * 100) : 0;
   return (
     <div className="alignment-row">
@@ -352,6 +317,7 @@ function TopList({
   items: Array<{ name: string; value: number; meta?: string }>;
   empty: string;
 }) {
+  const { formatNumber } = useI18n();
   const maximum = Math.max(...items.map((item) => item.value), 1);
   if (!items.length) {
     return <p className="muted compact-empty">{empty}</p>;
@@ -375,6 +341,15 @@ function TopList({
 }
 
 export function App() {
+  return (
+    <LanguageProvider>
+      <DashboardApp />
+    </LanguageProvider>
+  );
+}
+
+function DashboardApp() {
+  const { t } = useI18n();
   const [view, setView] = useState<View>("overview");
   const [domains, setDomains] = useState<DomainItem[]>([]);
   const [domain, setDomain] = useState("*");
@@ -439,17 +414,20 @@ export function App() {
     loadDomains();
   }, [loadDomains, refreshKey]);
 
-  const scopeLabel = `${domain === "*" ? "Alle Domains" : domain} · ${days} Tage`;
+  const scopeLabel = `${domain === "*" ? t("Alle Domains") : domain} · ${t(
+    "{days} Tage",
+    { days },
+  )}`;
 
   const navigation: Array<{
     id: View;
     label: string;
     icon: typeof LayoutDashboard;
   }> = [
-    { id: "overview", label: "Übersicht", icon: LayoutDashboard },
+    { id: "overview", label: t("Übersicht"), icon: LayoutDashboard },
     { id: "hosts", label: "Sending Hosts", icon: Server },
-    { id: "alerts", label: "Warnungen", icon: Bell },
-    { id: "forensics", label: "Forensik", icon: FileSearch },
+    { id: "alerts", label: t("Warnungen"), icon: Bell },
+    { id: "forensics", label: t("Forensik"), icon: FileSearch },
   ];
 
   return (
@@ -461,16 +439,16 @@ export function App() {
           </span>
           <div>
             <strong>DMARC Control</strong>
-            <span>Mail authentication operations</span>
+            <span>{t("Mail-Authentifizierungsbetrieb")}</span>
           </div>
         </div>
         <div className="health-label">
           <span className="health-dot" />
-          Live aus OpenSearch
+          {t("Live aus OpenSearch")}
         </div>
       </header>
 
-      <nav className="main-nav" aria-label="Dashboard-Bereiche">
+      <nav className="main-nav" aria-label={t("Dashboard-Bereiche")}>
         {navigation.map((item) => {
           const Icon = item.icon;
           return (
@@ -497,7 +475,7 @@ export function App() {
           onClick={() => setView("settings")}
         >
           <Settings2 aria-hidden="true" />
-          Einstellungen
+          {t("Einstellungen")}
         </button>
       </nav>
 
@@ -507,7 +485,7 @@ export function App() {
             <label>
               <span>Domain</span>
               <select value={domain} onChange={(event) => setDomain(event.target.value)}>
-                <option value="*">Alle Domains</option>
+                <option value="*">{t("Alle Domains")}</option>
                 {domains.map((item) => (
                   <option value={item.domain} key={item.domain}>
                     {item.domain}
@@ -516,15 +494,15 @@ export function App() {
               </select>
             </label>
             <label>
-              <span>Zeitraum</span>
+              <span>{t("Zeitraum")}</span>
               <select
                 value={days}
                 onChange={(event) => setDays(Number(event.target.value))}
               >
-                <option value={7}>Letzte 7 Tage</option>
-                <option value={30}>Letzte 30 Tage</option>
-                <option value={90}>Letzte 90 Tage</option>
-                <option value={365}>Letzte 12 Monate</option>
+                <option value={7}>{t("Letzte 7 Tage")}</option>
+                <option value={30}>{t("Letzte 30 Tage")}</option>
+                <option value={90}>{t("Letzte 90 Tage")}</option>
+                <option value={365}>{t("Letzte 12 Monate")}</option>
               </select>
             </label>
           </div>
@@ -533,8 +511,8 @@ export function App() {
             <button
               className="icon-button"
               type="button"
-              aria-label="Daten aktualisieren"
-              title="Daten aktualisieren"
+              aria-label={t("Daten aktualisieren")}
+              title={t("Daten aktualisieren")}
               onClick={() => setRefreshKey((value) => value + 1)}
             >
               <RefreshCw aria-hidden="true" />
@@ -546,7 +524,7 @@ export function App() {
       {domainError && view !== "settings" && (
         <div className="inline-warning">
           <TriangleAlert aria-hidden="true" />
-          Domain-Liste nicht verfügbar: {domainError}
+          {t("Domain-Liste nicht verfügbar: {error}", { error: domainError })}
         </div>
       )}
 
@@ -581,7 +559,11 @@ export function App() {
 
       <footer>
         <span>DMARC Control MVP</span>
-        <span>OpenSearch ist ausschließlich über die kontrollierte API erreichbar.</span>
+        <span>
+          {t(
+            "OpenSearch ist ausschließlich über die kontrollierte API erreichbar.",
+          )}
+        </span>
       </footer>
     </div>
   );
@@ -598,6 +580,7 @@ function SettingsView({
   updateColor: (color: string) => void;
   resetColor: () => void;
 }) {
+  const { language, setLanguage, t } = useI18n();
   const rgb = hexToRgb(color);
   const updateChannel = (channel: "r" | "g" | "b", value: string) => {
     const parsed = Number.parseInt(value, 10);
@@ -613,34 +596,64 @@ function SettingsView({
   return (
     <div className="page-stack settings-page">
       <SectionHeader
-        title="Einstellungen"
-        subtitle="Branding und Darstellung dieses Browsers"
+        title={t("Einstellungen")}
+        subtitle={t("Branding und Darstellung dieses Browsers")}
         action={
           <StatusPill tone={custom ? "info" : "neutral"}>
-            {custom ? "Eigenes Branding aktiv" : "Standardgrün"}
+            {custom ? t("Eigenes Branding aktiv") : t("Standardgrün")}
           </StatusPill>
         }
       />
 
       <div className="settings-grid">
+        <section className="surface language-settings">
+          <div className="settings-title">
+            <span className="settings-icon">
+              <Globe2 aria-hidden="true" />
+            </span>
+            <div>
+              <h3>{t("Sprache")}</h3>
+              <p>{t("Sprache der Benutzeroberfläche")}</p>
+            </div>
+          </div>
+          <div className="language-toggle" role="group" aria-label={t("Sprache")}>
+            <button
+              type="button"
+              className={classNames(language === "de" && "active")}
+              aria-pressed={language === "de"}
+              onClick={() => setLanguage("de")}
+            >
+              DE · {t("Deutsch")}
+            </button>
+            <button
+              type="button"
+              className={classNames(language === "en" && "active")}
+              aria-pressed={language === "en"}
+              onClick={() => setLanguage("en")}
+            >
+              EN · {t("Englisch")}
+            </button>
+          </div>
+        </section>
+
         <section className="surface brand-settings">
           <div className="settings-title">
             <span className="settings-icon">
               <Palette aria-hidden="true" />
             </span>
             <div>
-              <h3>Markenfarbe</h3>
+              <h3>{t("Markenfarbe")}</h3>
               <p>
-                Die Grundfarbe steuert Navigation, Akzente, Fokus sowie die
-                feine Tönung von Karten, Flächen und Trennlinien. Statusfarben
-                für Fehler und Warnungen bleiben semantisch eindeutig.
+                {t(
+                  "Die Grundfarbe steuert Navigation, Akzente, Fokus sowie die feine Tönung von Karten, Flächen und Trennlinien. Statusfarben für Fehler und Warnungen bleiben semantisch eindeutig.",
+                )}
               </p>
             </div>
           </div>
 
           <div className="color-picker-row">
             <label className="color-picker-label">
-              <span>Farbe wählen</span>
+              <span>{t("Farbe wählen")}</span>
               <input
                 className="color-picker"
                 type="color"
@@ -663,7 +676,7 @@ function SettingsView({
             </div>
           </div>
 
-          <div className="rgb-grid" aria-label="RGB-Farbwerte">
+          <div className="rgb-grid" aria-label={t("RGB-Farbwerte")}>
             {(["r", "g", "b"] as const).map((channel) => (
               <label key={channel}>
                 <span>{channel.toUpperCase()}</span>
@@ -693,7 +706,7 @@ function SettingsView({
                 aria-hidden="true"
               />
               <span>
-                <strong>Firmenbeispiel</strong>
+                <strong>{t("Custom")}</strong>
                 <small>RGB 148 / 0 / 132</small>
               </span>
             </button>
@@ -708,8 +721,8 @@ function SettingsView({
                 aria-hidden="true"
               />
               <span>
-                <strong>Standardgrün</strong>
-                <small>Ursprüngliche Gestaltung</small>
+                <strong>{t("Standardgrün")}</strong>
+                <small>{t("Ursprüngliche Gestaltung")}</small>
               </span>
             </button>
           </div>
@@ -717,8 +730,12 @@ function SettingsView({
 
         <section className="surface brand-preview-section">
           <div>
-            <h3>Live-Vorschau</h3>
-            <p>Änderungen werden unmittelbar auf die gesamte Oberfläche angewendet.</p>
+            <h3>{t("Live-Vorschau")}</h3>
+            <p>
+              {t(
+                "Änderungen werden unmittelbar auf die gesamte Oberfläche angewendet.",
+              )}
+            </p>
           </div>
           <div className="brand-preview">
             <div className="preview-brand">
@@ -727,31 +744,34 @@ function SettingsView({
               </span>
               <div>
                 <strong>DMARC Control</strong>
-                <small>Gebrandete Oberfläche</small>
+                <small>{t("Gebrandete Oberfläche")}</small>
               </div>
             </div>
             <div className="preview-navigation">
-              <span className="preview-active">Aktiver Bereich</span>
-              <span>Inaktiver Bereich</span>
+              <span className="preview-active">{t("Aktiver Bereich")}</span>
+              <span>{t("Inaktiver Bereich")}</span>
             </div>
             <div className="preview-content">
               <span className="preview-accent" />
               <div>
-                <strong>Akzent und Fading</strong>
+                <strong>{t("Akzent und Fading")}</strong>
                 <small>
-                  Akzente und Flächentöne aus {color.toUpperCase()} abgeleitet
+                  {t("Akzente und Flächentöne aus {color} abgeleitet", {
+                    color: color.toUpperCase(),
+                  })}
                 </small>
               </div>
               <button className="button button-primary" type="button">
-                Beispielaktion
+                {t("Beispielaktion")}
               </button>
             </div>
           </div>
           <div className="settings-note">
             <Info aria-hidden="true" />
             <span>
-              Die Auswahl wird lokal in diesem Browser gespeichert und verändert
-              keine DMARC- oder Serverdaten.
+              {t(
+                "Die Auswahl wird lokal in diesem Browser gespeichert und verändert keine DMARC- oder Serverdaten.",
+              )}
             </span>
           </div>
         </section>
@@ -773,6 +793,14 @@ function OverviewView({
   openAlerts: () => void;
   openHosts: () => void;
 }) {
+  const {
+    t,
+    formatNumber,
+    formatPercent,
+    formatDate,
+    reportAge,
+    translateBackendLabel,
+  } = useI18n();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -803,46 +831,57 @@ function OverviewView({
   return (
     <div className="page-stack">
       {error && <ErrorState message={error} retry={load} />}
-      <section className="kpi-grid" aria-label="DMARC-Kennzahlen">
+      <section className="kpi-grid" aria-label={t("DMARC-Kennzahlen")}>
         <article className="card kpi">
           <div className="kpi-label">
-            <span>DMARC-Passrate</span>
+            <span>{t("DMARC-Passrate")}</span>
             <ShieldCheck aria-hidden="true" />
           </div>
-          <strong>{percentFormat.format(data.totals.pass_rate)} %</strong>
+          <strong>{formatPercent(data.totals.pass_rate)} %</strong>
           <p>
-            {formatNumber(data.totals.dmarc_pass)} von {formatNumber(total)} Nachrichten
+            {t("{passed} von {total} Nachrichten", {
+              passed: formatNumber(data.totals.dmarc_pass),
+              total: formatNumber(total),
+            })}
           </p>
         </article>
         <article className="card kpi">
           <div className="kpi-label">
-            <span>Nachrichten</span>
+            <span>{t("Nachrichten")}</span>
             <Activity aria-hidden="true" />
           </div>
           <strong>{formatNumber(total)}</strong>
           <p>
-            Letzter Report: {formatDate(data.totals.last_report)} ·{" "}
-            {reportAge(data.totals.last_report)}
+            {t("Letzter Report: {date}", {
+              date: formatDate(data.totals.last_report),
+            })}{" "}
+            · {reportAge(data.totals.last_report)}
           </p>
         </article>
         <article className="card kpi kpi-critical">
           <div className="kpi-label">
-            <span>Kritische Quellen</span>
+            <span>{t("Kritische Quellen")}</span>
             <TriangleAlert aria-hidden="true" />
           </div>
           <strong>{formatNumber(data.totals.critical_sources)}</strong>
-          <p>{formatNumber(data.totals.dmarc_fail)} echte DMARC-Fails</p>
+          <p>
+            {t("{count} echte DMARC-Fails", {
+              count: formatNumber(data.totals.dmarc_fail),
+            })}
+          </p>
         </article>
       </section>
 
       <div className="overview-grid">
         <section className="surface attention-panel">
           <SectionHeader
-            title="Was braucht Aufmerksamkeit?"
-            subtitle="Nach finalem DMARC-Ergebnis und Aktualität priorisiert"
+            title={t("Was braucht Aufmerksamkeit?")}
+            subtitle={t(
+              "Nach finalem DMARC-Ergebnis und Aktualität priorisiert",
+            )}
             action={
               <button className="text-button" type="button" onClick={openAlerts}>
-                Alle Warnungen <ChevronRight aria-hidden="true" />
+                {t("Alle Warnungen")} <ChevronRight aria-hidden="true" />
               </button>
             }
           />
@@ -851,18 +890,18 @@ function OverviewView({
               <table>
                 <thead>
                   <tr>
-                    <th>Status</th>
-                    <th>Sending Host</th>
-                    <th>Domain</th>
-                    <th>Authentifizierung</th>
-                    <th className="numeric">Nachrichten</th>
+                    <th>{t("Status")}</th>
+                    <th>{t("Sending Host")}</th>
+                    <th>{t("Domain")}</th>
+                    <th>{t("Authentifizierung")}</th>
+                    <th className="numeric">{t("Nachrichten")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.critical_sources.slice(0, 8).map((source) => (
                     <tr key={`${source.source_ip}-${source.header_from}`}>
                       <td>
-                        <StatusPill tone="critical">Kritisch</StatusPill>
+                        <StatusPill tone="critical">{t("Kritisch")}</StatusPill>
                       </td>
                       <td>
                         <button className="cell-link" type="button" onClick={openHosts}>
@@ -870,19 +909,28 @@ function OverviewView({
                             ip={source.source_ip}
                             country={source.country}
                           />
-                          <small>{source.reverse_dns || "Kein PTR"}</small>
+                          <small>{source.reverse_dns || t("Kein PTR")}</small>
                         </button>
                       </td>
                       <td>
                         <span>{source.header_from || "–"}</span>
-                        <small>{source.country || "Unbekannt"}</small>
+                        <small>
+                          {translateBackendLabel(source.country) ||
+                            t("Unbekannt")}
+                        </small>
                       </td>
                       <td>
                         <span className="auth-pair">
-                          SPF {source.spf_aligned ? "aligned" : "nicht aligned"}
+                          SPF{" "}
+                          {source.spf_aligned
+                            ? t("aligned")
+                            : t("nicht aligned")}
                         </span>
                         <small>
-                          DKIM {source.dkim_aligned ? "aligned" : "nicht aligned"}
+                          DKIM{" "}
+                          {source.dkim_aligned
+                            ? t("aligned")
+                            : t("nicht aligned")}
                         </small>
                       </td>
                       <td className="numeric">
@@ -896,20 +944,22 @@ function OverviewView({
             </div>
           ) : (
             <EmptyState
-              title="Keine echten DMARC-Fehler"
-              description="Im gewählten Zeitraum sind keine Quellen mit passed_dmarc:false vorhanden."
+              title={t("Keine echten DMARC-Fehler")}
+              description={t(
+                "Im gewählten Zeitraum sind keine Quellen mit passed_dmarc:false vorhanden.",
+              )}
             />
           )}
         </section>
 
         <section className="surface alignment-panel">
           <SectionHeader
-            title="Authentifizierung"
-            subtitle="Alignment gegenüber finalem DMARC-Ergebnis"
+            title={t("Authentifizierung")}
+            subtitle={t("Alignment gegenüber finalem DMARC-Ergebnis")}
           />
           <div className="alignment-list">
             <AlignmentBar
-              label="DMARC bestanden"
+              label={t("DMARC bestanden")}
               value={data.alignment.dmarc_pass}
               total={total}
               tone="success"
@@ -927,7 +977,7 @@ function OverviewView({
               tone="warning"
             />
             <AlignmentBar
-              label="DMARC fehlgeschlagen"
+              label={t("DMARC fehlgeschlagen")}
               value={data.alignment.dmarc_fail}
               total={total}
               tone="danger"
@@ -937,8 +987,13 @@ function OverviewView({
             <Info aria-hidden="true" />
             <p>
               {compensated
-                ? `${formatNumber(compensated)} Alignment-Beobachtungen wurden durch den jeweils anderen Mechanismus kompensiert und sind deshalb keine kritischen DMARC-Fails.`
-                : "Alignment und finales DMARC-Ergebnis sind im gewählten Zeitraum konsistent."}
+                ? t(
+                    "{count} Alignment-Beobachtungen wurden durch den jeweils anderen Mechanismus kompensiert und sind deshalb keine kritischen DMARC-Fails.",
+                    { count: formatNumber(compensated) },
+                  )
+                : t(
+                    "Alignment und finales DMARC-Ergebnis sind im gewählten Zeitraum konsistent.",
+                  )}
             </p>
           </div>
         </section>
@@ -946,40 +1001,44 @@ function OverviewView({
 
       <section className="surface">
         <SectionHeader
-          title="DMARC Pass/Fail im Zeitverlauf"
-          subtitle={`Tageswerte für ${domain === "*" ? "alle Domains" : domain}`}
+          title={t("DMARC Pass/Fail im Zeitverlauf")}
+          subtitle={t("Tageswerte für {scope}", {
+            scope: domain === "*" ? t("alle Domains") : domain,
+          })}
         />
         <TrendChart data={data.trend} />
       </section>
 
       <section>
         <SectionHeader
-          title="Domains & Reports"
-          subtitle="Volumen, Berichtsersteller und veröffentlichte Richtlinien"
+          title={t("Domains & Reports")}
+          subtitle={t(
+            "Volumen, Berichtsersteller und veröffentlichte Richtlinien",
+          )}
         />
         <div className="three-column-grid">
           <article className="surface compact-surface">
-            <h3>Nachrichten nach Domain</h3>
+            <h3>{t("Nachrichten nach Domain")}</h3>
             <TopList
               items={data.domains.slice(0, 8).map((item) => ({
                 name: item.name,
                 value: item.messages,
               }))}
-              empty="Keine Domains im Zeitraum"
+              empty={t("Keine Domains im Zeitraum")}
             />
           </article>
           <article className="surface compact-surface">
-            <h3>Reporting Organizations</h3>
+            <h3>{t("Reporting Organizations")}</h3>
             <TopList
               items={data.reporting_organisations.slice(0, 8).map((item) => ({
                 name: item.name,
                 value: item.messages,
               }))}
-              empty="Keine Berichtsersteller im Zeitraum"
+              empty={t("Keine Berichtsersteller im Zeitraum")}
             />
           </article>
           <article className="surface compact-surface">
-            <h3>Veröffentlichte DMARC-Policies</h3>
+            <h3>{t("Veröffentlichte DMARC-Policies")}</h3>
             {data.policies.length ? (
               <div className="policy-list">
                 {data.policies.slice(0, 8).map((item) => (
@@ -994,7 +1053,9 @@ function OverviewView({
                 ))}
               </div>
             ) : (
-              <p className="muted compact-empty">Keine Policies im Zeitraum</p>
+              <p className="muted compact-empty">
+                {t("Keine Policies im Zeitraum")}
+              </p>
             )}
           </article>
         </div>
@@ -1012,6 +1073,7 @@ function HostsView({
   days: number;
   refreshKey: number;
 }) {
+  const { t, formatNumber, formatDate, translateBackendLabel } = useI18n();
   const [hosts, setHosts] = useState<Host[]>([]);
   const [risk, setRisk] = useState("all");
   const [search, setSearch] = useState("");
@@ -1059,36 +1121,44 @@ function HostsView({
     );
   }, [hosts, search]);
 
-  if (loading && !hosts.length) return <LoadingState label="Sending Hosts werden geladen" />;
+  if (loading && !hosts.length) {
+    return <LoadingState label={t("Sending Hosts werden geladen")} />;
+  }
   if (error && !hosts.length) return <ErrorState message={error} retry={load} />;
 
   return (
     <div className="page-stack">
       <SectionHeader
         title="Sending Hosts"
-        subtitle="Technische Quellen, erkannte Dienste und Authentifizierungsergebnis"
-        action={<StatusPill tone="neutral">{filtered.length} Quellen</StatusPill>}
+        subtitle={t(
+          "Technische Quellen, erkannte Dienste und Authentifizierungsergebnis",
+        )}
+        action={
+          <StatusPill tone="neutral">
+            {t("{count} Quellen", { count: filtered.length })}
+          </StatusPill>
+        }
       />
       <div className="list-toolbar">
         <label className="search-field">
           <Search aria-hidden="true" />
-          <span className="sr-only">Sending Hosts durchsuchen</span>
+          <span className="sr-only">{t("Sending Hosts durchsuchen")}</span>
           <input
             type="search"
-            placeholder="IP, PTR, Domain oder Dienst suchen"
+            placeholder={t("IP, PTR, Domain oder Dienst suchen")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
         <label className="compact-select">
-          <span>Risiko</span>
+          <span>{t("Risiko")}</span>
           <select value={risk} onChange={(event) => setRisk(event.target.value)}>
-            <option value="all">Alle Ergebnisse</option>
-            <option value="critical">Kritisch</option>
-            <option value="warning">Hinweise</option>
-            <option value="healthy">Unauffällig</option>
-            <option value="spf-not-aligned">SPF nicht aligned</option>
-            <option value="dkim-not-aligned">DKIM nicht aligned</option>
+            <option value="all">{t("Alle Ergebnisse")}</option>
+            <option value="critical">{t("Kritisch")}</option>
+            <option value="warning">{t("Hinweise")}</option>
+            <option value="healthy">{t("Unauffällig")}</option>
+            <option value="spf-not-aligned">{t("SPF nicht aligned")}</option>
+            <option value="dkim-not-aligned">{t("DKIM nicht aligned")}</option>
           </select>
         </label>
       </div>
@@ -1101,12 +1171,12 @@ function HostsView({
             <table>
               <thead>
                 <tr>
-                  <th>Source</th>
-                  <th>Erkannter Dienst</th>
-                  <th>Vertrauen</th>
+                  <th>{t("Source")}</th>
+                  <th>{t("Erkannter Dienst")}</th>
+                  <th>{t("Vertrauen")}</th>
                   <th>Alignment</th>
                   <th>DMARC</th>
-                  <th className="numeric">Nachrichten</th>
+                  <th className="numeric">{t("Nachrichten")}</th>
                   <th />
                 </tr>
               </thead>
@@ -1118,15 +1188,26 @@ function HostsView({
                   >
                     <td>
                       <IpWithFlag ip={host.source_ip} country={host.country} />
-                      <small>{host.reverse_dns || "Kein PTR"}</small>
+                      <small>{host.reverse_dns || t("Kein PTR")}</small>
                       <small>
-                        {[host.country, host.as_name].filter(Boolean).join(" · ") || "–"}
+                        {[
+                          translateBackendLabel(host.country),
+                          host.as_name,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "–"}
                       </small>
                     </td>
                     <td>
-                      <strong>{host.service_detection.service}</strong>
+                      <strong>
+                        {translateBackendLabel(host.service_detection.service)}
+                      </strong>
                       <small>
-                        Konfidenz {host.service_detection.confidence_label} ·{" "}
+                        {t("Konfidenz")}{" "}
+                        {translateBackendLabel(
+                          host.service_detection.confidence_label,
+                        )}{" "}
+                        ·{" "}
                         {Math.round(host.service_detection.confidence * 100)} %
                       </small>
                     </td>
@@ -1137,14 +1218,18 @@ function HostsView({
                       <span>
                         SPF{" "}
                         {host.spf_not_aligned
-                          ? `${formatNumber(host.spf_not_aligned)} nicht aligned`
-                          : "aligned"}
+                          ? `${formatNumber(host.spf_not_aligned)} ${t(
+                              "nicht aligned",
+                            )}`
+                          : t("aligned")}
                       </span>
                       <small>
                         DKIM{" "}
                         {host.dkim_not_aligned
-                          ? `${formatNumber(host.dkim_not_aligned)} nicht aligned`
-                          : "aligned"}
+                          ? `${formatNumber(host.dkim_not_aligned)} ${t(
+                              "nicht aligned",
+                            )}`
+                          : t("aligned")}
                       </small>
                     </td>
                     <td>
@@ -1160,7 +1245,7 @@ function HostsView({
                         type="button"
                         onClick={() => setSelected(host)}
                       >
-                        Details
+                        {t("Details")}
                       </button>
                     </td>
                   </tr>
@@ -1170,8 +1255,8 @@ function HostsView({
           </div>
         ) : (
           <EmptyState
-            title="Keine Sending Hosts gefunden"
-            description="Passe Suche, Zeitraum oder Risikofilter an."
+            title={t("Keine Sending Hosts gefunden")}
+            description={t("Passe Suche, Zeitraum oder Risikofilter an.")}
           />
         )}
       </section>
@@ -1184,6 +1269,7 @@ function HostsView({
 }
 
 function RiskPill({ host }: { host: Host }) {
+  const { t, formatNumber } = useI18n();
   if (host.risk === "critical") {
     return (
       <StatusPill tone="critical">
@@ -1192,17 +1278,21 @@ function RiskPill({ host }: { host: Host }) {
     );
   }
   if (host.risk === "warning") {
-    return <StatusPill tone="warning">Pass · Hinweis</StatusPill>;
+    return <StatusPill tone="warning">{t("Pass · Hinweis")}</StatusPill>;
   }
   return <StatusPill tone="success">Pass</StatusPill>;
 }
 
 function TrustPill({ status }: { status: TrustStatus }) {
+  const { language, t } = useI18n();
   const values: Record<TrustStatus, { label: string; tone: "neutral" | "info" | "success" }> = {
-    unconfirmed: { label: "Nicht bestätigt", tone: "neutral" },
-    automatic: { label: "Automatisch erkannt", tone: "info" },
-    confirmed: { label: "Bestätigt", tone: "success" },
-    ignored: { label: "Ignoriert", tone: "neutral" },
+    unconfirmed: { label: t("Nicht bestätigt"), tone: "neutral" },
+    automatic: { label: t("Automatisch erkannt"), tone: "info" },
+    confirmed: {
+      label: language === "en" ? "Confirmed" : "Bestätigt",
+      tone: "success",
+    },
+    ignored: { label: t("Ignoriert"), tone: "neutral" },
   };
   const value = values[status];
   return <StatusPill tone={value.tone}>{value.label}</StatusPill>;
@@ -1217,6 +1307,8 @@ function HostDetail({
   close: () => void;
   saved: () => void;
 }) {
+  const { language, t, formatNumber, formatDate, translateBackendLabel } =
+    useI18n();
   const [serviceName, setServiceName] = useState(host.service_detection.service);
   const [trustStatus, setTrustStatus] = useState<TrustStatus>(host.trust_status);
   const [notes, setNotes] = useState(host.override?.notes ?? "");
@@ -1239,10 +1331,12 @@ function HostDetail({
         trust_status: trustStatus,
         notes: notes.trim() || null,
       });
-      setMessage("Zuordnung gespeichert.");
+      setMessage(t("Zuordnung gespeichert."));
       saved();
     } catch (reason) {
-      setMessage(reason instanceof Error ? reason.message : "Speichern fehlgeschlagen");
+      setMessage(
+        reason instanceof Error ? reason.message : t("Speichern fehlgeschlagen"),
+      );
     } finally {
       setSaving(false);
     }
@@ -1250,19 +1344,23 @@ function HostDetail({
 
   const evidence = [
     ...(host.service_detection.evidence ?? []),
-    host.reverse_dns ? `PTR: ${host.reverse_dns}` : "PTR: nicht vorhanden",
-    host.asn ? `ASN ${host.asn}: ${host.as_name ?? "Unbekannt"}` : "",
-  ].filter(Boolean);
+    host.reverse_dns ? `PTR: ${host.reverse_dns}` : t("PTR: nicht vorhanden"),
+    host.asn
+      ? `ASN ${host.asn}: ${host.as_name ?? t("Unbekannt")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .map((item) => translateBackendLabel(item));
 
   return (
     <section className="surface host-detail" aria-live="polite">
       <div className="host-detail-head">
         <div>
-          <div className="eyebrow">Host-Detail</div>
+          <div className="eyebrow">{t("Host-Detail")}</div>
           <h2>
             <IpWithFlag ip={host.source_ip} country={host.country} />
           </h2>
-          <p>{host.reverse_dns || "Kein Reverse-DNS-Name vorhanden"}</p>
+          <p>{host.reverse_dns || t("Kein Reverse-DNS-Name vorhanden")}</p>
         </div>
         <div className="host-detail-actions">
           <RiskPill host={host} />
@@ -1270,7 +1368,7 @@ function HostDetail({
             className="icon-button"
             type="button"
             onClick={close}
-            aria-label="Detailansicht schließen"
+            aria-label={t("Detailansicht schließen")}
           >
             <X aria-hidden="true" />
           </button>
@@ -1281,41 +1379,48 @@ function HostDetail({
         <Detail label="Header From" value={host.header_froms.join(", ") || "–"} />
         <Detail label="Envelope From" value={host.envelope_froms.join(", ") || "–"} />
         <Detail
-          label="SPF-Identitäten"
+          label={t("SPF-Identitäten")}
           value={host.spf_domains.join(", ") || "–"}
         />
         <Detail
-          label="DKIM-Domains"
+          label={t("DKIM-Domains")}
           value={host.dkim_domains.join(", ") || "–"}
         />
         <Detail
-          label="DKIM-Selector"
+          label={t("DKIM-Selector")}
           value={host.dkim_selectors.join(", ") || "–"}
         />
         <Detail
-          label="Netzwerk"
+          label={t("Netzwerk")}
           value={[
-            host.country,
+            translateBackendLabel(host.country),
             host.asn ? `AS${host.asn}` : null,
             host.as_name,
           ]
             .filter(Boolean)
             .join(" · ") || "–"}
         />
-        <Detail label="Erstmals gesehen" value={formatDate(host.first_seen, true)} />
-        <Detail label="Zuletzt gesehen" value={formatDate(host.last_seen, true)} />
         <Detail
-          label="DMARC-Ergebnis"
+          label={t("Erstmals gesehen")}
+          value={formatDate(host.first_seen, true)}
+        />
+        <Detail
+          label={t("Zuletzt gesehen")}
+          value={formatDate(host.last_seen, true)}
+        />
+        <Detail
+          label={t("DMARC-Ergebnis")}
           value={`${formatNumber(host.dmarc_pass)} Pass · ${formatNumber(host.dmarc_fail)} Fail`}
         />
       </div>
 
       <div className="evidence-block">
         <div>
-          <h3>Dienst-Erkennung</h3>
+          <h3>{t("Dienst-Erkennung")}</h3>
           <p>
-            Mehrere Signale werden kombiniert. PTR ist nur ein Indiz und niemals
-            die alleinige Entscheidungsgrundlage.
+            {t(
+              "Mehrere Signale werden kombiniert. PTR ist nur ein Indiz und niemals die alleinige Entscheidungsgrundlage.",
+            )}
           </p>
         </div>
         <div className="evidence-list">
@@ -1325,13 +1430,15 @@ function HostDetail({
               {item}
             </span>
           ))}
-          {!evidence.length && <span className="muted">Keine belastbare Evidenz.</span>}
+          {!evidence.length && (
+            <span className="muted">{t("Keine belastbare Evidenz.")}</span>
+          )}
         </div>
       </div>
 
       <form className="classification-form" onSubmit={submit}>
         <label>
-          <span>Dienst</span>
+          <span>{t("Dienst")}</span>
           <input
             value={serviceName}
             maxLength={120}
@@ -1339,29 +1446,31 @@ function HostDetail({
           />
         </label>
         <label>
-          <span>Vertrauensstatus</span>
+          <span>{t("Vertrauensstatus")}</span>
           <select
             value={trustStatus}
             onChange={(event) => setTrustStatus(event.target.value as TrustStatus)}
           >
-            <option value="unconfirmed">Nicht bestätigt</option>
-            <option value="automatic">Automatisch erkannt</option>
-            <option value="confirmed">Bestätigt</option>
-            <option value="ignored">Ignoriert</option>
+            <option value="unconfirmed">{t("Nicht bestätigt")}</option>
+            <option value="automatic">{t("Automatisch erkannt")}</option>
+            <option value="confirmed">
+              {language === "en" ? "Confirmed" : "Bestätigt"}
+            </option>
+            <option value="ignored">{t("Ignoriert")}</option>
           </select>
         </label>
         <label className="notes-field">
-          <span>Notiz</span>
+          <span>{t("Notiz")}</span>
           <input
             value={notes}
             maxLength={500}
-            placeholder="Optionaler administrativer Kontext"
+            placeholder={t("Optionaler administrativer Kontext")}
             onChange={(event) => setNotes(event.target.value)}
           />
         </label>
         <button className="button button-primary" type="submit" disabled={saving}>
           {saving ? <RefreshCw className="spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
-          Speichern
+          {t("Speichern")}
         </button>
         {message && <span className="form-message">{message}</span>}
       </form>
@@ -1387,6 +1496,7 @@ function AlertsView({
   days: number;
   refreshKey: number;
 }) {
+  const { language, t, formatNumber, formatDate, reportAge } = useI18n();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -1413,36 +1523,73 @@ function AlertsView({
       await api.updateAlert(alertId, nextStatus);
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Statusänderung fehlgeschlagen");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : t("Statusänderung fehlgeschlagen"),
+      );
     } finally {
       setUpdating("");
     }
   };
 
-  if (loading && !alerts.length) return <LoadingState label="Warnungen werden bewertet" />;
+  if (loading && !alerts.length) {
+    return <LoadingState label={t("Warnungen werden bewertet")} />;
+  }
   if (error && !alerts.length) return <ErrorState message={error} retry={load} />;
 
   const openCount = alerts.filter((item) => item.status === "open").length;
+  const alertTitle = (alert: Alert) => t(alert.title);
+  const alertTrigger = (alert: Alert) => {
+    if (language === "de") return alert.trigger;
+    if (alert.kind === "new-source-ip") {
+      const date = alert.trigger.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "–";
+      return t("Erstmals gesehen am {date}", { date });
+    }
+    if (alert.kind === "compensated-alignment") {
+      const mechanisms = [
+        alert.trigger.includes("SPF") ? t("SPF nicht aligned") : "",
+        alert.trigger.includes("DKIM") ? t("DKIM nicht aligned") : "",
+      ].filter(Boolean);
+      return `${mechanisms.join(", ")} · ${t("DMARC bestanden")}`;
+    }
+    if (alert.kind === "stale-reports") {
+      const days = Math.max(
+        0,
+        Math.floor(
+          (Date.now() - new Date(alert.report_time ?? "").getTime()) /
+            86_400_000,
+        ),
+      );
+      return t(
+        "Letzter Report vor {days} Tagen; übliche Zustellverzögerung berücksichtigt",
+        { days },
+      );
+    }
+    return alert.trigger;
+  };
   return (
     <div className="page-stack">
       <SectionHeader
-        title="Warnungszentrale"
-        subtitle="Deduplizierte Ereignisse mit nachvollziehbarem Auslöser"
+        title={t("Warnungszentrale")}
+        subtitle={t(
+          "Deduplizierte Ereignisse mit nachvollziehbarem Auslöser",
+        )}
         action={
           <StatusPill tone={openCount ? "critical" : "success"}>
-            {openCount} offen
+            {t("{count} offen", { count: openCount })}
           </StatusPill>
         }
       />
       <div className="list-toolbar align-end">
         <label className="compact-select">
-          <span>Status</span>
+          <span>{t("Status")}</span>
           <select value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="all">Alle Status</option>
-            <option value="open">Offen</option>
-            <option value="acknowledged">Bestätigt</option>
-            <option value="resolved">Behoben</option>
-            <option value="ignored">Ignoriert</option>
+            <option value="all">{t("Alle Status")}</option>
+            <option value="open">{t("Offen")}</option>
+            <option value="acknowledged">{t("Bestätigt")}</option>
+            <option value="resolved">{t("Behoben")}</option>
+            <option value="ignored">{t("Ignoriert")}</option>
           </select>
         </label>
       </div>
@@ -1453,11 +1600,11 @@ function AlertsView({
             <table>
               <thead>
                 <tr>
-                  <th>Priorität</th>
-                  <th>Warnung</th>
-                  <th>Auslöser</th>
-                  <th>Reportzeit</th>
-                  <th>Status</th>
+                  <th>{t("Priorität")}</th>
+                  <th>{t("Warnung")}</th>
+                  <th>{t("Auslöser")}</th>
+                  <th>{t("Reportzeit")}</th>
+                  <th>{t("Status")}</th>
                   <th />
                 </tr>
               </thead>
@@ -1466,7 +1613,7 @@ function AlertsView({
                   <tr key={alert.id}>
                     <td><PriorityPill priority={alert.priority} /></td>
                     <td>
-                      <strong>{alert.title}</strong>
+                      <strong>{alertTitle(alert)}</strong>
                       {alert.source_ip && (
                         <small>
                           <IpWithFlag
@@ -1478,8 +1625,10 @@ function AlertsView({
                       <small>{alert.domain}</small>
                     </td>
                     <td>
-                      <span>{alert.trigger}</span>
-                      <small>{formatNumber(alert.messages)} Nachrichten</small>
+                      <span>{alertTrigger(alert)}</span>
+                      <small>
+                        {formatNumber(alert.messages)} {t("Nachrichten")}
+                      </small>
                     </td>
                     <td>
                       <span>{formatDate(alert.report_time)}</span>
@@ -1495,7 +1644,7 @@ function AlertsView({
                             disabled={updating === alert.id}
                             onClick={() => update(alert.id, "acknowledged")}
                           >
-                            Bestätigen
+                            {t("Bestätigen")}
                           </button>
                         )}
                         {alert.status !== "resolved" && (
@@ -1505,7 +1654,7 @@ function AlertsView({
                             disabled={updating === alert.id}
                             onClick={() => update(alert.id, "resolved")}
                           >
-                            Behoben
+                            {t("Behoben")}
                           </button>
                         )}
                         {alert.status !== "ignored" && (
@@ -1515,7 +1664,7 @@ function AlertsView({
                             disabled={updating === alert.id}
                             onClick={() => update(alert.id, "ignored")}
                           >
-                            Ignorieren
+                            {t("Ignorieren")}
                           </button>
                         )}
                       </div>
@@ -1527,8 +1676,10 @@ function AlertsView({
           </div>
         ) : (
           <EmptyState
-            title="Keine Warnungen in dieser Ansicht"
-            description="Für Domain, Zeitraum und Status existieren keine passenden Ereignisse."
+            title={t("Keine Warnungen in dieser Ansicht")}
+            description={t(
+              "Für Domain, Zeitraum und Status existieren keine passenden Ereignisse.",
+            )}
           />
         )}
       </section>
@@ -1537,22 +1688,32 @@ function AlertsView({
         <article className="logic-item">
           <TriangleAlert aria-hidden="true" />
           <div>
-            <strong>Sofort kritisch</strong>
-            <span>Neuer oder nicht autorisierter Host mit echtem DMARC-Fail.</span>
+            <strong>{t("Sofort kritisch")}</strong>
+            <span>
+              {t("Neuer oder nicht autorisierter Host mit echtem DMARC-Fail.")}
+            </span>
           </div>
         </article>
         <article className="logic-item">
           <Info aria-hidden="true" />
           <div>
-            <strong>Konfigurationshinweis</strong>
-            <span>Ein Mechanismus ist nicht aligned, DMARC besteht aber weiterhin.</span>
+            <strong>{t("Konfigurationshinweis")}</strong>
+            <span>
+              {t(
+                "Ein Mechanismus ist nicht aligned, DMARC besteht aber weiterhin.",
+              )}
+            </span>
           </div>
         </article>
         <article className="logic-item">
           <Clock3 aria-hidden="true" />
           <div>
-            <strong>Report-Verzögerung</strong>
-            <span>Ausbleibende Reports werden erst nach der üblichen Verzögerung gewarnt.</span>
+            <strong>{t("Report-Verzögerung")}</strong>
+            <span>
+              {t(
+                "Ausbleibende Reports werden erst nach der üblichen Verzögerung gewarnt.",
+              )}
+            </span>
           </div>
         </article>
       </section>
@@ -1561,17 +1722,23 @@ function AlertsView({
 }
 
 function PriorityPill({ priority }: { priority: Alert["priority"] }) {
-  if (priority === "critical") return <StatusPill tone="critical">Kritisch</StatusPill>;
-  if (priority === "warning") return <StatusPill tone="warning">Warnung</StatusPill>;
-  return <StatusPill tone="info">Hinweis</StatusPill>;
+  const { t } = useI18n();
+  if (priority === "critical") {
+    return <StatusPill tone="critical">{t("Kritisch")}</StatusPill>;
+  }
+  if (priority === "warning") {
+    return <StatusPill tone="warning">{t("Warnung")}</StatusPill>;
+  }
+  return <StatusPill tone="info">{t("Hinweis")}</StatusPill>;
 }
 
 function AlertStatusPill({ status }: { status: AlertStatus }) {
+  const { t } = useI18n();
   const values: Record<AlertStatus, { label: string; tone: "critical" | "info" | "success" | "neutral" }> = {
-    open: { label: "Offen", tone: "critical" },
-    acknowledged: { label: "Bestätigt", tone: "info" },
-    resolved: { label: "Behoben", tone: "success" },
-    ignored: { label: "Ignoriert", tone: "neutral" },
+    open: { label: t("Offen"), tone: "critical" },
+    acknowledged: { label: t("Bestätigt"), tone: "info" },
+    resolved: { label: t("Behoben"), tone: "success" },
+    ignored: { label: t("Ignoriert"), tone: "neutral" },
   };
   const value = values[status];
   return <StatusPill tone={value.tone}>{value.label}</StatusPill>;
@@ -1586,6 +1753,13 @@ function ForensicsView({
   days: number;
   refreshKey: number;
 }) {
+  const {
+    t,
+    formatNumber,
+    formatDate,
+    reportAge,
+    translateBackendLabel,
+  } = useI18n();
   const [data, setData] = useState<Forensics | null>(null);
   const [failureType, setFailureType] = useState("*");
   const [loading, setLoading] = useState(true);
@@ -1605,7 +1779,9 @@ function ForensicsView({
     load();
   }, [load, refreshKey]);
 
-  if (loading && !data) return <LoadingState label="Forensik-Metadaten werden geladen" />;
+  if (loading && !data) {
+    return <LoadingState label={t("Forensik-Metadaten werden geladen")} />;
+  }
   if (error && !data) return <ErrorState message={error} retry={load} />;
   if (!data) return null;
 
@@ -1613,16 +1789,16 @@ function ForensicsView({
   return (
     <div className="page-stack">
       <SectionHeader
-        title="DMARC Forensik"
-        subtitle="Minimierte Betriebsmetadaten aus RUF-/Failure-Reports"
+        title={t("DMARC Forensik")}
+        subtitle={t("Minimierte Betriebsmetadaten aus RUF-/Failure-Reports")}
         action={
           <label className="compact-select">
-            <span>Fehlertyp</span>
+            <span>{t("Fehlertyp")}</span>
             <select
               value={failureType}
               onChange={(event) => setFailureType(event.target.value)}
             >
-              <option value="*">Alle Fehlertypen</option>
+              <option value="*">{t("Alle Fehlertypen")}</option>
               {failureOptions.map((item) => (
                 <option value={item} key={item}>{item}</option>
               ))}
@@ -1635,84 +1811,102 @@ function ForensicsView({
         <div>
           <strong>Privacy by design</strong>
           <span>
-            Rohinhalt, Empfänger, Absender, Betreff und Header werden von dieser API
-            nicht geladen.
+            {t(
+              "Rohinhalt, Empfänger, Absender, Betreff und Header werden von dieser API nicht geladen.",
+            )}
           </span>
         </div>
       </div>
       {error && <ErrorState message={error} retry={load} />}
       <section className="kpi-grid">
         <article className="card kpi">
-          <div className="kpi-label"><span>Forensic Samples</span><Database aria-hidden="true" /></div>
+          <div className="kpi-label">
+            <span>{t("Forensic Samples")}</span>
+            <Database aria-hidden="true" />
+          </div>
           <strong>{formatNumber(data.samples)}</strong>
-          <p>Aggregierte Failure-Metadaten</p>
+          <p>{t("Aggregierte Failure-Metadaten")}</p>
         </article>
         <article className="card kpi">
-          <div className="kpi-label"><span>Datenaktualität</span><Clock3 aria-hidden="true" /></div>
+          <div className="kpi-label">
+            <span>{t("Datenaktualität")}</span>
+            <Clock3 aria-hidden="true" />
+          </div>
           <strong className="date-value">{formatDate(data.last_report)}</strong>
           <p>{reportAge(data.last_report)}</p>
         </article>
         <article className="card kpi">
-          <div className="kpi-label"><span>Source-IPs</span><Globe2 aria-hidden="true" /></div>
+          <div className="kpi-label">
+            <span>{t("Source-IPs")}</span>
+            <Globe2 aria-hidden="true" />
+          </div>
           <strong>{formatNumber(data.sources.length)}</strong>
-          <p>{formatNumber(data.countries.length)} Länder/Zuordnungen</p>
+          <p>
+            {t("{count} Länder/Zuordnungen", {
+              count: formatNumber(data.countries.length),
+            })}
+          </p>
         </article>
       </section>
 
       {!data.samples ? (
         <EmptyState
-          title="Keine Forensik-Daten im Zeitraum"
-          description="RUF-Daten sind möglicherweise deaktiviert oder es sind keine passenden Failure-Reports eingegangen."
+          title={t("Keine Forensik-Daten im Zeitraum")}
+          description={t(
+            "RUF-Daten sind möglicherweise deaktiviert oder es sind keine passenden Failure-Reports eingegangen.",
+          )}
         />
       ) : (
         <>
           <div className="three-column-grid">
             <article className="surface compact-surface">
-              <h3>Authentication Failure Types</h3>
+              <h3>{t("Authentication Failure Types")}</h3>
               <TopList
                 items={data.failure_types.map((item) => ({
                   name: item.name,
                   value: item.samples,
                 }))}
-                empty="Keine Fehlertypen"
+                empty={t("Keine Fehlertypen")}
               />
             </article>
             <article className="surface compact-surface">
-              <h3>Betroffene Domains</h3>
+              <h3>{t("Betroffene Domains")}</h3>
               <TopList
                 items={data.domains.map((item) => ({
                   name: item.name,
                   value: item.samples,
                 }))}
-                empty="Keine Domains"
+                empty={t("Keine Domains")}
               />
             </article>
             <article className="surface compact-surface">
-              <h3>Quellen nach Land</h3>
+              <h3>{t("Quellen nach Land")}</h3>
               <TopList
                 items={data.countries.map((item) => ({
-                  name: item.name,
+                  name: translateBackendLabel(item.name),
                   value: item.samples,
                 }))}
-                empty="Keine Länderinformationen"
+                empty={t("Keine Länderinformationen")}
               />
             </article>
           </div>
 
           <section className="surface">
             <SectionHeader
-              title="Top Forensic Source IPs"
-              subtitle="IP, PTR, Basisdomain, Land und letzte Beobachtung"
+              title={t("Top Forensic Source IPs")}
+              subtitle={t(
+                "IP, PTR, Basisdomain, Land und letzte Beobachtung",
+              )}
             />
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Source-IP</th>
-                    <th>PTR / Basisdomain</th>
-                    <th>Land</th>
-                    <th>Zuletzt gesehen</th>
-                    <th className="numeric">Samples</th>
+                    <th>{t("PTR / Basisdomain")}</th>
+                    <th>{t("Land")}</th>
+                    <th>{t("Zuletzt gesehen")}</th>
+                    <th className="numeric">{t("Samples")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1728,7 +1922,7 @@ function ForensicsView({
                         <span>{source.reverse_dns || "–"}</span>
                         <small>{source.base_domain || "–"}</small>
                       </td>
-                      <td>{source.country}</td>
+                      <td>{translateBackendLabel(source.country)}</td>
                       <td>{formatDate(source.last_seen, true)}</td>
                       <td className="numeric"><strong>{formatNumber(source.samples)}</strong></td>
                     </tr>
@@ -1740,8 +1934,10 @@ function ForensicsView({
 
           <section className="surface">
             <SectionHeader
-              title="Bereinigte Failure-Evidenz"
-              subtitle="Nur Authentifizierungs- und Delivery-Ergebnis; keine Nachrichteninhalte"
+              title={t("Bereinigte Failure-Evidenz")}
+              subtitle={t(
+                "Nur Authentifizierungs- und Delivery-Ergebnis; keine Nachrichteninhalte",
+              )}
             />
             <div className="evidence-table">
               {data.evidence.map((item, index) => (
@@ -1754,7 +1950,9 @@ function ForensicsView({
                     {item.delivery_results.map((delivery) => (
                       <StatusPill tone="neutral" key={delivery}>{delivery}</StatusPill>
                     ))}
-                    <span>{formatNumber(item.samples)} Samples</span>
+                    <span>
+                      {formatNumber(item.samples)} {t("Samples")}
+                    </span>
                   </div>
                 </article>
               ))}
