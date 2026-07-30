@@ -1458,7 +1458,7 @@ td > strong {
 .notification-fields input,
 .notification-fields select,
 .notification-fields textarea,
-.notification-form > label input {
+.notification-form > label:not(.notification-enable) input {
   min-width: 0;
   width: 100%;
 }
