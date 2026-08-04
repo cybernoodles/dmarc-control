@@ -35,6 +35,7 @@ parsedmarc-stack/
 ├── README.md
 ├── docs/
 │   ├── BACKLOG.md                           ← geplante Weiterentwicklung von DMARC Control
+│   ├── BACKUP-RESTORE.md                    ← Dateninventar und Wiederherstellungsabhängigkeiten
 │   ├── M365.md                              ← M365-Setup und RBAC-Prüfung
 │   ├── MIGRATION-TO-PORTABLE-DATA.md        ← Einmalmigration bestehender Docker-Volumes
 │   └── CUSTOM-DASHBOARD.md                  ← Architektur und Betrieb von DMARC Control
@@ -259,6 +260,13 @@ gesalzener Hash gespeichert und kann unter Einstellungen geändert werden.
 
 Weitere Details und der Dockge-Betriebsablauf stehen in
 [docs/CUSTOM-DASHBOARD.md](docs/CUSTOM-DASHBOARD.md).
+
+Die vollständige Trennung zwischen historischen OpenSearch-Daten,
+Dashboard-Steuerungsdaten, Verschlüsselungsschlüssel und optionalem
+Grafana-Zustand ist in
+[docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) beschrieben. Dort ist auch
+festgehalten, welche Teilwiederherstellungen möglich sind und in welcher
+Reihenfolge ein vollständiger Restore erfolgen muss.
 
 ## Ports
 

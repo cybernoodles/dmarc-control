@@ -63,6 +63,11 @@ weder Klartext-Secret noch Schlüssel ausgeliefert. Ein separat automatisch
 erzeugtes Token in `data/parser-control/control.token` schützt die nur im
 Compose-Netz erreichbare Verbindung zwischen Supervisor und API.
 
+OpenSearch-Historie, SQLite-Steuerungszustand, Schlüssel und Parser-Token sind
+getrennte Backup-Objekte. Die verbindliche Dateninventar- und
+Abhängigkeitsmatrix steht in
+[BACKUP-RESTORE.md](BACKUP-RESTORE.md).
+
 Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
 sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
 Abweichung. Beim ersten Aufruf blockiert ein Setup-Screen das Dashboard, bis
