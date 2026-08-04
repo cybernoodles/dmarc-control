@@ -388,7 +388,6 @@ class DashboardService:
                                 "field": "published_policy.pct",
                                 "size": 5,
                                 "order": {"_count": "desc"},
-                                "missing": 100,
                             }
                         },
                     },

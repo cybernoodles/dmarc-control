@@ -164,6 +164,45 @@ class ForensicPrivacyTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("original_rcpt_to", serialized)
 
 
+class OverviewQueryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_policy_percentage_uses_application_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake = FakeClient(
+                {
+                    "aggregations": {
+                        "messages": {"value": 1},
+                        "policies": {
+                            "buckets": [
+                                {
+                                    "key": "example.com",
+                                    "messages": {"value": 1},
+                                    "policy": {
+                                        "buckets": [{"key": "reject"}]
+                                    },
+                                    "percentage": {"buckets": []},
+                                }
+                            ]
+                        },
+                    }
+                }
+            )
+            settings = Settings(database_path=Path(directory) / "dashboard.db")
+            service = DashboardService(
+                fake,
+                StateStore(settings.database_path),
+                settings,
+            )
+
+            result = await service.overview("*", 30)
+
+            _, body, _ = fake.calls[0]
+            percentage_terms = body["aggs"]["policies"]["aggs"][
+                "percentage"
+            ]["terms"]
+            self.assertNotIn("missing", percentage_terms)
+            self.assertEqual(result["policies"][0]["percentage"], 100)
+
+
 class HostQueryTests(unittest.IsolatedAsyncioTestCase):
     async def test_host_query_uses_read_only_current_and_historical_windows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
