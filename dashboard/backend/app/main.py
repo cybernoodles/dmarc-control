@@ -19,10 +19,12 @@ from pydantic import BaseModel, Field
 from .auth import (
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
+    READ_SESSION_COOKIE,
     SESSION_COOKIE,
     SESSION_HOURS,
-    AdminSession,
-    create_session,
+    Session,
+    create_admin_session,
+    create_read_session,
     hash_password,
     session_hash,
     verify_password,
@@ -99,6 +101,31 @@ class AppearanceUpdate(BaseModel):
 
 
 class PasswordRequest(BaseModel):
+    password: str = Field(
+        min_length=PASSWORD_MIN_LENGTH,
+        max_length=PASSWORD_MAX_LENGTH,
+    )
+
+
+class InitialSetupRequest(BaseModel):
+    admin_password: str = Field(
+        min_length=PASSWORD_MIN_LENGTH,
+        max_length=PASSWORD_MAX_LENGTH,
+    )
+    read_username: str = Field(min_length=1, max_length=120)
+    read_password: str = Field(
+        min_length=PASSWORD_MIN_LENGTH,
+        max_length=PASSWORD_MAX_LENGTH,
+    )
+
+
+class ReadLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)
+
+
+class ReadCredentialsUpdate(BaseModel):
+    username: str = Field(min_length=1, max_length=120)
     password: str = Field(
         min_length=PASSWORD_MIN_LENGTH,
         max_length=PASSWORD_MAX_LENGTH,
@@ -202,9 +229,19 @@ def current_session_hash(request: Request) -> str | None:
     return session_hash(token) if token else None
 
 
+def current_read_session_hash(request: Request) -> str | None:
+    token = request.cookies.get(READ_SESSION_COOKIE)
+    return session_hash(token) if token else None
+
+
 def is_admin_authenticated(request: Request) -> bool:
     current_hash = current_session_hash(request)
     return bool(current_hash and store.admin_session_valid(current_hash))
+
+
+def is_read_authenticated(request: Request) -> bool:
+    current_hash = current_read_session_hash(request)
+    return bool(current_hash and store.read_session_valid(current_hash))
 
 
 def require_admin(request: Request) -> None:
@@ -212,9 +249,9 @@ def require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Admin login required")
 
 
-def set_admin_cookie(response: Response, session: AdminSession) -> None:
+def _set_session_cookie(response: Response, key: str, session: Session) -> None:
     response.set_cookie(
-        key=SESSION_COOKIE,
+        key=key,
         value=session.token,
         max_age=SESSION_HOURS * 60 * 60,
         expires=session.expires_at,
@@ -223,6 +260,52 @@ def set_admin_cookie(response: Response, session: AdminSession) -> None:
         httponly=True,
         samesite="strict",
     )
+
+
+def set_admin_cookie(response: Response, session: Session) -> None:
+    _set_session_cookie(response, SESSION_COOKIE, session)
+
+
+def set_read_cookie(response: Response, session: Session) -> None:
+    _set_session_cookie(response, READ_SESSION_COOKIE, session)
+
+
+def delete_session_cookie(response: Response, key: str) -> None:
+    response.delete_cookie(
+        key,
+        path="/",
+        secure=settings.session_secure_cookie,
+        httponly=True,
+        samesite="strict",
+    )
+
+
+def normalized_read_username(username: str) -> tuple[str, str]:
+    cleaned = username.strip()
+    if not cleaned or any(character.isspace() for character in cleaned):
+        raise HTTPException(
+            status_code=422,
+            detail="Read username must not contain whitespace",
+        )
+    return cleaned, cleaned.casefold()
+
+
+def auth_status_payload(request: Request) -> dict:
+    setup_required = not store.setup_complete()
+    read_authenticated = (
+        False if setup_required else is_read_authenticated(request)
+    )
+    return {
+        "setup_required": setup_required,
+        "admin_configured": store.admin_configured(),
+        "read_authenticated": read_authenticated,
+        "read_username": store.read_username() if read_authenticated else None,
+        "authenticated": (
+            False
+            if setup_required or not read_authenticated
+            else is_admin_authenticated(request)
+        ),
+    }
 
 
 def mailbox_vault() -> SecretVault:
@@ -751,7 +834,26 @@ def require_parser_control_token(provided_token: str | None) -> None:
 
 @app.middleware("http")
 async def security_headers(request, call_next):
-    response = await call_next(request)
+    public_api_paths = {
+        "/api/auth/read-login",
+        "/api/auth/read-logout",
+        "/api/auth/setup",
+        "/api/auth/status",
+        "/api/health",
+    }
+    read_login_required = (
+        request.url.path.startswith("/api/")
+        and request.url.path not in public_api_paths
+        and not request.url.path.startswith("/api/internal/")
+        and not is_read_authenticated(request)
+    )
+    if read_login_required:
+        response = JSONResponse(
+            status_code=401,
+            content={"detail": "Read login required"},
+        )
+    else:
+        response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -798,24 +900,104 @@ async def domains():
 
 @app.get("/api/auth/status")
 async def auth_status(request: Request):
-    setup_required = not store.admin_configured()
-    return {
-        "setup_required": setup_required,
-        "authenticated": (
-            False if setup_required else is_admin_authenticated(request)
-        ),
-    }
+    return auth_status_payload(request)
 
 
 @app.post("/api/auth/setup", status_code=201)
-async def setup_admin(update: PasswordRequest, response: Response):
-    if not store.set_initial_admin_password(hash_password(update.password)):
+async def setup_access(
+    update: InitialSetupRequest,
+    response: Response,
+):
+    if store.read_configured():
         raise HTTPException(
             status_code=409,
-            detail="Admin password is already configured",
+            detail="Initial setup is already complete",
         )
-    set_admin_cookie(response, create_session(store))
-    return {"setup_required": False, "authenticated": True}
+
+    read_username, read_username_normalized = normalized_read_username(
+        update.read_username
+    )
+    admin_password_hash = store.admin_password_hash()
+    if admin_password_hash:
+        if not verify_password(update.admin_password, admin_password_hash):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid admin password",
+            )
+        saved = store.set_initial_read_credentials(
+            expected_admin_hash=admin_password_hash,
+            read_username=read_username,
+            read_username_normalized=read_username_normalized,
+            read_password_hash=hash_password(update.read_password),
+        )
+    else:
+        saved = store.set_initial_credentials(
+            admin_password_hash=hash_password(update.admin_password),
+            read_username=read_username,
+            read_username_normalized=read_username_normalized,
+            read_password_hash=hash_password(update.read_password),
+        )
+    if not saved:
+        raise HTTPException(
+            status_code=409,
+            detail="Initial setup was completed concurrently",
+        )
+
+    set_read_cookie(response, create_read_session(store))
+    set_admin_cookie(response, create_admin_session(store))
+    return {
+        "setup_required": False,
+        "admin_configured": True,
+        "read_authenticated": True,
+        "read_username": read_username,
+        "authenticated": True,
+    }
+
+
+@app.post("/api/auth/read-login")
+async def login_read_user(
+    update: ReadLoginRequest,
+    request: Request,
+    response: Response,
+):
+    if not store.setup_complete():
+        raise HTTPException(status_code=409, detail="Initial setup required")
+    _read_username, read_username_normalized = normalized_read_username(
+        update.username
+    )
+    password_hash = store.read_password_hash(read_username_normalized)
+    if not password_hash or not verify_password(update.password, password_hash):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid read credentials",
+        )
+    set_read_cookie(response, create_read_session(store))
+    return {
+        "setup_required": False,
+        "admin_configured": True,
+        "read_authenticated": True,
+        "read_username": store.read_username(),
+        "authenticated": is_admin_authenticated(request),
+    }
+
+
+@app.post("/api/auth/read-logout")
+async def logout_read_user(request: Request, response: Response):
+    read_hash = current_read_session_hash(request)
+    admin_hash = current_session_hash(request)
+    if read_hash:
+        store.delete_read_session(read_hash)
+    if admin_hash:
+        store.delete_admin_session(admin_hash)
+    delete_session_cookie(response, READ_SESSION_COOKIE)
+    delete_session_cookie(response, SESSION_COOKIE)
+    return {
+        "setup_required": not store.setup_complete(),
+        "admin_configured": store.admin_configured(),
+        "read_authenticated": False,
+        "read_username": None,
+        "authenticated": False,
+    }
 
 
 @app.post("/api/auth/login")
@@ -825,8 +1007,14 @@ async def login_admin(update: PasswordRequest, response: Response):
         raise HTTPException(status_code=409, detail="Admin setup required")
     if not verify_password(update.password, password_hash):
         raise HTTPException(status_code=401, detail="Invalid admin password")
-    set_admin_cookie(response, create_session(store))
-    return {"setup_required": False, "authenticated": True}
+    set_admin_cookie(response, create_admin_session(store))
+    return {
+        "setup_required": False,
+        "admin_configured": True,
+        "read_authenticated": True,
+        "read_username": store.read_username(),
+        "authenticated": True,
+    }
 
 
 @app.post("/api/auth/logout")
@@ -834,17 +1022,8 @@ async def logout_admin(request: Request, response: Response):
     current_hash = current_session_hash(request)
     if current_hash:
         store.delete_admin_session(current_hash)
-    response.delete_cookie(
-        SESSION_COOKIE,
-        path="/",
-        secure=settings.session_secure_cookie,
-        httponly=True,
-        samesite="strict",
-    )
-    return {
-        "setup_required": not store.admin_configured(),
-        "authenticated": False,
-    }
+    delete_session_cookie(response, SESSION_COOKIE)
+    return auth_status_payload(request)
 
 
 @app.post("/api/auth/change-password")
@@ -876,8 +1055,43 @@ async def change_admin_password(
             status_code=409,
             detail="Admin password changed concurrently",
         )
-    set_admin_cookie(response, create_session(store))
-    return {"setup_required": False, "authenticated": True}
+    set_admin_cookie(response, create_admin_session(store))
+    return {
+        "setup_required": False,
+        "admin_configured": True,
+        "read_authenticated": True,
+        "read_username": store.read_username(),
+        "authenticated": True,
+    }
+
+
+@app.put("/api/auth/read-credentials")
+async def update_read_credentials(
+    update: ReadCredentialsUpdate,
+    request: Request,
+    response: Response,
+):
+    require_admin(request)
+    read_username, read_username_normalized = normalized_read_username(
+        update.username
+    )
+    if not store.replace_read_credentials(
+        read_username=read_username,
+        read_username_normalized=read_username_normalized,
+        password_hash=hash_password(update.password),
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Read user is not configured",
+        )
+    set_read_cookie(response, create_read_session(store))
+    return {
+        "setup_required": False,
+        "admin_configured": True,
+        "read_authenticated": True,
+        "read_username": read_username,
+        "authenticated": True,
+    }
 
 
 @app.get("/api/settings/appearance")

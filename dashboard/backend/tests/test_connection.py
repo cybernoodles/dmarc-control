@@ -151,7 +151,11 @@ class MailboxSettingsApiTests(unittest.TestCase):
                 unauthorized = client.get("/api/settings/mailbox")
                 client.post(
                     "/api/auth/setup",
-                    json={"password": "initial-admin-password"},
+                    json={
+                        "admin_password": "initial-admin-password",
+                        "read_username": "dmarc-reader",
+                        "read_password": "initial-read-password",
+                    },
                 )
                 saved = client.put(
                     "/api/settings/mailbox",

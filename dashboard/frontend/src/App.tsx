@@ -15,6 +15,7 @@ import {
   Info,
   LayoutDashboard,
   LockKeyhole,
+  LogOut,
   Mail,
   Palette,
   PlugZap,
@@ -381,6 +382,30 @@ function AppGate() {
     loadStatus();
   }, [loadStatus]);
 
+  useEffect(() => {
+    const handleExpiredReadSession = () => {
+      setAuth((current) =>
+        current
+          ? {
+              ...current,
+              read_authenticated: false,
+              read_username: null,
+              authenticated: false,
+            }
+          : current,
+      );
+    };
+    window.addEventListener(
+      "dmarc-read-session-expired",
+      handleExpiredReadSession,
+    );
+    return () =>
+      window.removeEventListener(
+        "dmarc-read-session-expired",
+        handleExpiredReadSession,
+      );
+  }, []);
+
   if (!auth) {
     return (
       <div className="setup-shell">
@@ -412,6 +437,17 @@ function AppGate() {
   if (auth.setup_required) {
     return (
       <AdminSetup
+        adminConfigured={auth.admin_configured}
+        language={language}
+        setLanguage={setLanguage}
+        onComplete={setAuth}
+      />
+    );
+  }
+
+  if (!auth.read_authenticated) {
+    return (
+      <ReadLogin
         language={language}
         setLanguage={setLanguage}
         onComplete={setAuth}
@@ -423,39 +459,66 @@ function AppGate() {
 }
 
 function AdminSetup({
+  adminConfigured,
   language,
   setLanguage,
   onComplete,
 }: {
+  adminConfigured: boolean;
   language: "de" | "en";
   setLanguage: (language: "de" | "en") => void;
   onComplete: (status: AuthStatus) => void;
 }) {
   const { t } = useI18n();
-  const [password, setPassword] = useState("");
-  const [confirmation, setConfirmation] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminConfirmation, setAdminConfirmation] = useState("");
+  const [readUsername, setReadUsername] = useState("");
+  const [readPassword, setReadPassword] = useState("");
+  const [readConfirmation, setReadConfirmation] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (password.length < 12) {
+    if (adminPassword.length < 12) {
       setError(t("Das Admin-Passwort muss mindestens 12 Zeichen lang sein."));
       return;
     }
-    if (password !== confirmation) {
+    if (!adminConfigured && adminPassword !== adminConfirmation) {
       setError(t("Die Passwörter stimmen nicht überein."));
+      return;
+    }
+    if (!readUsername.trim() || /\s/.test(readUsername.trim())) {
+      setError(t("Der Read-Benutzername darf keine Leerzeichen enthalten."));
+      return;
+    }
+    if (readPassword.length < 12) {
+      setError(t("Das Read-Passwort muss mindestens 12 Zeichen lang sein."));
+      return;
+    }
+    if (readPassword !== readConfirmation) {
+      setError(t("Die Read-Passwörter stimmen nicht überein."));
       return;
     }
     setSaving(true);
     setError("");
     try {
-      onComplete(await api.setupAdmin(password));
+      onComplete(
+        await api.setupAccess(
+          adminPassword,
+          readUsername.trim(),
+          readPassword,
+        ),
+      );
     } catch (reason) {
-      setError(
+      const rawMessage =
         reason instanceof Error
           ? reason.message
-          : t("Admin-Passwort konnte nicht gespeichert werden."),
+          : t("Zugänge konnten nicht gespeichert werden.");
+      setError(
+        rawMessage === "Invalid admin password"
+          ? t("Admin-Passwort ist falsch.")
+          : rawMessage,
       );
     } finally {
       setSaving(false);
@@ -486,40 +549,86 @@ function AdminSetup({
         </span>
         <div className="setup-heading">
           <span>{t("Ersteinrichtung")}</span>
-          <h1>{t("Admin-Zugang einrichten")}</h1>
+          <h1>{t("Zugänge einrichten")}</h1>
           <p>
-            {t(
-              "Lege einmalig das Passwort für globale Einstellungen fest. Es wird ausschließlich als sicherer Hash in der Dashboard-Datenbank gespeichert.",
-            )}
+            {adminConfigured
+              ? t(
+                  "Bestätige das bestehende Admin-Passwort und ergänze den neuen Read-Zugang.",
+                )
+              : t(
+                  "Lege den Read-Zugang für das Dashboard und das separate Admin-Passwort für geschützte Einstellungen fest.",
+                )}
           </p>
         </div>
         <form className="setup-form" onSubmit={submit}>
           <label>
-            <span>{t("Admin-Passwort")}</span>
+            <span>
+              {adminConfigured
+                ? t("Bestehendes Admin-Passwort")
+                : t("Admin-Passwort")}
+            </span>
             <input
               type="password"
-              autoComplete="new-password"
+              autoComplete={adminConfigured ? "current-password" : "new-password"}
               minLength={12}
               maxLength={256}
+              required
+              value={adminPassword}
+              onChange={(event) => setAdminPassword(event.target.value)}
+            />
+          </label>
+          {!adminConfigured && (
+            <label>
+              <span>{t("Admin-Passwort wiederholen")}</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                maxLength={256}
+                required
+                value={adminConfirmation}
+                onChange={(event) => setAdminConfirmation(event.target.value)}
+              />
+            </label>
+          )}
+          <div className="setup-divider" />
+          <label>
+            <span>{t("Read-Benutzername")}</span>
+            <input
+              type="text"
+              autoComplete="username"
+              maxLength={120}
               autoFocus
               required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              value={readUsername}
+              onChange={(event) => setReadUsername(event.target.value)}
             />
           </label>
           <label>
-            <span>{t("Passwort wiederholen")}</span>
+            <span>{t("Read-Passwort")}</span>
             <input
               type="password"
               autoComplete="new-password"
               minLength={12}
               maxLength={256}
               required
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
+              value={readPassword}
+              onChange={(event) => setReadPassword(event.target.value)}
             />
           </label>
-          <small>{t("Mindestens 12 Zeichen.")}</small>
+          <label>
+            <span>{t("Read-Passwort wiederholen")}</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={256}
+              required
+              value={readConfirmation}
+              onChange={(event) => setReadConfirmation(event.target.value)}
+            />
+          </label>
+          <small>{t("Beide Passwörter benötigen mindestens 12 Zeichen.")}</small>
           {error && <div className="setup-error">{error}</div>}
           <button
             className="button button-primary setup-submit"
@@ -527,17 +636,117 @@ function AdminSetup({
             disabled={saving}
           >
             <LockKeyhole aria-hidden="true" />
-            {saving ? t("Wird gespeichert …") : t("Admin-Passwort festlegen")}
+            {saving ? t("Wird gespeichert …") : t("Zugänge speichern")}
           </button>
         </form>
         <div className="settings-note">
           <Info aria-hidden="true" />
           <span>
             {t(
-              "Das Passwort schützt Administrationsfunktionen, nicht den lesenden Zugriff auf DMARC-Daten.",
+              "Der Read-Zugang schützt den Dashboard-Zugriff. Das separate Admin-Passwort schützt Änderungen an globalen Einstellungen.",
             )}
           </span>
         </div>
+      </section>
+    </div>
+  );
+}
+
+function ReadLogin({
+  language,
+  setLanguage,
+  onComplete,
+}: {
+  language: "de" | "en";
+  setLanguage: (language: "de" | "en") => void;
+  onComplete: (status: AuthStatus) => void;
+}) {
+  const { t } = useI18n();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      onComplete(await api.loginRead(username.trim(), password));
+    } catch (reason) {
+      const rawMessage =
+        reason instanceof Error ? reason.message : t("Anmeldung fehlgeschlagen.");
+      setError(
+        rawMessage === "Invalid read credentials"
+          ? t("Benutzername oder Passwort ist falsch.")
+          : rawMessage,
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="setup-shell">
+      <section className="setup-card">
+        <div className="setup-language" role="group" aria-label={t("Sprache")}>
+          <button
+            type="button"
+            className={classNames(language === "de" && "active")}
+            onClick={() => setLanguage("de")}
+          >
+            DE
+          </button>
+          <button
+            type="button"
+            className={classNames(language === "en" && "active")}
+            onClick={() => setLanguage("en")}
+          >
+            EN
+          </button>
+        </div>
+        <span className="brand-mark setup-brand-mark">
+          <ShieldCheck aria-hidden="true" />
+        </span>
+        <div className="setup-heading">
+          <span>{t("Geschützter Zugriff")}</span>
+          <h1>{t("Bei DMARC Control anmelden")}</h1>
+          <p>{t("Melde dich mit dem beim Setup definierten Read-Zugang an.")}</p>
+        </div>
+        <form className="setup-form" onSubmit={submit}>
+          <label>
+            <span>{t("Benutzername")}</span>
+            <input
+              type="text"
+              autoComplete="username"
+              maxLength={120}
+              autoFocus
+              required
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>{t("Passwort")}</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              maxLength={256}
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          {error && <div className="setup-error">{error}</div>}
+          <button
+            className="button button-primary setup-submit"
+            type="submit"
+            disabled={busy}
+          >
+            <LockKeyhole aria-hidden="true" />
+            {busy ? t("Anmeldung läuft …") : t("Anmelden")}
+          </button>
+        </form>
       </section>
     </div>
   );
@@ -551,6 +760,7 @@ function DashboardApp({
   setAuth: (status: AuthStatus) => void;
 }) {
   const { t } = useI18n();
+  const [readLogoutBusy, setReadLogoutBusy] = useState(false);
   const [view, setView] = useState<View>(() => {
     const requested = new URLSearchParams(window.location.search).get("view");
     return ["overview", "hosts", "alerts", "forensics", "settings"].includes(
@@ -739,6 +949,14 @@ function DashboardApp({
     setView("alerts");
   };
 
+  const logoutRead = async () => {
+    setReadLogoutBusy(true);
+    try {
+      setAuth(await api.logoutRead());
+    } finally {
+      setReadLogoutBusy(false);
+    }
+  };
 
   const scopeLabel = `${domain === "*" ? t("Alle Domains") : domain} · ${t(
     "{days} Tage",
@@ -768,9 +986,25 @@ function DashboardApp({
             <span>{t("Mail-Authentifizierungsbetrieb")}</span>
           </div>
         </div>
-        <div className="health-label">
-          <span className="health-dot" />
-          {t("Live aus OpenSearch")}
+        <div className="header-actions">
+          <div className="health-label">
+            <span className="health-dot" />
+            {t("Live aus OpenSearch")}
+          </div>
+          <span className="read-user-label">
+            {t("Angemeldet als {username}", {
+              username: auth.read_username ?? "Read",
+            })}
+          </span>
+          <button
+            className="button button-ghost read-logout"
+            type="button"
+            disabled={readLogoutBusy}
+            onClick={logoutRead}
+          >
+            <LogOut aria-hidden="true" />
+            {t("Abmelden")}
+          </button>
         </div>
       </header>
 
@@ -2400,6 +2634,9 @@ function SettingsView({
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirmation, setNewPasswordConfirmation] = useState("");
+  const [readUsername, setReadUsername] = useState(auth.read_username ?? "");
+  const [readPassword, setReadPassword] = useState("");
+  const [readPasswordConfirmation, setReadPasswordConfirmation] = useState("");
   const [authMessage, setAuthMessage] = useState("");
   const [authMessageTone, setAuthMessageTone] = useState<
     "success" | "critical" | "info"
@@ -2542,6 +2779,52 @@ function SettingsView({
       setAuthBusy(false);
     }
   };
+  const changeReadCredentials = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!readUsername.trim() || /\s/.test(readUsername.trim())) {
+      setAuthMessageTone("critical");
+      setAuthMessage(t("Der Read-Benutzername darf keine Leerzeichen enthalten."));
+      return;
+    }
+    if (readPassword.length < 12) {
+      setAuthMessageTone("critical");
+      setAuthMessage(t("Das Read-Passwort muss mindestens 12 Zeichen lang sein."));
+      return;
+    }
+    if (readPassword !== readPasswordConfirmation) {
+      setAuthMessageTone("critical");
+      setAuthMessage(t("Die Read-Passwörter stimmen nicht überein."));
+      return;
+    }
+    setAuthBusy(true);
+    setAuthMessage("");
+    try {
+      const next = await api.updateReadCredentials(
+        readUsername.trim(),
+        readPassword,
+      );
+      setAuth(next);
+      setReadUsername(next.read_username ?? "");
+      setReadPassword("");
+      setReadPasswordConfirmation("");
+      setAuthMessageTone("success");
+      setAuthMessage(t("Read-Zugang wurde aktualisiert."));
+    } catch (reason) {
+      const rawMessage =
+        reason instanceof Error ? reason.message : t("Aktualisierung fehlgeschlagen.");
+      if (rawMessage === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+      }
+      setAuthMessageTone("critical");
+      setAuthMessage(
+        rawMessage === "Admin login required"
+          ? t("Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.")
+          : rawMessage,
+      );
+    } finally {
+      setAuthBusy(false);
+    }
+  };
   const activeLabel = hasLocalBrand
     ? t("Lokale Farbgebung aktiv")
     : appearance?.global_profile === "custom"
@@ -2669,7 +2952,7 @@ function SettingsView({
             <LockKeyhole aria-hidden="true" />
             <span>
               <strong>{t("Administration")}</strong>
-              <small>{t("Anmeldung und Admin-Passwort")}</small>
+              <small>{t("Read-Zugang und Admin-Passwort")}</small>
             </span>
             <ChevronRight aria-hidden="true" />
           </button>
@@ -2770,7 +3053,7 @@ function SettingsView({
               <h3>{t("Administration")}</h3>
               <p>
                 {t(
-                  "Die Admin-Anmeldung schützt globale Einstellungen. Das Dashboard bleibt ohne Anmeldung lesbar.",
+                  "Der Read-Zugang schützt das Dashboard. Die separate Admin-Anmeldung schützt globale Einstellungen.",
                 )}
               </p>
             </div>
@@ -2788,6 +3071,7 @@ function SettingsView({
                 <input
                   type="password"
                   autoComplete="current-password"
+                  maxLength={256}
                   required
                   value={loginPassword}
                   onChange={(event) => setLoginPassword(event.target.value)}
@@ -2863,6 +3147,67 @@ function SettingsView({
                   "Nach einer Passwortänderung werden andere Admin-Sitzungen automatisch beendet.",
                 )}
               </small>
+              <div className="credential-section">
+                <div>
+                  <strong>{t("Read-Zugang")}</strong>
+                  <small>
+                    {t(
+                      "Eine Änderung beendet alle anderen Read-Sitzungen. Diese Sitzung bleibt angemeldet.",
+                    )}
+                  </small>
+                </div>
+                <form
+                  className="password-change-form"
+                  onSubmit={changeReadCredentials}
+                >
+                  <label>
+                    <span>{t("Read-Benutzername")}</span>
+                    <input
+                      type="text"
+                      autoComplete="username"
+                      maxLength={120}
+                      required
+                      value={readUsername}
+                      onChange={(event) => setReadUsername(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("Neues Read-Passwort")}</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={12}
+                      maxLength={256}
+                      required
+                      value={readPassword}
+                      onChange={(event) => setReadPassword(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("Read-Passwort wiederholen")}</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={12}
+                      maxLength={256}
+                      required
+                      value={readPasswordConfirmation}
+                      onChange={(event) =>
+                        setReadPasswordConfirmation(event.target.value)
+                      }
+                    />
+                  </label>
+                  <div className="admin-actions">
+                    <button
+                      className="button button-secondary"
+                      type="submit"
+                      disabled={authBusy}
+                    >
+                      {t("Read-Zugang aktualisieren")}
+                    </button>
+                  </div>
+                </form>
+              </div>
             </>
           )}
           {authMessage && (

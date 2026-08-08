@@ -13,6 +13,7 @@ PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 256
 SESSION_HOURS = 12
 SESSION_COOKIE = "dmarc_admin_session"
+READ_SESSION_COOKIE = "dmarc_read_session"
 
 _SCRYPT_N = 2**14
 _SCRYPT_R = 8
@@ -63,16 +64,30 @@ def session_hash(token: str) -> str:
 
 
 @dataclass(frozen=True)
-class AdminSession:
+class Session:
     token: str
     expires_at: datetime
 
 
-def create_session(store: StateStore) -> AdminSession:
+def _new_session() -> Session:
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + timedelta(hours=SESSION_HOURS)
+    return Session(token=token, expires_at=expires_at)
+
+
+def create_admin_session(store: StateStore) -> Session:
+    session = _new_session()
     store.create_admin_session(
-        session_hash=session_hash(token),
-        expires_at=expires_at,
+        session_hash=session_hash(session.token),
+        expires_at=session.expires_at,
     )
-    return AdminSession(token=token, expires_at=expires_at)
+    return session
+
+
+def create_read_session(store: StateStore) -> Session:
+    session = _new_session()
+    store.create_read_session(
+        session_hash=session_hash(session.token),
+        expires_at=session.expires_at,
+    )
+    return session

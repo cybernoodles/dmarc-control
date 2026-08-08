@@ -158,7 +158,7 @@ const english: Record<string, string> = {
   Postfachanbindung: "Mailbox connection",
   "Microsoft 365 oder IMAP": "Microsoft 365 or IMAP",
   "Einrichtung ausstehend": "Setup pending",
-  "Anmeldung und Admin-Passwort": "Sign-in and admin password",
+  "Read-Zugang und Admin-Passwort": "Read access and admin password",
   "Postfachanbindung wartet auf Aktivierung":
     "Mailbox connection is awaiting activation",
   "Postfachanbindung im GUI einrichten":
@@ -254,21 +254,43 @@ const english: Record<string, string> = {
     "The application could not be started.",
   "Sichere Anwendung wird vorbereitet …": "Preparing the secure application …",
   Ersteinrichtung: "Initial setup",
-  "Admin-Zugang einrichten": "Set up admin access",
-  "Lege einmalig das Passwort für globale Einstellungen fest. Es wird ausschließlich als sicherer Hash in der Dashboard-Datenbank gespeichert.":
-    "Set the password for global settings once. Only a secure hash is stored in the dashboard database.",
   "Admin-Passwort": "Admin password",
-  "Passwort wiederholen": "Repeat password",
-  "Mindestens 12 Zeichen.": "At least 12 characters.",
   "Das Admin-Passwort muss mindestens 12 Zeichen lang sein.":
     "The admin password must contain at least 12 characters.",
   "Die Passwörter stimmen nicht überein.": "The passwords do not match.",
-  "Admin-Passwort konnte nicht gespeichert werden.":
-    "The admin password could not be saved.",
   "Wird gespeichert …": "Saving …",
-  "Admin-Passwort festlegen": "Set admin password",
-  "Das Passwort schützt Administrationsfunktionen, nicht den lesenden Zugriff auf DMARC-Daten.":
-    "The password protects administrative functions, not read-only access to DMARC data.",
+  "Zugänge einrichten": "Set up access",
+  "Bestätige das bestehende Admin-Passwort und ergänze den neuen Read-Zugang.":
+    "Confirm the existing admin password and add the new read access.",
+  "Lege den Read-Zugang für das Dashboard und das separate Admin-Passwort für geschützte Einstellungen fest.":
+    "Set the read access for the dashboard and a separate admin password for protected settings.",
+  "Bestehendes Admin-Passwort": "Existing admin password",
+  "Admin-Passwort wiederholen": "Repeat admin password",
+  "Read-Benutzername": "Read username",
+  "Read-Passwort": "Read password",
+  "Read-Passwort wiederholen": "Repeat read password",
+  "Beide Passwörter benötigen mindestens 12 Zeichen.":
+    "Both passwords must contain at least 12 characters.",
+  "Der Read-Benutzername darf keine Leerzeichen enthalten.":
+    "The read username must not contain whitespace.",
+  "Das Read-Passwort muss mindestens 12 Zeichen lang sein.":
+    "The read password must contain at least 12 characters.",
+  "Die Read-Passwörter stimmen nicht überein.":
+    "The read passwords do not match.",
+  "Zugänge konnten nicht gespeichert werden.":
+    "The access credentials could not be saved.",
+  "Zugänge speichern": "Save access credentials",
+  "Der Read-Zugang schützt den Dashboard-Zugriff. Das separate Admin-Passwort schützt Änderungen an globalen Einstellungen.":
+    "Read access protects dashboard access. The separate admin password protects changes to global settings.",
+  "Geschützter Zugriff": "Protected access",
+  "Bei DMARC Control anmelden": "Sign in to DMARC Control",
+  "Melde dich mit dem beim Setup definierten Read-Zugang an.":
+    "Sign in with the read credentials defined during setup.",
+  "Benutzername oder Passwort ist falsch.":
+    "The username or password is incorrect.",
+  "Anmeldung läuft …": "Signing in …",
+  Anmelden: "Sign in",
+  "Angemeldet als {username}": "Signed in as {username}",
   "Lokale Farbgebung aktiv": "Local color scheme active",
   "Globaler Standard: Custom": "Global default: Custom",
   "Globaler Standard: Standardgrün": "Global default: Default green",
@@ -316,8 +338,8 @@ const english: Record<string, string> = {
   Anwenden: "Apply",
   "Global setzen": "Set globally",
   Administration: "Administration",
-  "Die Admin-Anmeldung schützt globale Einstellungen. Das Dashboard bleibt ohne Anmeldung lesbar.":
-    "Admin sign-in protects global settings. The dashboard remains readable without signing in.",
+  "Der Read-Zugang schützt das Dashboard. Die separate Admin-Anmeldung schützt globale Einstellungen.":
+    "Read access protects the dashboard. The separate admin sign-in protects global settings.",
   "Admin angemeldet": "Admin signed in",
   "Nicht angemeldet": "Not signed in",
   "Als Admin anmelden": "Sign in as admin",
@@ -339,6 +361,12 @@ const english: Record<string, string> = {
   "Abmeldung fehlgeschlagen.": "Sign-out failed.",
   "Nach einer Passwortänderung werden andere Admin-Sitzungen automatisch beendet.":
     "Changing the password automatically ends other admin sessions.",
+  "Read-Zugang": "Read access",
+  "Eine Änderung beendet alle anderen Read-Sitzungen. Diese Sitzung bleibt angemeldet.":
+    "A change ends all other read sessions. This session remains signed in.",
+  "Neues Read-Passwort": "New read password",
+  "Read-Zugang aktualisieren": "Update read access",
+  "Read-Zugang wurde aktualisiert.": "Read access was updated.",
   "Melde dich zuerst als Admin an.": "Sign in as admin first.",
   "Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.":
     "The admin session has expired. Please sign in again.",

@@ -74,6 +74,27 @@ class StateStore:
             )
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS read_credentials (
+                    credential_id INTEGER PRIMARY KEY CHECK (credential_id = 1),
+                    username TEXT NOT NULL,
+                    username_normalized TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS read_sessions (
+                    session_hash TEXT PRIMARY KEY,
+                    expires_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS mailbox_connection_versions (
                     revision INTEGER PRIMARY KEY AUTOINCREMENT,
                     provider TEXT NOT NULL,
@@ -142,6 +163,39 @@ class StateStore:
             ).fetchone()
         return row is not None
 
+    def read_configured(self) -> bool:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM read_credentials WHERE credential_id = 1"
+            ).fetchone()
+        return row is not None
+
+    def setup_complete(self) -> bool:
+        return self.admin_configured() and self.read_configured()
+
+    def read_username(self) -> str | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT username
+                FROM read_credentials
+                WHERE credential_id = 1
+                """
+            ).fetchone()
+        return row["username"] if row else None
+
+    def read_password_hash(self, username_normalized: str) -> str | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT password_hash
+                FROM read_credentials
+                WHERE credential_id = 1 AND username_normalized = ?
+                """,
+                (username_normalized,),
+            ).fetchone()
+        return row["password_hash"] if row else None
+
     def admin_password_hash(self) -> str | None:
         with self._lock, self._connect() as connection:
             row = connection.execute(
@@ -165,6 +219,118 @@ class StateStore:
                 """,
                 (password_hash, timestamp, timestamp),
             )
+        return cursor.rowcount == 1
+
+    def set_initial_credentials(
+        self,
+        *,
+        admin_password_hash: str,
+        read_username: str,
+        read_username_normalized: str,
+        read_password_hash: str,
+    ) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            admin_exists = connection.execute(
+                "SELECT 1 FROM admin_credentials WHERE credential_id = 1"
+            ).fetchone()
+            read_exists = connection.execute(
+                "SELECT 1 FROM read_credentials WHERE credential_id = 1"
+            ).fetchone()
+            if admin_exists or read_exists:
+                return False
+            connection.execute(
+                """
+                INSERT INTO admin_credentials (
+                    credential_id, password_hash, created_at, updated_at
+                )
+                VALUES (1, ?, ?, ?)
+                """,
+                (admin_password_hash, timestamp, timestamp),
+            )
+            connection.execute(
+                """
+                INSERT INTO read_credentials (
+                    credential_id, username, username_normalized,
+                    password_hash, created_at, updated_at
+                )
+                VALUES (1, ?, ?, ?, ?, ?)
+                """,
+                (
+                    read_username,
+                    read_username_normalized,
+                    read_password_hash,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+        return True
+
+    def set_initial_read_credentials(
+        self,
+        *,
+        expected_admin_hash: str,
+        read_username: str,
+        read_username_normalized: str,
+        read_password_hash: str,
+    ) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO read_credentials (
+                    credential_id, username, username_normalized,
+                    password_hash, created_at, updated_at
+                )
+                SELECT 1, ?, ?, ?, ?, ?
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM admin_credentials
+                    WHERE credential_id = 1 AND password_hash = ?
+                )
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM read_credentials
+                    WHERE credential_id = 1
+                )
+                """,
+                (
+                    read_username,
+                    read_username_normalized,
+                    read_password_hash,
+                    timestamp,
+                    timestamp,
+                    expected_admin_hash,
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def replace_read_credentials(
+        self,
+        *,
+        read_username: str,
+        read_username_normalized: str,
+        password_hash: str,
+    ) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE read_credentials
+                SET username = ?, username_normalized = ?,
+                    password_hash = ?, updated_at = ?
+                WHERE credential_id = 1
+                """,
+                (
+                    read_username,
+                    read_username_normalized,
+                    password_hash,
+                    timestamp,
+                ),
+            )
+            if cursor.rowcount == 1:
+                connection.execute("DELETE FROM read_sessions")
         return cursor.rowcount == 1
 
     def replace_admin_password(
@@ -228,6 +394,46 @@ class StateStore:
         with self._lock, self._connect() as connection:
             connection.execute(
                 "DELETE FROM admin_sessions WHERE session_hash = ?",
+                (session_hash,),
+            )
+
+    def create_read_session(
+        self,
+        *,
+        session_hash: str,
+        expires_at: datetime,
+    ) -> None:
+        created_at = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "DELETE FROM read_sessions WHERE expires_at <= ?",
+                (created_at,),
+            )
+            connection.execute(
+                """
+                INSERT INTO read_sessions (session_hash, expires_at, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (session_hash, expires_at.isoformat(), created_at),
+            )
+
+    def read_session_valid(self, session_hash: str) -> bool:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1
+                FROM read_sessions
+                WHERE session_hash = ? AND expires_at > ?
+                """,
+                (session_hash, timestamp),
+            ).fetchone()
+        return row is not None
+
+    def delete_read_session(self, session_hash: str) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "DELETE FROM read_sessions WHERE session_hash = ?",
                 (session_hash,),
             )
 

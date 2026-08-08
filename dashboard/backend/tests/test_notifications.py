@@ -192,7 +192,11 @@ class NotificationSettingsApiTests(unittest.TestCase):
             ):
                 client.post(
                     "/api/auth/setup",
-                    json={"password": "initial-admin-password"},
+                    json={
+                        "admin_password": "initial-admin-password",
+                        "read_username": "dmarc-reader",
+                        "read_password": "initial-read-password",
+                    },
                 )
                 initial = client.get("/api/settings/notifications")
                 saved = client.put(

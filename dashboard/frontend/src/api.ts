@@ -155,6 +155,9 @@ export interface AppearanceSettings {
 
 export interface AuthStatus {
   setup_required: boolean;
+  admin_configured: boolean;
+  read_authenticated: boolean;
+  read_username: string | null;
   authenticated: boolean;
 }
 
@@ -298,6 +301,32 @@ const query = (values: Record<string, string | number>) => {
   return params.toString();
 };
 
+function responseErrorMessage(payload: unknown, status: number): string {
+  if (!payload || typeof payload !== "object" || !("detail" in payload)) {
+    return `HTTP ${status}`;
+  }
+
+  const detail = (payload as { detail?: unknown }).detail;
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const messages = detail.flatMap((item) => {
+      if (!item || typeof item !== "object" || !("msg" in item)) {
+        return [];
+      }
+      const message = (item as { msg?: unknown }).msg;
+      return typeof message === "string" ? [message] : [];
+    });
+    if (messages.length) {
+      return messages.join(" ");
+    }
+  }
+
+  return `HTTP ${status}`;
+}
+
 async function request<T>(
   path: string,
   options?: RequestInit,
@@ -312,17 +341,38 @@ async function request<T>(
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new Error(payload?.detail ?? `HTTP ${response.status}`);
+    const message = responseErrorMessage(payload, response.status);
+    if (response.status === 401 && message === "Read login required") {
+      window.dispatchEvent(new Event("dmarc-read-session-expired"));
+    }
+    throw new Error(message);
   }
   return response.json() as Promise<T>;
 }
 
 export const api = {
   authStatus: () => request<AuthStatus>("/api/auth/status"),
-  setupAdmin: (password: string) =>
+  setupAccess: (
+    adminPassword: string,
+    readUsername: string,
+    readPassword: string,
+  ) =>
     request<AuthStatus>("/api/auth/setup", {
       method: "POST",
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({
+        admin_password: adminPassword,
+        read_username: readUsername,
+        read_password: readPassword,
+      }),
+    }),
+  loginRead: (username: string, password: string) =>
+    request<AuthStatus>("/api/auth/read-login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+  logoutRead: () =>
+    request<AuthStatus>("/api/auth/read-logout", {
+      method: "POST",
     }),
   loginAdmin: (password: string) =>
     request<AuthStatus>("/api/auth/login", {
@@ -340,6 +390,11 @@ export const api = {
         current_password: currentPassword,
         new_password: newPassword,
       }),
+    }),
+  updateReadCredentials: (username: string, password: string) =>
+    request<AuthStatus>("/api/auth/read-credentials", {
+      method: "PUT",
+      body: JSON.stringify({ username, password }),
     }),
   mailboxSettings: () =>
     request<MailboxConnectionState>("/api/settings/mailbox"),
