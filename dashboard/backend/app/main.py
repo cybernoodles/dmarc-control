@@ -49,7 +49,7 @@ from .notifications import (
 from .service import DashboardService
 from .store import StateStore
 
-VERSION = "2.0.0-mvp"
+VERSION = "2.0.0-rc.1"
 NOTIFICATION_VAULT_AAD = b"dmarc-control-notifications-v1"
 logger = logging.getLogger(__name__)
 
