@@ -306,7 +306,7 @@ class DashboardService:
             "query": {"bool": {"filter": query_filters}},
             "aggs": {
                 "messages": sum_messages,
-                "last_report": {"max": {"field": "date_begin"}},
+                "last_report": {"max": {"field": "date_end"}},
                 "dmarc_pass": {
                     "filter": {"term": {"passed_dmarc": True}},
                     "aggs": {"messages": sum_messages},
@@ -877,7 +877,8 @@ class DashboardService:
                             "country": None,
                             "domain": domain,
                             "trigger": (
-                                f"Letzter Report vor {age.days} Tagen; "
+                                f"Letzter Berichtszeitraum endete vor "
+                                f"{age.days} Tagen; "
                                 "übliche Zustellverzögerung berücksichtigt"
                             ),
                             "report_time": latest,

@@ -61,6 +61,22 @@ def _dashboard_link(settings: dict[str, Any], alert_id: str) -> str | None:
     return f"{base_url}/?{urlencode({'view': 'alerts', 'alert': alert_id})}"
 
 
+def _host_link(
+    settings: dict[str, Any],
+    alert_id: str,
+    source_ip: str | None,
+) -> str | None:
+    base_url = str(settings.get("dashboard_url") or "").strip().rstrip("/")
+    if not base_url or not source_ip:
+        return None
+    parameters = {
+        "view": "hosts",
+        "host": source_ip,
+        "from_alert": alert_id,
+    }
+    return f"{base_url}/?{urlencode(parameters)}"
+
+
 def _labels(language: str) -> dict[str, str]:
     if language == "en":
         return {
@@ -79,6 +95,7 @@ def _labels(language: str) -> dict[str, str]:
             "dkim": "DKIM alignment",
             "evidence": "Classification evidence",
             "open": "Open alert in DMARC Control",
+            "investigate": "Investigate sending host",
             "machine": (
                 "A versioned JSON representation is attached as "
                 "dmarc-alert.json. Stable X-DMARC-Control-* headers support "
@@ -107,6 +124,7 @@ def _labels(language: str) -> dict[str, str]:
         "dkim": "DKIM-Alignment",
         "evidence": "Klassifizierungsevidenz",
         "open": "Warnung in DMARC Control öffnen",
+        "investigate": "Sending Host untersuchen",
         "machine": (
             "Eine versionierte JSON-Darstellung ist als dmarc-alert.json "
             "angehängt. Stabile X-DMARC-Control-*-Header unterstützen "
@@ -251,6 +269,11 @@ def _payload(
         },
         "links": {
             "dashboard": _dashboard_link(settings, str(alert["id"])),
+            "host": _host_link(
+                settings,
+                str(alert["id"]),
+                alert.get("source_ip"),
+            ),
         },
     }
 
@@ -301,6 +324,10 @@ def _plain_text(
     )
     if payload["links"]["dashboard"]:
         rows.extend([f"{labels['open']}: {payload['links']['dashboard']}", ""])
+    if payload["links"]["host"]:
+        rows.extend(
+            [f"{labels['investigate']}: {payload['links']['host']}", ""]
+        )
     rows.append(labels["machine"])
     return "\n".join(rows)
 
@@ -350,7 +377,7 @@ def _html_body(
         else f"<li>{value(labels['not_available'])}</li>"
     )
     link = payload["links"]["dashboard"]
-    action = (
+    alert_action = (
         f'<a href="{html.escape(link, quote=True)}" '
         f'style="display:inline-block;background:#173f43;color:#fff;'
         f'text-decoration:none;border-radius:8px;padding:11px 16px;'
@@ -358,6 +385,17 @@ def _html_body(
         if link
         else ""
     )
+    host_link = payload["links"]["host"]
+    host_action = (
+        f'<a href="{html.escape(host_link, quote=True)}" '
+        f'style="display:inline-block;background:#fff;color:#173f43;'
+        f'border:1px solid #173f43;text-decoration:none;border-radius:8px;'
+        f'padding:10px 15px;font-weight:700;margin-left:8px">'
+        f'{html.escape(labels["investigate"])}</a>'
+        if host_link
+        else ""
+    )
+    actions = f'<div style="margin-top:4px">{alert_action}{host_action}</div>'
     test_intro = (
         f'<p style="margin:0 0 20px;color:#405457">{html.escape(labels["test_intro"])}</p>'
         if test
@@ -392,7 +430,7 @@ def _html_body(
       </table>
       <h2 style="font-size:14px;margin:0 0 8px">{value(labels["evidence"])}</h2>
       <ul style="color:#405457;margin:0 0 22px;padding-left:20px">{evidence_html}</ul>
-      {action}
+      {actions}
       <p style="color:#687a7d;font-size:12px;line-height:1.5;margin:24px 0 0">{value(labels["machine"])}</p>
       <p style="color:#879598;font-size:11px;margin:8px 0 0">{value(labels["generated"])}: {generated}</p>
     </div>

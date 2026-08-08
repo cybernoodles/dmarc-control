@@ -112,6 +112,31 @@ class StoreTests(unittest.TestCase):
             self.assertNotIn("192.0.2.10", store.host_overrides())
             self.assertFalse(store.clear_host_override("192.0.2.10"))
 
+    def test_alert_status_and_host_classification_remain_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = StateStore(Path(directory) / "dashboard.db")
+            store.set_host_override(
+                "192.0.2.10",
+                service_name="Mail Provider",
+                trust_status="confirmed",
+                notes="Administratively assigned",
+            )
+
+            store.set_alert_status("alert-1", "ignored")
+            self.assertEqual(
+                store.host_overrides()["192.0.2.10"]["trust_status"],
+                "confirmed",
+            )
+
+            store.set_alert_status("alert-1", "resolved")
+            store.set_host_override(
+                "192.0.2.10",
+                service_name="Mail Provider",
+                trust_status="ignored",
+                notes="Automatic match rejected",
+            )
+            self.assertEqual(store.alert_states()["alert-1"]["status"], "resolved")
+
     def test_global_appearance_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = StateStore(Path(directory) / "dashboard.db")
@@ -165,6 +190,24 @@ class ForensicPrivacyTests(unittest.IsolatedAsyncioTestCase):
 
 
 class OverviewQueryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_data_freshness_uses_report_period_end(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake = FakeClient()
+            settings = Settings(database_path=Path(directory) / "dashboard.db")
+            service = DashboardService(
+                fake,
+                StateStore(settings.database_path),
+                settings,
+            )
+
+            await service.overview("*", 30)
+
+            _, body, _ = fake.calls[0]
+            self.assertEqual(
+                body["aggs"]["last_report"],
+                {"max": {"field": "date_end"}},
+            )
+
     async def test_missing_policy_percentage_uses_application_default(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             fake = FakeClient(

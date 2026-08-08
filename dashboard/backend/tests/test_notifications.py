@@ -71,6 +71,13 @@ class NotificationMessageTests(unittest.TestCase):
         self.assertTrue(payload["test"])
         self.assertEqual(payload["alert"]["event_type"], "test")
         self.assertIn("view=alerts", payload["links"]["dashboard"])
+        self.assertIn(f"alert={payload['alert']['id']}", payload["links"]["dashboard"])
+        self.assertIn("view=hosts", payload["links"]["host"])
+        self.assertIn("host=192.0.2.1", payload["links"]["host"])
+        self.assertIn(
+            f"from_alert={payload['alert']['id']}",
+            payload["links"]["host"],
+        )
 
     def test_destination_changes_when_recipients_change(self) -> None:
         first = notification_configuration()

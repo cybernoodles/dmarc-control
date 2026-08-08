@@ -387,6 +387,10 @@ export const api = {
     request<{ items: Host[] }>(
       `/api/hosts?${query({ domain, days, risk })}`,
     ).then((response) => response.items),
+  host: (sourceIp: string, domain: string, days: number) =>
+    request<Host>(
+      `/api/hosts/${encodeURIComponent(sourceIp)}?${query({ domain, days })}`,
+    ),
   alerts: (domain: string, days: number, status = "all") =>
     request<{ items: Alert[] }>(
       `/api/alerts?${query({ domain, days, status })}`,

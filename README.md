@@ -244,6 +244,8 @@ Informationsumfang in einer risikoorientierten Oberfläche:
 - vollständiges Sending-Host-Inventar mit IP, PTR, ASN/Land, Identitäten und Last Seen
 - mehrstufige Dienst-Erkennung mit Konfidenz und manueller Bestätigung
 - deduplizierte Warnungen mit Status `offen`, `bestätigt`, `behoben` und `ignoriert`
+- durchgängige Alert-Triage mit direkter Sending-Host-Untersuchung, Rückweg zum
+  Ausgangs-Alert und kompatiblen Deep Links aus E-Mail-Benachrichtigungen
 - konfigurierbares E-Mail-Alerting über SMTP oder Microsoft Graph
 - datenschutzreduzierte Forensik ohne Laden von Rohinhalt, Empfängern, Betreff oder Headern
 

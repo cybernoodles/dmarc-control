@@ -85,6 +85,34 @@ Die Warnungs-IDs werden deterministisch aus Auslöser, Domain, Host und Reportta
 gebildet. Damit werden wiederholte Anzeigen desselben Ereignisses dedupliziert,
 ohne ein neues Ereignis an einem späteren Reporttag zu unterdrücken.
 
+Die Datenfrische und die Warnung für ausbleibende Reports verwenden das Ende
+des jüngsten DMARC-Berichtszeitraums (`date_end`). Der Beginn (`date_begin`)
+würde bei üblichen Tagesreports rund 24 Stunden zu früh warnen. Dieser Wert
+beschreibt den Berichtszeitraum und nicht den technischen Eingangszeitpunkt der
+E-Mail.
+
+## Alert-Triage und Host-Untersuchung
+
+Warnungsstatus und Host-Klassifizierung sind bewusst unabhängige Zustände. Der
+Status `open`, `acknowledged`, `resolved` oder `ignored` gehört zum konkreten
+Alert in `alert_state`. Dienst, Zuordnungsstatus und Notiz gehören dauerhaft
+zur Source-IP in `host_overrides`. Eine bestätigte Host-Zuordnung unterdrückt
+deshalb keine späteren echten DMARC-Fails und ist keine Freigabeliste.
+
+Die Warnungszentrale führt über **Host untersuchen** direkt zur Detailansicht
+der betroffenen Source-IP. Dort bleiben Ausgangs-Alert und Rückweg sichtbar;
+**Zurück zur Warnung** öffnet wieder exakt das ursprüngliche Ereignis. Die
+Deep Links verwenden folgende stabile Query-Parameter:
+
+- `?view=alerts&alert={alert_id}` für einen konkreten Alert
+- `?view=hosts&host={source_ip}&from_alert={alert_id}` für dessen
+  Sending-Host-Untersuchung
+
+In der Oberfläche heißt der weiterhin kompatible interne Host-Status
+`ignored` auf Deutsch **Automatische Zuordnung verworfen** und auf Englisch
+**Automatic classification rejected**. Er ist damit eindeutig vom
+Alert-Status **Ignoriert** beziehungsweise **Ignored** getrennt.
+
 ## E-Mail-Alerting
 
 Das Alerting ist standardmäßig deaktiviert. Wenn es ein Administrator
@@ -105,6 +133,10 @@ derselbe MIME-Inhalt erzeugt:
 - stabile `X-DMARC-Control-*`-Header
 - JSON-Anhang `dmarc-alert.json` mit Schema
   `dmarc-control.alert.v1`
+
+HTML, Klartext und JSON enthalten einen Link zum konkreten Alert. Bei
+Host-bezogenen Ereignissen kommt ein direkter Link zur Sending-Host-Untersuchung
+hinzu; der Rückweg führt wieder zum Ausgangs-Alert.
 
 Der Testversand wird ausschließlich durch einen angemeldeten Administrator
 ausgelöst. Er schaltet den automatischen Versand nicht ein.

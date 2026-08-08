@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeft,
   Bell,
   Check,
   CheckCircle2,
@@ -558,8 +559,16 @@ function DashboardApp({
       ? (requested as View)
       : "overview";
   });
-  const targetAlertId =
-    new URLSearchParams(window.location.search).get("alert") ?? undefined;
+  const [targetAlertId, setTargetAlertId] = useState<string | undefined>(
+    () => new URLSearchParams(window.location.search).get("alert") ?? undefined,
+  );
+  const [targetHostIp, setTargetHostIp] = useState<string | undefined>(
+    () => new URLSearchParams(window.location.search).get("host") ?? undefined,
+  );
+  const [originAlertId, setOriginAlertId] = useState<string | undefined>(
+    () =>
+      new URLSearchParams(window.location.search).get("from_alert") ?? undefined,
+  );
   const [domains, setDomains] = useState<DomainItem[]>([]);
   const [domain, setDomain] = useState("*");
   const [days, setDays] = useState(30);
@@ -687,9 +696,49 @@ function DashboardApp({
     const url = new URL(window.location.href);
     if (view === "overview") url.searchParams.delete("view");
     else url.searchParams.set("view", view);
-    if (view !== "alerts") url.searchParams.delete("alert");
+    if (view === "alerts" && targetAlertId) {
+      url.searchParams.set("alert", targetAlertId);
+    } else {
+      url.searchParams.delete("alert");
+    }
+    if (view === "hosts" && targetHostIp) {
+      url.searchParams.set("host", targetHostIp);
+    } else {
+      url.searchParams.delete("host");
+    }
+    if (view === "hosts" && originAlertId) {
+      url.searchParams.set("from_alert", originAlertId);
+    } else {
+      url.searchParams.delete("from_alert");
+    }
     window.history.replaceState(null, "", url);
-  }, [view]);
+  }, [originAlertId, targetAlertId, targetHostIp, view]);
+
+  const navigate = (nextView: View) => {
+    setView(nextView);
+    if (nextView !== "alerts") setTargetAlertId(undefined);
+    if (nextView !== "hosts") {
+      setTargetHostIp(undefined);
+      setOriginAlertId(undefined);
+    }
+  };
+
+  const investigateAlertHost = (alert: Alert) => {
+    if (!alert.source_ip) return;
+    setTargetAlertId(undefined);
+    setTargetHostIp(alert.source_ip);
+    setOriginAlertId(alert.id);
+    setView("hosts");
+  };
+
+  const returnToAlert = () => {
+    if (!originAlertId) return;
+    setTargetAlertId(originAlertId);
+    setTargetHostIp(undefined);
+    setOriginAlertId(undefined);
+    setView("alerts");
+  };
+
 
   const scopeLabel = `${domain === "*" ? t("Alle Domains") : domain} · ${t(
     "{days} Tage",
@@ -734,7 +783,7 @@ function DashboardApp({
               key={item.id}
               className={classNames("nav-button", view === item.id && "active")}
               aria-current={view === item.id ? "page" : undefined}
-              onClick={() => setView(item.id)}
+              onClick={() => navigate(item.id)}
             >
               <Icon aria-hidden="true" />
               {item.label}
@@ -749,7 +798,7 @@ function DashboardApp({
             view === "settings" && "active",
           )}
           aria-current={view === "settings" ? "page" : undefined}
-          onClick={() => setView("settings")}
+          onClick={() => navigate("settings")}
         >
           <Settings2 aria-hidden="true" />
           {t("Einstellungen")}
@@ -811,12 +860,23 @@ function DashboardApp({
             domain={domain}
             days={days}
             refreshKey={refreshKey}
-            openAlerts={() => setView("alerts")}
-            openHosts={() => setView("hosts")}
+            openAlerts={() => navigate("alerts")}
+            openHosts={() => navigate("hosts")}
           />
         )}
         {view === "hosts" && (
-          <HostsView domain={domain} days={days} refreshKey={refreshKey} />
+          <HostsView
+            domain={domain}
+            days={days}
+            refreshKey={refreshKey}
+            targetHostIp={targetHostIp}
+            originAlertId={originAlertId}
+            clearTargetHost={() => {
+              setTargetHostIp(undefined);
+              setOriginAlertId(undefined);
+            }}
+            returnToAlert={returnToAlert}
+          />
         )}
         {view === "alerts" && (
           <AlertsView
@@ -824,6 +884,7 @@ function DashboardApp({
             days={days}
             refreshKey={refreshKey}
             targetAlertId={targetAlertId}
+            investigateHost={investigateAlertHost}
           />
         )}
         {view === "forensics" && (
@@ -3391,10 +3452,18 @@ function HostsView({
   domain,
   days,
   refreshKey,
+  targetHostIp,
+  originAlertId,
+  clearTargetHost,
+  returnToAlert,
 }: {
   domain: string;
   days: number;
   refreshKey: number;
+  targetHostIp?: string;
+  originAlertId?: string;
+  clearTargetHost: () => void;
+  returnToAlert: () => void;
 }) {
   const { t, formatNumber, formatDate, translateBackendLabel } = useI18n();
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -3407,19 +3476,18 @@ function HostsView({
   const load = useCallback(() => {
     setLoading(true);
     setError("");
-    api
-      .hosts(domain, days, risk)
-      .then((items) => {
+    const selectedIp = targetHostIp ?? selected?.source_ip;
+    Promise.all([
+      api.hosts(domain, days, risk),
+      selectedIp ? api.host(selectedIp, domain, days) : Promise.resolve(null),
+    ])
+      .then(([items, selectedHost]) => {
         setHosts(items);
-        if (selected) {
-          setSelected(
-            items.find((item) => item.source_ip === selected.source_ip) ?? null,
-          );
-        }
+        if (selectedIp) setSelected(selectedHost);
       })
       .catch((reason: Error) => setError(reason.message))
       .finally(() => setLoading(false));
-  }, [domain, days, risk, selected?.source_ip]);
+  }, [domain, days, risk, selected?.source_ip, targetHostIp]);
 
   useEffect(() => {
     load();
@@ -3594,7 +3662,10 @@ function HostsView({
                       <button
                         className="button button-ghost"
                         type="button"
-                        onClick={() => setSelected(host)}
+                        onClick={() => {
+                          setSelected(host);
+                          if (targetHostIp !== host.source_ip) clearTargetHost();
+                        }}
                       >
                         {t("Details")}
                       </button>
@@ -3613,7 +3684,16 @@ function HostsView({
       </section>
 
       {selected && (
-        <HostDetail host={selected} close={() => setSelected(null)} saved={load} />
+        <HostDetail
+          host={selected}
+          close={() => {
+            setSelected(null);
+            clearTargetHost();
+          }}
+          saved={load}
+          originAlertId={originAlertId}
+          returnToAlert={returnToAlert}
+        />
       )}
     </div>
   );
@@ -3643,7 +3723,10 @@ function ClassificationPill({ status }: { status: TrustStatus }) {
       label: t("Zuordnung bestätigt"),
       tone: "success",
     },
-    ignored: { label: t("Klassifizierung ignoriert"), tone: "neutral" },
+    ignored: {
+      label: t("Automatische Zuordnung verworfen"),
+      tone: "neutral",
+    },
   };
   const value = values[status];
   return <StatusPill tone={value.tone}>{value.label}</StatusPill>;
@@ -3653,10 +3736,14 @@ function HostDetail({
   host,
   close,
   saved,
+  originAlertId,
+  returnToAlert,
 }: {
   host: Host;
   close: () => void;
   saved: () => void;
+  originAlertId?: string;
+  returnToAlert: () => void;
 }) {
   const { t, formatNumber, formatDate, translateBackendLabel } = useI18n();
   const [serviceName, setServiceName] = useState(host.service_detection.service);
@@ -3737,6 +3824,26 @@ function HostDetail({
 
   return (
     <section className="surface host-detail" aria-live="polite">
+      {originAlertId && (
+        <div className="investigation-context">
+          <div>
+            <Bell aria-hidden="true" />
+            <span>
+              {t(
+                "Untersuchung aus der Warnungszentrale. Alert-Status und Host-Zuordnung werden getrennt gespeichert.",
+              )}
+            </span>
+          </div>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={returnToAlert}
+          >
+            <ArrowLeft aria-hidden="true" />
+            {t("Zurück zur Warnung")}
+          </button>
+        </div>
+      )}
       <div className="host-detail-head">
         <div>
           <div className="eyebrow">{t("Host-Detail")}</div>
@@ -3857,7 +3964,9 @@ function HostDetail({
             </option>
             <option value="unconfirmed">{t("Prüfung ausstehend")}</option>
             <option value="confirmed">{t("Zuordnung bestätigt")}</option>
-            <option value="ignored">{t("Klassifizierung ignoriert")}</option>
+            <option value="ignored">
+              {t("Automatische Zuordnung verworfen")}
+            </option>
           </select>
         </label>
         <label className="notes-field">
@@ -3912,11 +4021,13 @@ function AlertsView({
   days,
   refreshKey,
   targetAlertId,
+  investigateHost,
 }: {
   domain: string;
   days: number;
   refreshKey: number;
   targetAlertId?: string;
+  investigateHost: (alert: Alert) => void;
 }) {
   const { language, t, formatNumber, formatDate, reportAge } = useI18n();
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -3938,6 +4049,13 @@ function AlertsView({
   useEffect(() => {
     load();
   }, [load, refreshKey]);
+
+  useEffect(() => {
+    if (!targetAlertId || loading) return;
+    document
+      .getElementById(`alert-${targetAlertId}`)
+      ?.scrollIntoView({ block: "center" });
+  }, [alerts, loading, targetAlertId]);
 
   const update = async (alertId: string, nextStatus: AlertStatus) => {
     setUpdating(alertId);
@@ -3961,6 +4079,10 @@ function AlertsView({
   if (error && !alerts.length) return <ErrorState message={error} retry={load} />;
 
   const openCount = alerts.filter((item) => item.status === "open").length;
+  const targetMissing =
+    !loading &&
+    Boolean(targetAlertId) &&
+    !alerts.some((item) => item.id === targetAlertId);
   const alertTitle = (alert: Alert) => t(alert.title);
   const alertTrigger = (alert: Alert) => {
     if (language === "de") return alert.trigger;
@@ -3984,7 +4106,7 @@ function AlertsView({
         ),
       );
       return t(
-        "Letzter Report vor {days} Tagen; übliche Zustellverzögerung berücksichtigt",
+        "Letzter Berichtszeitraum endete vor {days} Tagen; übliche Zustellverzögerung berücksichtigt",
         { days },
       );
     }
@@ -4016,6 +4138,14 @@ function AlertsView({
         </label>
       </div>
       {error && <ErrorState message={error} retry={load} />}
+      {targetMissing && (
+        <div className="inline-warning">
+          <TriangleAlert aria-hidden="true" />
+          {t(
+            "Die verlinkte Warnung ist im gewählten Zeitraum nicht mehr vorhanden. Passe Zeitraum oder Domainfilter an.",
+          )}
+        </div>
+      )}
       <section className="surface">
         {alerts.length ? (
           <div className="table-wrap">
@@ -4034,6 +4164,7 @@ function AlertsView({
                 {alerts.map((alert) => (
                   <tr
                     key={alert.id}
+                    id={`alert-${alert.id}`}
                     className={classNames(
                       targetAlertId === alert.id && "selected-row",
                     )}
@@ -4072,6 +4203,17 @@ function AlertsView({
                             onClick={() => update(alert.id, "acknowledged")}
                           >
                             {t("Bestätigen")}
+                          </button>
+                        )}
+                        {alert.source_ip && (
+                          <button
+                            className="button button-secondary"
+                            type="button"
+                            disabled={updating === alert.id}
+                            onClick={() => investigateHost(alert)}
+                          >
+                            <Server aria-hidden="true" />
+                            {t("Sending Host untersuchen")}
                           </button>
                         )}
                         {alert.status !== "resolved" && (

@@ -427,7 +427,7 @@ const english: Record<string, string> = {
   "Prüfung ausstehend": "Review pending",
   "Automatisch zugeordnet": "Automatically classified",
   "Zuordnung bestätigt": "Classification confirmed",
-  "Klassifizierung ignoriert": "Classification ignored",
+  "Automatische Zuordnung verworfen": "Automatic classification rejected",
   "Dynamischer IP-Bereich": "Dynamic IP range",
   "Netzprofil · Dynamische IP": "Network profile · Dynamic IP",
   "Dynamischer öffentlicher IP-Bereich": "Dynamic public IP range",
@@ -465,6 +465,9 @@ const english: Record<string, string> = {
     "Automatic classification restored.",
   "Der Zuordnungsstatus beschreibt nur die Dienstklassifizierung. Er ändert weder das DMARC-Ergebnis noch Warnungen und ist keine Freigabeliste.":
     "The classification status describes only the service classification. It does not change the DMARC result or alerts and is not an allowlist.",
+  "Untersuchung aus der Warnungszentrale. Alert-Status und Host-Zuordnung werden getrennt gespeichert.":
+    "Investigation from the alert center. Alert status and host classification are stored separately.",
+  "Zurück zur Warnung": "Back to alert",
   Notiz: "Note",
   "Optionaler administrativer Kontext": "Optional administrative context",
   Speichern: "Save",
@@ -482,7 +485,10 @@ const english: Record<string, string> = {
   Auslöser: "Trigger",
   Reportzeit: "Report time",
   Bestätigen: "Acknowledge",
+  "Sending Host untersuchen": "Investigate sending host",
   Ignorieren: "Ignore",
+  "Die verlinkte Warnung ist im gewählten Zeitraum nicht mehr vorhanden. Passe Zeitraum oder Domainfilter an.":
+    "The linked alert is no longer available in the selected period. Adjust the time range or domain filter.",
   "Keine Warnungen in dieser Ansicht": "No alerts in this view",
   "Für Domain, Zeitraum und Status existieren keine passenden Ereignisse.":
     "No matching events exist for this domain, time range and status.",
@@ -538,8 +544,8 @@ const english: Record<string, string> = {
   "Kompensiertes Alignment-Problem": "Compensated alignment issue",
   "DMARC-Reports bleiben aus": "DMARC reports are missing",
   "Erstmals gesehen am {date}": "First seen on {date}",
-  "Letzter Report vor {days} Tagen; übliche Zustellverzögerung berücksichtigt":
-    "Latest report was {days} days ago; usual delivery delay accounted for",
+  "Letzter Berichtszeitraum endete vor {days} Tagen; übliche Zustellverzögerung berücksichtigt":
+    "Latest reporting period ended {days} days ago; usual delivery delay accounted for",
   "Keine Zuordnung": "No classification",
   Hoch: "High",
   Mittel: "Medium",
