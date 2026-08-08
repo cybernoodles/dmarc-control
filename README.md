@@ -49,7 +49,7 @@ parsedmarc-stack/
 ├── data/                                    ← Persistente Laufzeitdaten (nicht im Git)
 │   ├── opensearch/                          ← Indizes und OpenSearch-Zustand
 │   ├── grafana/                             ← Grafana SQLite, Benutzer und Plugins
-│   ├── dashboard/                           ← UI-Zustände, Admin-Hash und verschlüsselte Verbindungen
+│   ├── dashboard/                           ← UI-Zustände, Zugangs-Hashes und verschlüsselte Verbindungen
 │   └── parser-control/                      ← automatisch erzeugtes internes Control-Token
 ├── config/
 │   ├── parsedmarc.ini                       ← optionaler Legacy-/Migrations-Fallback
@@ -104,8 +104,14 @@ sudo chown 10001:10001 data/dashboard data/parser-control
 OpenSearch läuft im Container als UID 1000, Grafana als UID 472 und DMARC
 Control als UID 10001. Ohne diese Eigentümer kann der jeweilige Dienst beim
 ersten Start nicht in sein Datenverzeichnis schreiben. Beim ersten Aufruf von
-DMARC Control führt ein Setup-Screen durch das einmalige Festlegen des
-Admin-Passworts.
+DMARC Control führt ein Setup-Screen durch das einmalige Festlegen eines
+Read-Benutzers mit Passwort und des separaten Admin-Passworts. Das Dashboard
+ist anschließend nur mit einer gültigen Read-Sitzung erreichbar.
+
+Bei bestehenden Installationen ohne Read-Benutzer erscheint nach dem Update
+ebenfalls der Setup-Screen. Das vorhandene Admin-Passwort muss dort bestätigt
+werden; es wird nicht ersetzt. Danach wird lediglich der neue Read-Zugang
+ergänzt.
 
 > **Dockge:** Relative Pfade wie `./data` beziehen sich auf den Ordner der
 > Compose-Datei. Daher entweder das gesamte Repository als Stack-Ordner
@@ -257,8 +263,10 @@ liegen getrennt in
 `data/dashboard/dashboard.db`. Lokale Farbanpassungen bleiben als
 Browser-Präferenz erhalten. Globale Farb- und Mailboxänderungen sind mit dem
 separaten Admin-Passwort geschützt. Gleiches gilt für
-Benachrichtigungseinstellungen und Testversand. Das Passwort wird ausschließlich als
-gesalzener Hash gespeichert und kann unter Einstellungen geändert werden.
+Benachrichtigungseinstellungen und Testversand. Der Zugriff auf das gesamte
+Dashboard erfordert zusätzlich eine gültige Read-Sitzung. Beide Passwörter
+werden ausschließlich als gesalzene Hashes gespeichert und können unter
+**Einstellungen → Administration** geändert werden.
 
 Weitere Details und der Dockge-Betriebsablauf stehen in
 [docs/CUSTOM-DASHBOARD.md](docs/CUSTOM-DASHBOARD.md).

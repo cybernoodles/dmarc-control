@@ -34,7 +34,7 @@ Administrator -> DMARC Control -> SQLite + connection.key
 | Ebene | Inhalt | Persistenter Pfad | Kritikalität |
 |---|---|---|---|
 | OpenSearch | Aggregate in `dmarc_aggregate-*`, Forensic-/Failure-Daten in `dmarc_failure-*` und optional weitere aktivierte parsedmarc-Indizes | `data/opensearch/` | Primäre historische DMARC-Daten |
-| DMARC Control SQLite | Admin-Hash, Alertstatus, Hostklassifizierungen und Notizen, globale UI-Einstellungen, Mailboxrevisionen, Benachrichtigungskonfiguration, Zustellhistorie und Parserstatus | `data/dashboard/dashboard.db` | Steuerungs- und Workflowzustand |
+| DMARC Control SQLite | Read- und Admin-Hashes samt Sitzungen, Alertstatus, Hostklassifizierungen und Notizen, globale UI-Einstellungen, Mailboxrevisionen, Benachrichtigungskonfiguration, Zustellhistorie und Parserstatus | `data/dashboard/dashboard.db` | Steuerungs- und Workflowzustand |
 | Verschlüsselungsschlüssel | AES-GCM-Schlüssel für Mailbox- und Benachrichtigungs-Secrets | `data/dashboard/connection.key` | Muss gemeinsam mit SQLite gesichert werden |
 | Parser-Steuerung | Gemeinsames Token zwischen Dashboard und Parser-Supervisor | `data/parser-control/control.token` | Betriebsrelevant, aber bei kontrolliertem Neustart regenerierbar |
 | Stack-Konfiguration | Compose-Datei, `.env`, optionale Legacy-Konfiguration und provisionierte Grafana-Dateien | Repository, `.env`, `config/` | Für reproduzierbaren Wiederaufbau erforderlich |
@@ -50,7 +50,7 @@ Repository und müssen im Backup verschlüsselt sowie zugriffsgeschützt liegen.
 
 `dashboard.db` enthält aktuell folgende logische Gruppen:
 
-- **Administration:** Passwort-Hash und aktive Admin-Sitzungen
+- **Zugriff und Administration:** Read- und Admin-Passwort-Hashes sowie aktive Sitzungen
 - **Alert-Triage:** offen, bestätigt, behoben oder ignoriert
 - **Sending-Host-Bewertung:** manueller Dienstname, Zuordnungsstatus und Notiz
 - **Globale Darstellung:** serverweiter Standard für das UI-Farbprofil
@@ -68,9 +68,9 @@ keine Ersatzkopie der von parsedmarc importierten Reporthistorie.
 | Vorhandene Daten | Was funktioniert? | Was fehlt oder ist gefährdet? |
 |---|---|---|
 | OpenSearch + SQLite + Schlüssel | Vollständiger Normalbetrieb | Nichts, sofern Versionen und Konfiguration kompatibel sind |
-| Nur OpenSearch | Historische Analysen bleiben grundsätzlich verfügbar; Grafana kann mit provisionierter Konfiguration neu aufgebaut werden | Admin-Setup, Alertstatus, Klassifizierungen, Mailbox- und Alerting-Konfiguration sowie Versand-Deduplizierung fehlen |
+| Nur OpenSearch | Historische Analysen bleiben grundsätzlich verfügbar; Grafana kann mit provisionierter Konfiguration neu aufgebaut werden | Read-/Admin-Setup, Alertstatus, Klassifizierungen, Mailbox- und Alerting-Konfiguration sowie Versand-Deduplizierung fehlen |
 | SQLite + Schlüssel, aber kein OpenSearch | Konfiguration und Workflowzustand sind erhalten | Dashboard-Abfragen und Grafana liefern keine historischen Daten; der Stack ist fachlich nicht betriebsbereit |
-| SQLite ohne `connection.key` | Nicht verschlüsselte Zustände wie Admin-Hash, Alertstatus und Notizen bleiben lesbar | Mailbox- und Benachrichtigungs-Secrets können nicht entschlüsselt werden; der verwaltete Parser und Graph-/SMTP-Versand können dadurch ausfallen |
+| SQLite ohne `connection.key` | Nicht verschlüsselte Zustände wie Read-/Admin-Hashes, Alertstatus und Notizen bleiben lesbar | Mailbox- und Benachrichtigungs-Secrets können nicht entschlüsselt werden; der verwaltete Parser und Graph-/SMTP-Versand können dadurch ausfallen |
 | `connection.key` ohne SQLite | Keine nutzbare Anwendungspersistenz | Der Schlüssel allein enthält weder Konfiguration noch Daten |
 | Repository und Konfiguration ohne `data/` | Reproduzierbare Neuinstallation | Keine Historie und kein bisheriger Workflowzustand |
 | OpenSearch + ältere SQLite-Sicherung | Historie ist vorhanden | Neuere Bestätigungen, Klassifizierungen und Versand-Deduplizierungen fehlen; alte Alerts können erneut offen erscheinen oder erneut versendet werden |
@@ -178,8 +178,8 @@ Disaster-Recovery-Paket vorgesehen.
 6. Eigentümer und Dateirechte des Dashboard-Datenverzeichnisses prüfen.
 7. Gemeinsames Parser-Control-Token wiederherstellen oder kontrolliert für
    beide Container neu erzeugen.
-8. Dashboard starten und Admin-Anmeldung, aktive Mailboxrevision, Alerting und
-   Stichproben der historischen Daten prüfen.
+8. Dashboard starten und Read-/Admin-Anmeldung, aktive Mailboxrevision,
+   Alerting und Stichproben der historischen Daten prüfen.
 9. Erst danach den einzelnen Parser-Prozess und gegebenenfalls den
    automatischen Mailversand wieder freigeben.
 
@@ -210,4 +210,3 @@ vorliegen und in einer isolierten Zielinstallation getestet wurden:
 - Restore wahlweise in eine neue oder bestehende Installation durchführen
 - Parser und Mailversand während des Restore sicher gesperrt halten
 - typische Fehlerfälle mit klaren Abbruchmeldungen behandeln
-

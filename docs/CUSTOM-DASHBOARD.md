@@ -71,15 +71,28 @@ Abhängigkeitsmatrix steht in
 Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
 sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
 Abweichung. Beim ersten Aufruf blockiert ein Setup-Screen das Dashboard, bis
-ein Admin-Passwort mit mindestens zwölf Zeichen festgelegt wurde. Nur der
-gesalzene Passwort-Hash wird in `dashboard.db` gespeichert.
+ein Read-Benutzer mit Passwort und ein separates Admin-Passwort festgelegt
+wurden. Beide Passwörter müssen mindestens zwölf Zeichen enthalten; nur ihre
+gesalzenen Hashes werden in `dashboard.db` gespeichert.
+
+Eine gültige Read-Sitzung ist für das gesamte Dashboard und alle normalen
+API-Endpunkte erforderlich. Ausgenommen sind Healthcheck, die öffentlich
+erreichbaren Read-Auth-Endpunkte und die separat per Control-Token abgesicherte
+Parser-API. Die Read-Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden
+Gültigkeit gehalten. Ein Read-Logout beendet zusätzlich eine im selben Browser
+aktive Admin-Sitzung.
 
 Eine Admin-Anmeldung ist für globale Einstellungen und die
-Mailbox- und Benachrichtigungsverwaltung erforderlich.
-Die Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden Gültigkeit
-gehalten. Das Passwort kann unter **Einstellungen → Administration** geändert
-werden; dabei werden andere bestehende Admin-Sitzungen beendet. Das lesende
-Dashboard bleibt ohne Admin-Anmeldung verfügbar.
+Mailbox- und Benachrichtigungsverwaltung erforderlich. Sie verwendet eine
+unabhängige, ebenfalls zwölf Stunden gültige Sitzung. Das Admin-Passwort und
+der Read-Zugang können unter **Einstellungen → Administration** geändert
+werden. Eine Änderung beendet jeweils die anderen Sitzungen des betroffenen
+Zugangstyps; der ändernde Browser erhält direkt eine neue Sitzung.
+
+Beim Upgrade einer bestehenden Installation ohne Read-Zugang wird das Setup
+erneut als unvollständig markiert. Das vorhandene Admin-Passwort muss bestätigt
+werden, bevor der Read-Benutzer ergänzt wird. Das Admin-Passwort selbst bleibt
+dabei unverändert.
 
 Die Warnungs-IDs werden deterministisch aus Auslöser, Domain, Host und Reporttag
 gebildet. Damit werden wiederholte Anzeigen desselben Ereignisses dedupliziert,
@@ -168,11 +181,14 @@ möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 | Endpunkt | Zweck |
 |---|---|
 | `GET /api/health` | Container- und OpenSearch-Status |
-| `GET /api/auth/status` | Ersteinrichtung und Admin-Sitzung prüfen |
-| `POST /api/auth/setup` | initiales Admin-Passwort einmalig festlegen |
+| `GET /api/auth/status` | Ersteinrichtung, Read- und Admin-Sitzung prüfen |
+| `POST /api/auth/setup` | Read-Zugang und Admin-Passwort initial festlegen beziehungsweise Read-Zugang sicher nachrüsten |
+| `POST /api/auth/read-login` | Read-Sitzung starten |
+| `POST /api/auth/read-logout` | Read- und zugehörige Admin-Sitzung beenden |
 | `POST /api/auth/login` | Admin-Sitzung starten |
 | `POST /api/auth/logout` | Admin-Sitzung beenden |
 | `POST /api/auth/change-password` | Admin-Passwort ändern |
+| `PUT /api/auth/read-credentials` | Read-Benutzername und -Passwort als Admin ändern |
 | `GET /api/settings/appearance` | globalen UI-Farbstandard lesen |
 | `PUT /api/settings/appearance` | globalen UI-Farbstandard als Admin ändern |
 | `GET /api/settings/mailbox` | Entwurf, aktive Revision und Parserstatus lesen |
