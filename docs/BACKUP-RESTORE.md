@@ -2,7 +2,7 @@
 
 Dieses Dokument definiert, welche Daten der parseDMARC-Stack besitzt, wo sie
 liegen und welche Abhängigkeiten bei Backup und Wiederherstellung gelten. Es
-ist die fachliche Grundlage für die noch zu automatisierenden Abläufe aus
+beschreibt die implementierten Abläufe und die noch erforderlichen Restore-Tests aus
 [Issue #2](https://github.com/cybernoodles/parsedmarc-stack/issues/2).
 
 ## Grundsatz: Datenebene und Steuerungsebene bleiben getrennt
@@ -59,6 +59,8 @@ Repository und müssen im Backup verschlüsselt sowie zugriffsgeschützt liegen.
 - **Parserstatus:** zuletzt gemeldeter Modus, Revision und Laufzeitstatus
 - **E-Mail-Alerting:** Versandweg, Empfänger, Ereignisauswahl, verschlüsselte
   Secrets sowie persistente Zustell- und Fehlerzustände
+- **Backup-Steuerung:** Intervall, Retention, Laufstatus, Manifestverweis und
+  Fehlerhistorie der Online-Sicherungen
 
 SQLite enthält **keine** DMARC-Nachrichten, keine OpenSearch-Dokumente und
 keine Ersatzkopie der von parsedmarc importierten Reporthistorie.
@@ -101,6 +103,21 @@ Bei einem Restore müssen deshalb `dashboard.db` und `connection.key`
 vollständig wiederhergestellt sein, **bevor** Dashboard und Parser gemeinsam
 in den Normalbetrieb gehen.
 
+## Implementiertes Hybridmodell
+
+DMARC Control verwendet zwei ergänzende Sicherungswege. Beide sichern
+persistente Daten und Konfiguration, niemals Container oder Images als
+Primärbackup.
+
+| Verfahren | Betrieb | Inhalt | Typischer Einsatz |
+|---|---|---|---|
+| Online-Backup im GUI | OpenSearch, Dashboard und Parser laufen weiter | OpenSearch-Snapshot plus SQLite, `connection.key`, `control.token` und Manifest mit gemeinsamer Backup-ID | täglich oder alle 6/12 Stunden, schnelle historische Sicherung |
+| Hostseitiges Cold-Backup | Stack wird kontrolliert gestoppt und danach wieder gestartet | vollständiges `data/` sowie Stack-Dateien und Konfiguration in getrennten Archiven | wöchentlich und vor Upgrades, vollständige Disaster-Recovery |
+
+Der Browser spricht auch für Backups ausschließlich mit FastAPI. Das Dashboard
+besitzt keinen Docker-Socket. Nur das separate hostseitige Werkzeug darf den
+Stack für Cold-Backup oder Restore stoppen und starten.
+
 ## Drei getrennte Backup-Produkte
 
 ### 1. Historisches Datenbackup
@@ -122,7 +139,8 @@ Enthält mindestens:
 - konsistente Sicherung von `dashboard.db`
 - exakt zugehörige `connection.key`
 - `control.token`
-- verschlüsselte Kopie von `.env` und optionaler Legacy-Konfiguration
+- für ein vollständiges DR-Paket zusätzlich `.env` und optionale
+  Legacy-Konfiguration
 
 Für eine Sicherung bei laufendem Dashboard muss die SQLite Online Backup API
 verwendet werden. Alternativ wird der Dashboard-Container vor einer normalen
@@ -147,6 +165,135 @@ gemeinsame Backup-ID. Zusätzlich enthält es ein Manifest mit:
 Secrets oder Klartext-Zugangsdaten dürfen nicht in das Manifest geschrieben
 werden.
 
+## Online-Backup im Dashboard einrichten
+
+OpenSearch benötigt für ein Dateisystem-Repository einen statischen
+`path.repo`. Compose bindet daher zwei Unterverzeichnisse desselben Zielpfads
+ein:
+
+```text
+DMARC_BACKUP_ROOT/
+├── opensearch/    # inkrementelles OpenSearch-Snapshot-Repository, UID 1000
+└── control/       # SQLite-/Schlüssel-Bundles, UID 10001
+```
+
+Das Ziel sollte auf einem zweiten Datenträger, einem NAS-Mount oder einem
+anderen verschlüsselten und zugriffsgeschützten Dateisystem liegen. Ein Backup
+auf derselben Platte wie `data/` schützt nicht vor einem Plattenausfall.
+
+Beispiel für die Vorbereitung auf dem Docker-Host:
+
+```bash
+sudo install -d -m 0700 -o 1000 -g 1000 /mnt/backup/parsedmarc/opensearch
+sudo install -d -m 0700 -o 10001 -g 10001 /mnt/backup/parsedmarc/control
+```
+
+Danach in `.env` den Hostpfad setzen:
+
+```dotenv
+DMARC_BACKUP_ROOT=/mnt/backup/parsedmarc
+```
+
+`path.repo` ist eine statische OpenSearch-Einstellung. Bei der erstmaligen
+Aktivierung muss deshalb der OpenSearch-Container einmal kontrolliert neu
+erstellt werden. Die Daten unter `data/opensearch/` werden dabei nicht
+gelöscht:
+
+```bash
+docker compose up -d --force-recreate opensearch
+docker compose up -d --force-recreate dashboard
+```
+
+Anschließend kann ein Administrator unter **Einstellungen → Backup & Restore**:
+
+- Online-Backups manuell starten,
+- ein Intervall von 6, 12 oder 24 Stunden beziehungsweise einer Woche wählen,
+- 2 bis 90 erfolgreiche Sicherungen aufbewahren,
+- Status, Zeitpunkt, Auslöser und Fehler der letzten Läufe sehen.
+
+Jeder erfolgreiche Lauf erzeugt eine gemeinsame Backup-ID. Unter
+`control/<BACKUP-ID>/` liegen `dashboard.db`, vorhandene Schlüssel und Token
+sowie `manifest.json`. Das Manifest enthält Prüfsummen, SQLite-Integrität,
+OpenSearch-Version, Snapshotnamen und die enthaltenen Indizes. Die eigentlichen
+OpenSearch-Snapshotdateien liegen im inkrementellen Repository daneben.
+
+Retention löscht Snapshots ausschließlich über die OpenSearch-API. Dateien im
+Repository dürfen nie manuell entfernt werden, weil mehrere inkrementelle
+Snapshots gemeinsame Datenblöcke verwenden können.
+
+## Cold-Backup und Restore
+
+Das versionierte Wartungswerkzeug wird im Stack-Verzeichnis ausgeführt. Das
+Ziel muss ein absoluter Pfad außerhalb des Stack-Verzeichnisses sein:
+
+```bash
+./scripts/dmarc-maintenance cold-backup /mnt/backup/parsedmarc-cold
+```
+
+Der Ablauf speichert den vorherigen Laufzustand, erfasst OpenSearch-Metadaten,
+stoppt Parser, Dashboard/Grafana und zuletzt OpenSearch, prüft SQLite, erstellt
+die Archive und startet OpenSearch zuerst sowie den Parser zuletzt. Bei einem
+Fehler wird ein Best-Effort-Neustart der vorher laufenden Dienste versucht. Ein
+noch laufender Online-Snapshot blockiert den Cold-Ablauf mit einer klaren
+Fehlermeldung, statt OpenSearch während des Snapshots zu stoppen.
+
+Ein Paket lässt sich vor einer Übertragung oder einem Restore separat prüfen:
+
+```bash
+./scripts/dmarc-maintenance verify \
+  /mnt/backup/parsedmarc-cold/cold-20260804t020000z-12345678
+```
+
+Der Restore ist absichtlich nicht Teil des Web-GUI. Er verlangt eine explizite
+Bestätigung und prüft Manifest, Prüfsummen, Archivpfade, SQLite und standardmäßig
+die exakte OpenSearch-Image-ID:
+
+```bash
+./scripts/dmarc-maintenance cold-restore \
+  /mnt/backup/parsedmarc-cold/cold-20260804t020000z-12345678 \
+  --confirm
+```
+
+Standardmäßig werden nur die persistenten Daten restauriert. Mit
+`--restore-config` werden zusätzlich Compose-Datei, `.env`, Konfiguration und
+die zur Sicherung gehörenden Anwendungsquellen übernommen. Eine abweichende
+OpenSearch-Image-ID wird nur mit `--allow-image-mismatch` akzeptiert; diese
+Option ist ausschließlich nach einer geprüften Kompatibilitätsentscheidung zu
+verwenden.
+
+Vorhandene Daten werden nicht sofort gelöscht, sondern als
+`data.pre-restore-<ZEITPUNKT>` neben dem Stack aufbewahrt. Sie können nach einer
+fachlich erfolgreichen Prüfung manuell entfernt oder für einen Rollback
+verwendet werden.
+
+Die Cold-Archive enthalten Secrets und möglicherweise personenbezogene
+Forensic-Daten. Der Zielmount muss daher Verschlüsselung im Ruhezustand,
+restriktive Berechtigungen und eine geeignete externe Aufbewahrung bereitstellen.
+
+## Wiederherstellung aus einem Online-Backup
+
+Ein Online-Backup ist absichtlich kein einzelnes ZIP: OpenSearch-Snapshots sind
+inkrementell und teilen Dateien. Für eine Wiederherstellung werden deshalb das
+vollständige Verzeichnis `opensearch/` und genau das zugehörige
+`control/<BACKUP-ID>/` benötigt.
+
+- **Nur Historie:** Snapshot-Repository auf einem leeren oder kompatiblen
+  OpenSearch registrieren und den im Manifest genannten Snapshot über die
+  OpenSearch-Restore-API einspielen. Gleichnamige offene Indizes müssen vorher
+  geschlossen, entfernt oder beim Restore umbenannt werden.
+- **Nur Steuerung:** Parser und Dashboard stoppen, Prüfsummen und
+  `PRAGMA integrity_check` prüfen und `dashboard.db` zusammen mit exakt dem
+  zugehörigen `connection.key` wiederherstellen. `control.token` entweder
+  gemeinsam übernehmen oder kontrolliert für Dashboard und Parser neu erzeugen.
+- **Beides:** Parser, Dashboard und Mailversand gestoppt halten, zuerst den
+  OpenSearch-Snapshot und danach das gleich bezeichnete Control-Bundle
+  restaurieren. Erst nach den Prüfungen Dashboard und zuletzt Parser starten.
+
+Für den normalen vollständigen Disaster-Recovery-Pfad ist das automatisierte
+Cold-Restore-Werkzeug vorzuziehen. Ein selektiver Online-Restore bleibt bewusst
+eine administrative Wartungsaktion, weil er bestehende Indizes oder die aktive
+SQLite-Datenbank ersetzen kann.
+
 ## Konsistenzgrenze
 
 OpenSearch und SQLite benötigen keine verteilte Transaktion. Für ein
@@ -160,9 +307,11 @@ Konsistenzgrenze erhalten:
 5. Manifest und Prüfsummen erzeugen.
 6. Parser erst nach erfolgreicher Prüfung wieder starten.
 
-Für reine häufige OpenSearch-Snapshots muss der Parser nicht zwingend pausiert
-werden. Die gemeinsame Pause ist für ein vollständiges, zusammengehöriges
-Disaster-Recovery-Paket vorgesehen.
+Die häufigen GUI-Online-Backups pausieren den Parser bewusst nicht. OpenSearch
+und SQLite liefern jeweils einen konsistenten Zeitpunkt; ihre Zeitstempel und
+die gemeinsame Backup-ID dokumentieren die kurze zeitliche Grenze. Das
+hostseitige Cold-Backup bildet die strengere gemeinsame Konsistenzgrenze für
+vollständige Disaster-Recovery.
 
 ## Sichere Restore-Reihenfolge
 
@@ -197,16 +346,23 @@ versionierte Änderungen. Sobald Grafana mehr als ein optionales
 Legacy-Frontend ist oder lokale Zustände behalten werden sollen, wird
 `data/grafana/` Bestandteil des vollständigen Backups.
 
-## Noch zu automatisieren
+## Empfohlener Betriebsplan
 
-Issue #2 ist erst abgeschlossen, wenn Werkzeuge für folgende Schritte
-vorliegen und in einer isolierten Zielinstallation getestet wurden:
+- Online-Backup täglich, bei hohem Änderungsvolumen alle 6 oder 12 Stunden
+- zunächst 14 erfolgreiche Online-Backups aufbewahren
+- wöchentliches Cold-Backup und zusätzlich vor Stack-/OpenSearch-Upgrades
+- mindestens eine Kopie außerhalb des Docker-Hosts aufbewahren
+- monatlich automatische Prüfsummenprüfung
+- Restore quartalsweise in einer isolierten Zielinstallation testen
 
-- datierte Backup-ID und Manifest erzeugen
-- OpenSearch-Snapshot anlegen und auf `SUCCESS` prüfen
-- konsistentes SQLite-Backup inklusive `integrity_check` erzeugen
-- Schlüssel, Token und Konfiguration sicher bündeln
-- Prüfsummen und Versionskompatibilität vor dem Restore prüfen
-- Restore wahlweise in eine neue oder bestehende Installation durchführen
-- Parser und Mailversand während des Restore sicher gesperrt halten
-- typische Fehlerfälle mit klaren Abbruchmeldungen behandeln
+Das wöchentliche Cold-Backup kann durch den Host-Scheduler unter einem Benutzer
+mit Docker-Zugriff ausgeführt werden. Zielmount und Logverzeichnis müssen für
+diesen Benutzer beschreibbar sein, beispielsweise:
+
+```cron
+15 3 * * 0 cd /opt/stacks/parsedmarc && ./scripts/dmarc-maintenance cold-backup /mnt/backup/parsedmarc-cold >> /mnt/backup/parsedmarc-cold/backup.log 2>&1
+```
+
+Issue #2 gilt erst nach einem erfolgreichen isolierten Test von Online-Snapshot
+und Cold-Restore als betrieblich abgeschlossen. Die Werkzeuge sind vorhanden;
+der Test darf nicht erstmals in der produktiven Installation stattfinden.

@@ -12,6 +12,7 @@ Browser ──HTTP──> Grafana                         ──HTTP intern─�
                          │
                          └── aktivierte Revision ──> Parser-Supervisor
                          └── offene Warnungen ─────> SMTP / Microsoft Graph
+                         └── Online-Backup ────────> Snapshot-Repository
 Mailbox ────────> genau ein parsedmarc-Kindprozess ──────────────> OpenSearch
 ```
 
@@ -34,8 +35,11 @@ Die API liest:
 - `dmarc_aggregate-*` für Übersicht, Trends, Domains, Policies und Sending Hosts
 - `dmarc_failure-*` für minimierte Forensik-Aggregationen
 
-Die Abfragen verwenden ausschließlich `_search`. Es werden keine Indizes,
-Mappings oder DMARC-Dokumente verändert.
+Die fachlichen Dashboard-Abfragen verwenden ausschließlich `_search`. Es werden
+keine Mappings oder DMARC-Dokumente verändert. Der getrennte, admin-geschützte
+Backupdienst verwendet zusätzlich nur die OpenSearch-Endpunkte
+`_snapshot` zum Registrieren des fest konfigurierten Repositorys sowie zum
+Anlegen und Löschen von Snapshots.
 
 Forensik-Abfragen verwenden `size: 0` und `_source: false`. Insbesondere werden
 folgende Felder nicht geladen oder ausgeliefert:
@@ -50,7 +54,8 @@ folgende Felder nicht geladen oder ausgeliefert:
 ## Eigene Persistenz
 
 Statusänderungen an Warnungen, Benachrichtigungseinstellungen und
--zustellungen, manuell bestätigte Sending Hosts, der globale UI-Farbstandard
+-zustellungen, Backup-Zeitplan und -Historie, manuell bestätigte Sending Hosts
+sowie der globale UI-Farbstandard
 sowie versionierte Mailbox-Verbindungen werden in
 `data/dashboard/dashboard.db` gespeichert. Diese SQLite-Datei ist vollständig
 von den OpenSearch- und Grafana-Daten getrennt.
@@ -82,8 +87,8 @@ Parser-API. Die Read-Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden
 Gültigkeit gehalten. Ein Read-Logout beendet zusätzlich eine im selben Browser
 aktive Admin-Sitzung.
 
-Eine Admin-Anmeldung ist für globale Einstellungen und die
-Mailbox- und Benachrichtigungsverwaltung erforderlich. Sie verwendet eine
+Eine Admin-Anmeldung ist für globale Einstellungen sowie die Mailbox-,
+Benachrichtigungs- und Backup-Verwaltung erforderlich. Sie verwendet eine
 unabhängige, ebenfalls zwölf Stunden gültige Sitzung. Das Admin-Passwort und
 der Read-Zugang können unter **Einstellungen → Administration** geändert
 werden. Eine Änderung beendet jeweils die anderen Sitzungen des betroffenen
@@ -199,6 +204,9 @@ möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 | `GET /api/settings/notifications` | geschützte Alerting-Konfiguration und Zustellstatus lesen |
 | `PUT /api/settings/notifications` | SMTP-/Graph-Versand und Ereignisauswahl speichern |
 | `POST /api/settings/notifications/test` | explizite strukturierte Test-E-Mail versenden |
+| `GET /api/settings/backups` | Online-Backup-Zeitplan, Ziel und Laufhistorie lesen |
+| `PUT /api/settings/backups` | Intervall und Retention als Admin speichern |
+| `POST /api/settings/backups/run` | Online-Backup als Admin manuell starten |
 | `GET /api/internal/parser/config` | aktive Konfiguration für den Supervisor |
 | `POST /api/internal/parser/status` | Laufzeitstatus des einzelnen Parsers melden |
 | `GET /api/domains` | verfügbare Header-From-Domains |
@@ -225,12 +233,12 @@ Der produktive Dockge-Stack liegt unter:
 Dockge verwendet dort `compose.yaml`. Das Dashboard-Verzeichnis liegt relativ
 dazu unter `./dashboard`, die eigene Persistenz unter `./data/dashboard`.
 
-Beim Update werden nur der Dashboard-Quellcode und der zusätzliche
-`dashboard`- und `parsedmarc`-Service verändert. OpenSearch und Grafana bleiben
-unangetastet. Beim ersten Rollout wird nur der bestehende Parser-Container
-ersetzt; der neue Supervisor startet darin genau einen Kindprozess mit der
-vorhandenen Legacy-Konfiguration. Erst eine später in der GUI getestete und
-aktivierte Revision ersetzt diese Konfiguration.
+Bei der erstmaligen Aktivierung des Backup-Mounts wird OpenSearch einmal
+kontrolliert neu erstellt, weil `path.repo` eine statische Einstellung ist.
+`data/opensearch/` bleibt dabei unverändert erhalten. Das Dashboard wird mit
+seinem Control-Backup-Mount ebenfalls neu erstellt; Grafana und die fachlichen
+DMARC-Indizes werden nicht geändert. Der verwaltete Parser startet weiterhin
+genau einen Kindprozess mit der aktiven GUI- oder Legacy-Konfiguration.
 
 Das neue Dashboard ist nach dem Start unter `http://HOSTNAME:3030` erreichbar;
 Grafana bleibt parallel unter Port `3020` verfügbar.

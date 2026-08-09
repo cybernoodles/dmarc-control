@@ -34,6 +34,32 @@ class Settings:
         30,
         int(os.getenv("NOTIFICATION_POLL_SECONDS", "300")),
     )
+    backup_output_path: Path = Path(
+        os.getenv("DASHBOARD_BACKUP_PATH", "/app/backups/control")
+    )
+    backup_repository_name: str = os.getenv(
+        "OPENSEARCH_SNAPSHOT_REPOSITORY",
+        "dmarc-control",
+    )
+    backup_repository_path: str = os.getenv(
+        "OPENSEARCH_SNAPSHOT_PATH",
+        "/mnt/snapshots",
+    )
+    backup_index_pattern: str = os.getenv(
+        "OPENSEARCH_SNAPSHOT_INDICES",
+        "dmarc_*",
+    )
+    backup_target_label: str = os.getenv(
+        "DMARC_BACKUP_TARGET_LABEL",
+        "./backups",
+    )
+    backup_timeout_seconds: float = float(
+        os.getenv("BACKUP_TIMEOUT_SECONDS", "1800")
+    )
+    backup_poll_seconds: int = max(
+        60,
+        int(os.getenv("BACKUP_POLL_SECONDS", "300")),
+    )
 
 
 settings = Settings()

@@ -298,6 +298,38 @@ export interface NotificationSettingsUpdate {
   };
 }
 
+export type BackupIntervalHours = 6 | 12 | 24 | 168;
+
+export interface BackupRun {
+  backup_id: string;
+  trigger: "manual" | "scheduled";
+  status: "running" | "success" | "failed";
+  snapshot_name: string | null;
+  manifest_path: string | null;
+  error: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface BackupSettings {
+  enabled: boolean;
+  interval_hours: BackupIntervalHours;
+  retention_count: number;
+  updated_at: string | null;
+  target: string;
+  repository: string;
+  available: boolean;
+  running: boolean;
+  runs: BackupRun[];
+  started_backup_id?: string;
+}
+
+export interface BackupSettingsUpdate {
+  enabled: boolean;
+  interval_hours: BackupIntervalHours;
+  retention_count: number;
+}
+
 const query = (values: Record<string, string | number>) => {
   const params = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) =>
@@ -427,6 +459,17 @@ export const api = {
     }),
   testNotificationSettings: () =>
     request<NotificationSettings>("/api/settings/notifications/test", {
+      method: "POST",
+    }),
+  backupSettings: () =>
+    request<BackupSettings>("/api/settings/backups"),
+  saveBackupSettings: (update: BackupSettingsUpdate) =>
+    request<BackupSettings>("/api/settings/backups", {
+      method: "PUT",
+      body: JSON.stringify(update),
+    }),
+  runBackup: () =>
+    request<BackupSettings>("/api/settings/backups/run", {
       method: "POST",
     }),
   appearance: () =>

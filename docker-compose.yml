@@ -30,8 +30,10 @@ services:
       # Performance / Sicherheit für Single-Node
       - plugins.security.ssl.http.enabled=false
       - plugins.security.disabled=true        # intern kein TLS nötig (nur lokal erreichbar)
+      - path.repo=/mnt/snapshots
     volumes:
       - ./data/opensearch:/usr/share/opensearch/data
+      - ${DMARC_BACKUP_ROOT:-./backups}/opensearch:/mnt/snapshots
     ulimits:
       memlock:
         soft: -1
@@ -83,9 +85,15 @@ services:
       - DASHBOARD_DATABASE_PATH=/app/data/dashboard.db
       - STALE_REPORT_DAYS=3
       - NEW_HOST_WINDOW_DAYS=7
+      - DASHBOARD_BACKUP_PATH=/app/backups/control
+      - OPENSEARCH_SNAPSHOT_REPOSITORY=dmarc-control
+      - OPENSEARCH_SNAPSHOT_PATH=/mnt/snapshots
+      - OPENSEARCH_SNAPSHOT_INDICES=dmarc_*
+      - DMARC_BACKUP_TARGET_LABEL=${DMARC_BACKUP_ROOT:-./backups}
     volumes:
       - ./data/dashboard:/app/data
       - ./data/parser-control:/app/parser-control
+      - ${DMARC_BACKUP_ROOT:-./backups}/control:/app/backups/control
     read_only: true
     tmpfs:
       - /tmp

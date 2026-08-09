@@ -56,11 +56,66 @@ const english: Record<string, string> = {
     "Appearance, mailbox connection and protected administration",
   "Darstellung, Benachrichtigungen, Postfachanbindung und geschützte Administration":
     "Appearance, notifications, mailbox connection and protected administration",
+  "Darstellung, Benachrichtigungen, Backups, Postfachanbindung und geschützte Administration":
+    "Appearance, notifications, backups, mailbox connection and protected administration",
   Einstellungsbereiche: "Settings sections",
   "Darstellung & Sprache": "Appearance & language",
   "Branding und Benutzeroberfläche": "Branding and user interface",
   Benachrichtigungen: "Notifications",
   "E-Mail-Alerting und Versandwege": "Email alerting and delivery methods",
+  "Backup & Restore": "Backup & restore",
+  "Sicherungen und Wiederherstellung": "Backups and recovery",
+  "Backup & Wiederherstellung": "Backup & recovery",
+  "OpenSearch-Snapshot und konsistentes Dashboard-Steuerungsbackup mit gemeinsamer Backup-ID erstellen.":
+    "Create an OpenSearch snapshot and a consistent dashboard control backup with a shared backup ID.",
+  "Backup-Zeitplan, Historie und manuelle Ausführung sind ausschließlich für Administratoren sichtbar.":
+    "Backup schedule, history and manual runs are visible only to administrators.",
+  "Backup-Einstellungen werden geladen": "Loading backup settings",
+  "Automatische Online-Backups aktivieren": "Enable automatic online backups",
+  "Der Parser läuft weiter. OpenSearch und SQLite werden mit ihren nativen konsistenten Backup-Verfahren gesichert.":
+    "The parser continues running. OpenSearch and SQLite are protected using their native consistent backup mechanisms.",
+  Intervall: "Interval",
+  "Alle 6 Stunden": "Every 6 hours",
+  "Alle 12 Stunden": "Every 12 hours",
+  Täglich: "Daily",
+  Wöchentlich: "Weekly",
+  "Aufbewahrte Sicherungen": "Retained backups",
+  "Backup-Ziel": "Backup target",
+  "Docker-Mount ist beschreibbar": "Docker mount is writable",
+  "Docker-Mount ist nicht beschreibbar": "Docker mount is not writable",
+  "Vor dem ersten Backup muss DMARC_BACKUP_ROOT auf ein beschreibbares, vorzugsweise externes und verschlüsseltes Ziel zeigen.":
+    "Before the first backup, DMARC_BACKUP_ROOT must point to a writable, preferably external and encrypted target.",
+  "Backup läuft …": "Backup running …",
+  "Jetzt sichern": "Back up now",
+  "Letzte Online-Backups": "Latest online backups",
+  "OpenSearch und Dashboard-Steuerungsdaten":
+    "OpenSearch and dashboard control data",
+  Manuell: "Manual",
+  Zeitplan: "Scheduled",
+  Erfolgreich: "Successful",
+  Läuft: "Running",
+  "Noch keine Sicherung vorhanden.": "No backup is available yet.",
+  "Ein vollständiges Cold-Backup oder ein Restore wird bewusst mit dem hostseitigen Wartungswerkzeug ausgeführt. Das Dashboard erhält dafür keinen Zugriff auf Docker.":
+    "A complete cold backup or restore is deliberately performed with the host-side maintenance tool. The dashboard does not receive Docker access.",
+  "Letzter Backup-Fehler: {error}": "Latest backup error: {error}",
+  "Letztes Backup fehlgeschlagen": "Latest backup failed",
+  "Letztes Backup erfolgreich": "Latest backup successful",
+  "Backup läuft": "Backup running",
+  "Noch kein Backup": "No backup yet",
+  "Backup-Einstellungen wurden gespeichert.": "Backup settings were saved.",
+  "Backup-Einstellungen konnten nicht gespeichert werden.":
+    "Backup settings could not be saved.",
+  "Backup-Einstellungen konnten nicht geladen werden.":
+    "Backup settings could not be loaded.",
+  "Speichere Änderungen vor dem manuellen Backup.":
+    "Save changes before running a manual backup.",
+  "Online-Backup wurde gestartet.": "Online backup started.",
+  "Online-Backup konnte nicht gestartet werden.":
+    "Online backup could not be started.",
+  "Das Backup-Ziel ist nicht beschreibbar. Prüfe den Docker-Mount und die Berechtigungen.":
+    "The backup target is not writable. Check the Docker mount and permissions.",
+  "Ein Online-Backup wird bereits ausgeführt.":
+    "An online backup is already running.",
   "E-Mail-Benachrichtigungen": "Email notifications",
   "Kritische Fälle und Hinweise als strukturierte HTML-E-Mail über SMTP oder Microsoft Graph versenden.":
     "Send critical cases and advisories as structured HTML email through SMTP or Microsoft Graph.",

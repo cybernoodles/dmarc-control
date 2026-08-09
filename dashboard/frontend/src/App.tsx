@@ -2,6 +2,7 @@ import {
   Activity,
   ArrowLeft,
   Bell,
+  DatabaseBackup,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -52,6 +53,9 @@ import {
   NotificationCase,
   NotificationSettings,
   NotificationSettingsUpdate,
+  BackupIntervalHours,
+  BackupSettings,
+  BackupSettingsUpdate,
   Overview,
   TrustStatus,
   api,
@@ -63,6 +67,7 @@ type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
 type SettingsSection =
   | "appearance"
   | "notifications"
+  | "backups"
   | "connection"
   | "administration";
 
@@ -2606,6 +2611,354 @@ function NotificationSettingsPanel({
   );
 }
 
+function BackupSettingsPanel({
+  auth,
+  setAuth,
+}: {
+  auth: AuthStatus;
+  setAuth: (status: AuthStatus) => void;
+}) {
+  const { t, formatDate } = useI18n();
+  const [settingsState, setSettingsState] = useState<BackupSettings | null>(
+    null,
+  );
+  const [form, setForm] = useState<BackupSettingsUpdate>({
+    enabled: false,
+    interval_hours: 24,
+    retention_count: 14,
+  });
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<"save" | "run" | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [feedbackTone, setFeedbackTone] = useState<
+    "success" | "critical" | "info"
+  >("info");
+
+  const hydrate = useCallback((next: BackupSettings) => {
+    setSettingsState(next);
+    setForm({
+      enabled: next.enabled,
+      interval_hours: next.interval_hours,
+      retention_count: next.retention_count,
+    });
+    setDirty(false);
+  }, []);
+
+  const handleError = useCallback(
+    (reason: unknown, fallback: string) => {
+      const message = reason instanceof Error ? reason.message : fallback;
+      if (message === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+        return t("Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.");
+      }
+      const known: Record<string, string> = {
+        "Backup target is not writable": t(
+          "Das Backup-Ziel ist nicht beschreibbar. Prüfe den Docker-Mount und die Berechtigungen.",
+        ),
+        "An online backup is already running": t(
+          "Ein Online-Backup wird bereits ausgeführt.",
+        ),
+      };
+      return known[message] ?? message;
+    },
+    [auth, setAuth, t],
+  );
+
+  const load = useCallback(
+    async (quiet = false) => {
+      if (!auth.authenticated) return;
+      if (!quiet) setLoading(true);
+      try {
+        hydrate(await api.backupSettings());
+      } catch (reason) {
+        if (!quiet) {
+          setFeedbackTone("critical");
+          setFeedback(
+            handleError(
+              reason,
+              t("Backup-Einstellungen konnten nicht geladen werden."),
+            ),
+          );
+        }
+      } finally {
+        if (!quiet) setLoading(false);
+      }
+    },
+    [auth.authenticated, handleError, hydrate, t],
+  );
+
+  useEffect(() => {
+    if (auth.authenticated) void load();
+    else setSettingsState(null);
+  }, [auth.authenticated, load]);
+
+  useEffect(() => {
+    if (!settingsState?.running || !auth.authenticated) return;
+    const timer = window.setInterval(() => void load(true), 2500);
+    return () => window.clearInterval(timer);
+  }, [auth.authenticated, load, settingsState?.running]);
+
+  const updateForm = (next: Partial<BackupSettingsUpdate>) => {
+    setForm((current) => ({ ...current, ...next }));
+    setDirty(true);
+    setFeedback("");
+  };
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy("save");
+    setFeedback("");
+    try {
+      hydrate(await api.saveBackupSettings(form));
+      setFeedbackTone("success");
+      setFeedback(t("Backup-Einstellungen wurden gespeichert."));
+    } catch (reason) {
+      setFeedbackTone("critical");
+      setFeedback(
+        handleError(reason, t("Backup-Einstellungen konnten nicht gespeichert werden.")),
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runNow = async () => {
+    if (dirty) {
+      setFeedbackTone("critical");
+      setFeedback(t("Speichere Änderungen vor dem manuellen Backup."));
+      return;
+    }
+    setBusy("run");
+    setFeedback("");
+    try {
+      const next = await api.runBackup();
+      setSettingsState(next);
+      setFeedbackTone("info");
+      setFeedback(t("Online-Backup wurde gestartet."));
+    } catch (reason) {
+      setFeedbackTone("critical");
+      setFeedback(handleError(reason, t("Online-Backup konnte nicht gestartet werden.")));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const latest = settingsState?.runs[0] ?? null;
+  const statusTone = latest?.status === "failed"
+    ? "critical"
+    : latest?.status === "success"
+      ? "success"
+      : latest?.status === "running"
+        ? "info"
+        : "neutral";
+  const statusLabel = latest?.status === "failed"
+    ? t("Letztes Backup fehlgeschlagen")
+    : latest?.status === "success"
+      ? t("Letztes Backup erfolgreich")
+      : latest?.status === "running"
+        ? t("Backup läuft")
+        : t("Noch kein Backup");
+
+  return (
+    <section className="surface backup-settings">
+      <div className="settings-title connection-title">
+        <span className="settings-icon">
+          <DatabaseBackup aria-hidden="true" />
+        </span>
+        <div>
+          <h3>{t("Backup & Wiederherstellung")}</h3>
+          <p>
+            {t(
+              "OpenSearch-Snapshot und konsistentes Dashboard-Steuerungsbackup mit gemeinsamer Backup-ID erstellen.",
+            )}
+          </p>
+        </div>
+        <StatusPill tone={statusTone}>{statusLabel}</StatusPill>
+      </div>
+
+      {!auth.authenticated ? (
+        <div className="connection-locked">
+          <LockKeyhole aria-hidden="true" />
+          <div>
+            <strong>{t("Admin-Anmeldung erforderlich")}</strong>
+            <span>
+              {t(
+                "Backup-Zeitplan, Historie und manuelle Ausführung sind ausschließlich für Administratoren sichtbar.",
+              )}
+            </span>
+          </div>
+        </div>
+      ) : loading && !settingsState ? (
+        <LoadingState label={t("Backup-Einstellungen werden geladen")} />
+      ) : (
+        <form className="backup-form" onSubmit={save}>
+          <label className="notification-enable">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(event) => updateForm({ enabled: event.target.checked })}
+            />
+            <span>
+              <strong>{t("Automatische Online-Backups aktivieren")}</strong>
+              <small>
+                {t(
+                  "Der Parser läuft weiter. OpenSearch und SQLite werden mit ihren nativen konsistenten Backup-Verfahren gesichert.",
+                )}
+              </small>
+            </span>
+          </label>
+
+          <div className="backup-fields">
+            <label>
+              <span>{t("Intervall")}</span>
+              <select
+                value={form.interval_hours}
+                onChange={(event) =>
+                  updateForm({
+                    interval_hours: Number(event.target.value) as BackupIntervalHours,
+                  })
+                }
+              >
+                <option value={6}>{t("Alle 6 Stunden")}</option>
+                <option value={12}>{t("Alle 12 Stunden")}</option>
+                <option value={24}>{t("Täglich")}</option>
+                <option value={168}>{t("Wöchentlich")}</option>
+              </select>
+            </label>
+            <label>
+              <span>{t("Aufbewahrte Sicherungen")}</span>
+              <input
+                type="number"
+                min={2}
+                max={90}
+                value={form.retention_count}
+                onChange={(event) =>
+                  updateForm({
+                    retention_count: Math.min(
+                      90,
+                      Math.max(2, Number(event.target.value) || 2),
+                    ),
+                  })
+                }
+              />
+            </label>
+            <div className="backup-target">
+              <span>{t("Backup-Ziel")}</span>
+              <strong>{settingsState?.target ?? "—"}</strong>
+              <small>
+                {settingsState?.available
+                  ? t("Docker-Mount ist beschreibbar")
+                  : t("Docker-Mount ist nicht beschreibbar")}
+              </small>
+            </div>
+          </div>
+
+          {!settingsState?.available && (
+            <div className="inline-warning">
+              <TriangleAlert aria-hidden="true" />
+              {t(
+                "Vor dem ersten Backup muss DMARC_BACKUP_ROOT auf ein beschreibbares, vorzugsweise externes und verschlüsseltes Ziel zeigen.",
+              )}
+            </div>
+          )}
+
+          <div className="connection-actions">
+            <button
+              className="button button-primary"
+              type="submit"
+              disabled={busy !== null}
+            >
+              <Save aria-hidden="true" />
+              {busy === "save" ? t("Wird gespeichert …") : t("Einstellungen speichern")}
+            </button>
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={
+                busy !== null ||
+                dirty ||
+                settingsState?.running ||
+                !settingsState?.available
+              }
+              onClick={runNow}
+            >
+              <DatabaseBackup
+                className={settingsState?.running ? "spin" : undefined}
+                aria-hidden="true"
+              />
+              {settingsState?.running || busy === "run"
+                ? t("Backup läuft …")
+                : t("Jetzt sichern")}
+            </button>
+          </div>
+
+          <div className="backup-history">
+            <div className="backup-history-title">
+              <strong>{t("Letzte Online-Backups")}</strong>
+              <small>{t("OpenSearch und Dashboard-Steuerungsdaten")}</small>
+            </div>
+            {settingsState?.runs.length ? (
+              settingsState.runs.slice(0, 6).map((run) => (
+                <article key={run.backup_id}>
+                  <div>
+                    <strong className="mono">{run.backup_id}</strong>
+                    <small>
+                      {run.trigger === "manual" ? t("Manuell") : t("Zeitplan")}
+                      {" · "}
+                      {formatDate(run.started_at, true)}
+                    </small>
+                  </div>
+                  <StatusPill
+                    tone={
+                      run.status === "success"
+                        ? "success"
+                        : run.status === "failed"
+                          ? "critical"
+                          : "info"
+                    }
+                  >
+                    {run.status === "success"
+                      ? t("Erfolgreich")
+                      : run.status === "failed"
+                        ? t("Fehlgeschlagen")
+                        : t("Läuft")}
+                  </StatusPill>
+                  {run.error && <small className="backup-error">{run.error}</small>}
+                </article>
+              ))
+            ) : (
+              <div className="backup-empty">{t("Noch keine Sicherung vorhanden.")}</div>
+            )}
+          </div>
+
+          <div className="settings-note">
+            <Info aria-hidden="true" />
+            <span>
+              {t(
+                "Ein vollständiges Cold-Backup oder ein Restore wird bewusst mit dem hostseitigen Wartungswerkzeug ausgeführt. Das Dashboard erhält dafür keinen Zugriff auf Docker.",
+              )}
+            </span>
+          </div>
+
+          {latest?.error && latest.status === "failed" && (
+            <div className="inline-warning">
+              <TriangleAlert aria-hidden="true" />
+              {t("Letzter Backup-Fehler: {error}", { error: latest.error })}
+            </div>
+          )}
+
+          {feedback && (
+            <div className="settings-feedback" aria-live="polite">
+              <StatusPill tone={feedbackTone}>{feedback}</StatusPill>
+            </div>
+          )}
+        </form>
+      )}
+    </section>
+  );
+}
+
 function SettingsView({
   color,
   customColor,
@@ -2880,7 +3233,7 @@ function SettingsView({
       <SectionHeader
         title={t("Einstellungen")}
         subtitle={t(
-          "Darstellung, Benachrichtigungen, Postfachanbindung und geschützte Administration",
+          "Darstellung, Benachrichtigungen, Backups, Postfachanbindung und geschützte Administration",
         )}
         action={
           <StatusPill tone={sectionStatus.tone}>
@@ -2925,6 +3278,21 @@ function SettingsView({
             <span>
               <strong>{t("Benachrichtigungen")}</strong>
               <small>{t("E-Mail-Alerting und Versandwege")}</small>
+            </span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className={classNames(
+              settingsSection === "backups" && "active",
+            )}
+            aria-current={settingsSection === "backups" ? "page" : undefined}
+            onClick={() => setSettingsSection("backups")}
+          >
+            <DatabaseBackup aria-hidden="true" />
+            <span>
+              <strong>{t("Backup & Restore")}</strong>
+              <small>{t("Sicherungen und Wiederherstellung")}</small>
             </span>
             <ChevronRight aria-hidden="true" />
           </button>
@@ -3009,6 +3377,13 @@ function SettingsView({
           hidden={settingsSection !== "notifications"}
         >
           <NotificationSettingsPanel auth={auth} setAuth={setAuth} />
+        </div>
+
+        <div
+          className="settings-backup-slot"
+          hidden={settingsSection !== "backups"}
+        >
+          <BackupSettingsPanel auth={auth} setAuth={setAuth} />
         </div>
 
         <div

@@ -29,6 +29,7 @@ from .auth import (
     session_hash,
     verify_password,
 )
+from .backup import BackupError, OnlineBackupManager, create_backup_id
 from .config import settings
 from .connection import (
     ConnectionSecretError,
@@ -64,13 +65,28 @@ service = DashboardService(client, store, settings)
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     application.state.notification_wakeup = asyncio.Event()
-    task = asyncio.create_task(notification_delivery_loop(application))
+    application.state.backup_wakeup = asyncio.Event()
+    application.state.backup_lock = asyncio.Lock()
+    application.state.backup_task = None
+    notification_task = asyncio.create_task(
+        notification_delivery_loop(application)
+    )
+    backup_schedule_task = asyncio.create_task(backup_schedule_loop(application))
     try:
         yield
     finally:
-        task.cancel()
+        notification_task.cancel()
+        backup_schedule_task.cancel()
+        active_backup = application.state.backup_task
+        if active_backup and not active_backup.done():
+            active_backup.cancel()
         with suppress(asyncio.CancelledError):
-            await task
+            await notification_task
+        with suppress(asyncio.CancelledError):
+            await backup_schedule_task
+        if active_backup:
+            with suppress(asyncio.CancelledError):
+                await active_backup
 
 
 app = FastAPI(
@@ -215,6 +231,12 @@ class NotificationSettingsUpdate(BaseModel):
     graph: GraphNotificationUpdate = Field(
         default_factory=GraphNotificationUpdate
     )
+
+
+class BackupSettingsUpdate(BaseModel):
+    enabled: bool = False
+    interval_hours: Literal[6, 12, 24, 168] = 24
+    retention_count: int = Field(default=14, ge=2, le=90)
 
 
 UUID_PATTERN = re.compile(
@@ -804,6 +826,127 @@ async def notification_delivery_loop(application: FastAPI) -> None:
             logger.exception("Notification delivery cycle failed")
 
 
+def online_backup_manager() -> OnlineBackupManager:
+    return OnlineBackupManager(
+        opensearch_url=settings.opensearch_url,
+        database_path=settings.database_path,
+        connection_key_path=settings.connection_key_path,
+        parser_control_token_path=settings.parser_control_token_file,
+        output_path=settings.backup_output_path,
+        repository_name=settings.backup_repository_name,
+        repository_path=settings.backup_repository_path,
+        index_pattern=settings.backup_index_pattern,
+        timeout_seconds=settings.backup_timeout_seconds,
+        application_version=VERSION,
+    )
+
+
+def public_backup_state() -> dict:
+    runs = store.backup_runs(12)
+    active = next((run for run in runs if run["status"] == "running"), None)
+    return {
+        **store.backup_settings(),
+        "target": settings.backup_target_label,
+        "repository": settings.backup_repository_name,
+        "available": (
+            settings.backup_output_path.is_dir()
+            and os.access(settings.backup_output_path, os.W_OK)
+        ),
+        "running": active is not None,
+        "runs": runs,
+    }
+
+
+async def execute_online_backup(
+    application: FastAPI,
+    *,
+    backup_id: str,
+) -> None:
+    lock: asyncio.Lock = application.state.backup_lock
+    async with lock:
+        manager = online_backup_manager()
+        try:
+            result = await manager.create(backup_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            message = (
+                str(exc)
+                if isinstance(exc, BackupError)
+                else "Online backup failed unexpectedly"
+            )
+            store.finish_backup_run(
+                backup_id=backup_id,
+                status="failed",
+                error=message,
+            )
+            logger.exception("Online backup %s failed", backup_id)
+            return
+
+        manifest_path = Path(result["manifest_path"])
+        try:
+            relative_manifest = str(
+                manifest_path.relative_to(settings.backup_output_path)
+            )
+        except ValueError:
+            relative_manifest = f"{backup_id}/manifest.json"
+        store.finish_backup_run(
+            backup_id=backup_id,
+            status="success",
+            snapshot_name=result["snapshot_name"],
+            manifest_path=relative_manifest,
+        )
+
+        retention = store.backup_settings()["retention_count"]
+        for expired in store.successful_backups_after_retention(retention):
+            try:
+                await manager.delete(
+                    backup_id=expired["backup_id"],
+                    snapshot_name=expired["snapshot_name"],
+                )
+            except Exception:
+                logger.exception(
+                    "Could not prune online backup %s",
+                    expired["backup_id"],
+                )
+            else:
+                store.delete_backup_run(expired["backup_id"])
+
+
+def launch_online_backup(application: FastAPI, *, trigger: str) -> str:
+    active_task: asyncio.Task | None = application.state.backup_task
+    if active_task and not active_task.done():
+        raise BackupError("An online backup is already running")
+    backup_id = create_backup_id()
+    store.start_backup_run(backup_id=backup_id, trigger=trigger)
+    application.state.backup_task = asyncio.create_task(
+        execute_online_backup(application, backup_id=backup_id)
+    )
+    return backup_id
+
+
+async def backup_schedule_loop(application: FastAPI) -> None:
+    wakeup: asyncio.Event = application.state.backup_wakeup
+    while True:
+        try:
+            await asyncio.wait_for(
+                wakeup.wait(),
+                timeout=settings.backup_poll_seconds,
+            )
+        except TimeoutError:
+            pass
+        wakeup.clear()
+        configuration = store.backup_settings()
+        if not configuration["enabled"]:
+            continue
+        if not store.backup_due(configuration["interval_hours"]):
+            continue
+        try:
+            launch_online_backup(application, trigger="scheduled")
+        except BackupError:
+            continue
+
+
 def configured_parser_control_token() -> str:
     token_file = settings.parser_control_token_file
     try:
@@ -1274,6 +1417,46 @@ async def test_notification_settings(request: Request):
         message=result_message,
     )
     return public_notification_state(tested)
+
+
+@app.get("/api/settings/backups")
+async def backup_settings(request: Request):
+    require_admin(request)
+    return public_backup_state()
+
+
+@app.put("/api/settings/backups")
+async def update_backup_settings(
+    update: BackupSettingsUpdate,
+    request: Request,
+):
+    require_admin(request)
+    store.save_backup_settings(
+        enabled=update.enabled,
+        interval_hours=update.interval_hours,
+        retention_count=update.retention_count,
+    )
+    if update.enabled and hasattr(app.state, "backup_wakeup"):
+        app.state.backup_wakeup.set()
+    return public_backup_state()
+
+
+@app.post("/api/settings/backups/run", status_code=202)
+async def run_online_backup(request: Request):
+    require_admin(request)
+    if not (
+        settings.backup_output_path.is_dir()
+        and os.access(settings.backup_output_path, os.W_OK)
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Backup target is not writable",
+        )
+    try:
+        backup_id = launch_online_backup(app, trigger="manual")
+    except BackupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {**public_backup_state(), "started_backup_id": backup_id}
 
 
 @app.get("/api/internal/parser/config")

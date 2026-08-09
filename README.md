@@ -46,6 +46,11 @@ parsedmarc-stack/
 ├── parser/
 │   ├── Dockerfile                           ← gepinntes parsedmarc 10.4.0
 │   └── supervisor.py                        ← übernimmt nur aktivierte GUI-Konfigurationen
+├── scripts/
+│   └── dmarc-maintenance                    ← Cold-Backup, Prüfung und Restore auf dem Host
+├── backups/                                 ← lokales Standardziel; produktiv besser externer Mount
+│   ├── opensearch/                           ← inkrementelles Snapshot-Repository
+│   └── control/                              ← SQLite-/Schlüssel-Bundles mit Manifest
 ├── data/                                    ← Persistente Laufzeitdaten (nicht im Git)
 │   ├── opensearch/                          ← Indizes und OpenSearch-Zustand
 │   ├── grafana/                             ← Grafana SQLite, Benutzer und Plugins
@@ -112,6 +117,20 @@ Bei bestehenden Installationen ohne Read-Benutzer erscheint nach dem Update
 ebenfalls der Setup-Screen. Das vorhandene Admin-Passwort muss dort bestätigt
 werden; es wird nicht ersetzt. Danach wird lediglich der neue Read-Zugang
 ergänzt.
+
+Für Online-Backups zusätzlich ein vorzugsweise externes, verschlüsseltes Ziel
+vorbereiten. OpenSearch schreibt als UID 1000, DMARC Control als UID 10001:
+
+```bash
+sudo install -d -m 0700 -o 1000 -g 1000 /mnt/backup/parsedmarc/opensearch
+sudo install -d -m 0700 -o 10001 -g 10001 /mnt/backup/parsedmarc/control
+```
+
+Den gemeinsamen Basispfad anschließend in `.env` setzen:
+
+```dotenv
+DMARC_BACKUP_ROOT=/mnt/backup/parsedmarc
+```
 
 > **Dockge:** Relative Pfade wie `./data` beziehen sich auf den Ordner der
 > Compose-Datei. Daher entweder das gesamte Repository als Stack-Ordner
@@ -224,6 +243,35 @@ stabile `X-DMARC-Control-*`-Header und den versionierten JSON-Anhang
 `dashboard.db` dedupliziert; vorübergehende Fehler werden höchstens dreimal mit
 ansteigendem Abstand versucht.
 
+## Backup und Wiederherstellung
+
+Unter **Einstellungen → Backup & Restore** kann ein Administrator konsistente
+Online-Backups manuell oder alle 6, 12, 24 beziehungsweise 168 Stunden
+ausführen. Jeder Lauf verknüpft einen OpenSearch-Snapshot und ein SQLite-/
+Schlüssel-Bundle über eine gemeinsame Backup-ID. Die Aufbewahrung ist zwischen
+2 und 90 erfolgreichen Sicherungen einstellbar; OpenSearch-Snapshots werden
+wegen ihrer geteilten inkrementellen Daten ausschließlich über die API gelöscht.
+
+Das Backupziel wird vom Betreiber als `DMARC_BACKUP_ROOT` in Compose
+eingebunden. Es sollte auf einem zweiten, verschlüsselten Datenträger oder NAS
+liegen. Das Dashboard erhält keinen Docker-Socket.
+
+Für ein vollständiges, gestopptes Disaster-Recovery-Paket steht ein separates
+Host-Werkzeug zur Verfügung:
+
+```bash
+./scripts/dmarc-maintenance cold-backup /mnt/backup/parsedmarc-cold
+./scripts/dmarc-maintenance verify /mnt/backup/parsedmarc-cold/cold-BACKUP-ID
+./scripts/dmarc-maintenance cold-restore \
+  /mnt/backup/parsedmarc-cold/cold-BACKUP-ID --confirm
+```
+
+Der Restore bewahrt den bisherigen Datenstand als
+`data.pre-restore-<ZEITPUNKT>` auf und startet den Parser erst nach erfolgreichem
+OpenSearch- und Dashboard-Start. Dateninventar, Teilwiederherstellungen,
+Image-Kompatibilität, Verschlüsselung und der empfohlene Testplan stehen in
+[docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md).
+
 ## Grafana
 
 | URL | Credentials |
@@ -256,9 +304,12 @@ Informationsumfang in einer risikoorientierten Oberfläche:
 - datenschutzreduzierte Forensik ohne Laden von Rohinhalt, Empfängern, Betreff oder Headern
 
 Der Browser spricht ausschließlich mit FastAPI. OpenSearch ist nicht direkt aus
-dem Browser erreichbar und wird von der API ausschließlich lesend abgefragt.
+dem Browser erreichbar. Fachliche DMARC-Abfragen sind strikt lesend; nur der
+admin-geschützte Backupdienst verwendet zusätzlich die `_snapshot`-API für das
+fest konfigurierte Backup-Repository.
 Warnungsstatus, Benachrichtigungszustellungen, manuelle Zuordnungen, der globale
-UI-Farbstandard sowie verschlüsselte Mailbox- und Benachrichtigungszugänge
+UI-Farbstandard, Backup-Zeitplan und -Verlauf sowie verschlüsselte Mailbox- und
+Benachrichtigungszugänge
 liegen getrennt in
 `data/dashboard/dashboard.db`. Lokale Farbanpassungen bleiben als
 Browser-Präferenz erhalten. Globale Farb- und Mailboxänderungen sind mit dem

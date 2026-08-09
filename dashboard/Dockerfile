@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir --requirement requirements.txt
 COPY backend/app ./app
 COPY --from=frontend-build /build/dist ./static
 
-RUN mkdir -p /app/data /app/parser-control \
+RUN mkdir -p /app/data /app/parser-control /app/backups/control \
     && chown -R dashboard:dashboard /app /home/dashboard
 
 USER dashboard

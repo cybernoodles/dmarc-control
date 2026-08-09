@@ -155,6 +155,41 @@ class StateStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS backup_settings (
+                    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    interval_hours INTEGER NOT NULL DEFAULT 24,
+                    retention_count INTEGER NOT NULL DEFAULT 14,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS backup_runs (
+                    backup_id TEXT PRIMARY KEY,
+                    trigger TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    snapshot_name TEXT,
+                    manifest_path TEXT,
+                    error TEXT,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                UPDATE backup_runs
+                SET status = 'failed',
+                    error = 'Dashboard restarted before backup completion',
+                    completed_at = ?
+                WHERE status = 'running'
+                """,
+                (datetime.now(UTC).isoformat(),),
+            )
 
     def admin_configured(self) -> bool:
         with self._lock, self._connect() as connection:
@@ -817,6 +852,172 @@ class StateStore:
             "pending": counts.get("sending", 0),
             "latest": dict(latest) if latest else None,
         }
+
+    def backup_settings(self) -> dict[str, Any]:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT enabled, interval_hours, retention_count, updated_at
+                FROM backup_settings
+                WHERE singleton_id = 1
+                """
+            ).fetchone()
+        if row is None:
+            return {
+                "enabled": False,
+                "interval_hours": 24,
+                "retention_count": 14,
+                "updated_at": None,
+            }
+        return {
+            "enabled": bool(row["enabled"]),
+            "interval_hours": int(row["interval_hours"]),
+            "retention_count": int(row["retention_count"]),
+            "updated_at": row["updated_at"],
+        }
+
+    def save_backup_settings(
+        self,
+        *,
+        enabled: bool,
+        interval_hours: int,
+        retention_count: int,
+    ) -> dict[str, Any]:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO backup_settings (
+                    singleton_id, enabled, interval_hours,
+                    retention_count, updated_at
+                )
+                VALUES (1, ?, ?, ?, ?)
+                ON CONFLICT(singleton_id) DO UPDATE SET
+                    enabled = excluded.enabled,
+                    interval_hours = excluded.interval_hours,
+                    retention_count = excluded.retention_count,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    1 if enabled else 0,
+                    interval_hours,
+                    retention_count,
+                    timestamp,
+                ),
+            )
+        return self.backup_settings()
+
+    def start_backup_run(
+        self,
+        *,
+        backup_id: str,
+        trigger: str,
+    ) -> dict[str, Any]:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO backup_runs (
+                    backup_id, trigger, status, started_at
+                )
+                VALUES (?, ?, 'running', ?)
+                """,
+                (backup_id, trigger, timestamp),
+            )
+        return {
+            "backup_id": backup_id,
+            "trigger": trigger,
+            "status": "running",
+            "snapshot_name": None,
+            "manifest_path": None,
+            "error": None,
+            "started_at": timestamp,
+            "completed_at": None,
+        }
+
+    def finish_backup_run(
+        self,
+        *,
+        backup_id: str,
+        status: str,
+        snapshot_name: str | None = None,
+        manifest_path: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE backup_runs
+                SET status = ?, snapshot_name = ?, manifest_path = ?,
+                    error = ?, completed_at = ?
+                WHERE backup_id = ?
+                """,
+                (
+                    status,
+                    snapshot_name,
+                    manifest_path,
+                    error[:1000] if error else None,
+                    timestamp,
+                    backup_id,
+                ),
+            )
+
+    def backup_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT backup_id, trigger, status, snapshot_name,
+                       manifest_path, error, started_at, completed_at
+                FROM backup_runs
+                ORDER BY started_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def backup_due(self, interval_hours: int) -> bool:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT started_at
+                FROM backup_runs
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        if row is None:
+            return True
+        try:
+            started_at = datetime.fromisoformat(row["started_at"])
+        except (TypeError, ValueError):
+            return True
+        return started_at <= datetime.now(UTC) - timedelta(hours=interval_hours)
+
+    def successful_backups_after_retention(
+        self,
+        retention_count: int,
+    ) -> list[dict[str, Any]]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT backup_id, snapshot_name
+                FROM backup_runs
+                WHERE status = 'success' AND snapshot_name IS NOT NULL
+                ORDER BY completed_at DESC
+                LIMIT -1 OFFSET ?
+                """,
+                (retention_count,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_backup_run(self, backup_id: str) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "DELETE FROM backup_runs WHERE backup_id = ?",
+                (backup_id,),
+            )
 
     def alert_states(self) -> dict[str, dict[str, str]]:
         with self._lock, self._connect() as connection:

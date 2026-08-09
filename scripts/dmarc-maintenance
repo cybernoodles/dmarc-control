@@ -1,0 +1,494 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STACK_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LOCK_DIR="${STACK_ROOT}/.dmarc-maintenance.lock"
+
+log() {
+  printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+fail() {
+  log "ERROR: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/dmarc-maintenance cold-backup /absolute/backup/root
+  scripts/dmarc-maintenance verify /absolute/path/to/cold-BACKUP_ID
+  scripts/dmarc-maintenance cold-restore /absolute/path/to/cold-BACKUP_ID --confirm [--restore-config] [--allow-image-mismatch]
+
+The backup root must be an encrypted, access-controlled location outside the
+stack directory. A cold restore preserves the previous data directory as
+data.pre-restore-TIMESTAMP for manual rollback.
+EOF
+}
+
+compose() {
+  docker compose --project-directory "${STACK_ROOT}" "$@"
+}
+
+require_commands() {
+  local command_name
+  for command_name in docker tar python3; do
+    command -v "${command_name}" >/dev/null 2>&1 \
+      || fail "Required command is missing: ${command_name}"
+  done
+  docker compose version >/dev/null 2>&1 \
+    || fail "Docker Compose v2 is required"
+}
+
+acquire_lock() {
+  if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+    fail "Another DMARC maintenance operation is already running"
+  fi
+}
+
+release_lock() {
+  rmdir "${LOCK_DIR}" 2>/dev/null || true
+}
+
+absolute_existing_directory() {
+  local requested="$1"
+  mkdir -p "${requested}"
+  (
+    cd "${requested}"
+    pwd -P
+  )
+}
+
+validate_external_target() {
+  local target="$1"
+  [[ "${target}" = /* ]] || fail "Backup target must resolve to an absolute path"
+  [[ "${target}" != "/" ]] || fail "Backup target cannot be the filesystem root"
+  case "${target}/" in
+    "${STACK_ROOT}/"*)
+      fail "Cold backups must be stored outside the stack directory"
+      ;;
+  esac
+}
+
+dashboard_image() {
+  local image_id
+  image_id="$(compose images -q dashboard 2>/dev/null | head -n 1)"
+  [[ -n "${image_id}" ]] || fail "Dashboard image is not available; build the stack first"
+  printf '%s\n' "${image_id}"
+}
+
+running_services() {
+  compose ps --status running --services 2>/dev/null || true
+}
+
+ensure_no_snapshot_running() {
+  local active_count
+  if ! running_services | grep -Fxq opensearch; then
+    return 0
+  fi
+  active_count="$(
+    compose exec -T opensearch curl -fsS http://localhost:9200/_snapshot/_status \
+      | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(sum(1 for item in payload.get("snapshots", []) if item.get("state") not in {"SUCCESS", "FAILED", "PARTIAL", "INCOMPATIBLE"}))'
+  )"
+  [[ "${active_count}" == "0" ]] \
+    || fail "An OpenSearch snapshot is still running; retry maintenance after it completes"
+}
+
+service_in_file() {
+  local service="$1"
+  local state_file="$2"
+  grep -Fxq "${service}" "${state_file}" 2>/dev/null
+}
+
+stop_stack_ordered() {
+  log "Stopping parser"
+  compose stop -t 60 parsedmarc >/dev/null
+  log "Stopping dashboard and Grafana"
+  compose stop -t 45 dashboard grafana >/dev/null
+  log "Stopping OpenSearch"
+  compose stop -t 90 opensearch >/dev/null
+  if [[ -n "$(running_services)" ]]; then
+    fail "At least one stack service is still running"
+  fi
+}
+
+wait_healthy() {
+  local service="$1"
+  local attempts="${2:-90}"
+  local container_id status
+  container_id="$(compose ps -q "${service}")"
+  [[ -n "${container_id}" ]] || return 1
+  while (( attempts > 0 )); do
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${container_id}" 2>/dev/null || true)"
+    if [[ "${status}" == "healthy" || "${status}" == "running" ]]; then
+      return 0
+    fi
+    if [[ "${status}" == "unhealthy" || "${status}" == "exited" || "${status}" == "dead" ]]; then
+      return 1
+    fi
+    sleep 2
+    attempts=$((attempts - 1))
+  done
+  return 1
+}
+
+start_recorded_services() {
+  local state_file="$1"
+  if service_in_file opensearch "${state_file}"; then
+    log "Starting OpenSearch"
+    compose up -d opensearch >/dev/null
+    wait_healthy opensearch 90 || fail "OpenSearch did not become healthy; parser remains stopped"
+  fi
+  if service_in_file dashboard "${state_file}"; then
+    log "Starting dashboard"
+    compose up -d dashboard >/dev/null
+    wait_healthy dashboard 60 || fail "Dashboard did not become healthy; parser remains stopped"
+  fi
+  if service_in_file grafana "${state_file}"; then
+    log "Starting Grafana"
+    compose up -d grafana >/dev/null
+  fi
+  if service_in_file parsedmarc "${state_file}"; then
+    log "Starting parser last"
+    compose up -d parsedmarc >/dev/null
+  fi
+}
+
+start_full_stack() {
+  log "Starting OpenSearch"
+  compose up -d opensearch >/dev/null
+  wait_healthy opensearch 90 || fail "OpenSearch did not become healthy; parser remains stopped"
+  log "Starting dashboard"
+  compose up -d dashboard >/dev/null
+  wait_healthy dashboard 60 || fail "Dashboard did not become healthy; parser remains stopped"
+  log "Starting Grafana"
+  compose up -d grafana >/dev/null
+  log "Starting parser last"
+  compose up -d parsedmarc >/dev/null
+}
+
+helper_tar_create() {
+  local image_id="$1"
+  shift
+  docker run --rm \
+    --user 0:0 \
+    --network none \
+    --read-only \
+    --security-opt no-new-privileges:true \
+    --cap-drop ALL \
+    --cap-add DAC_READ_SEARCH \
+    --mount "type=bind,src=${STACK_ROOT},dst=/stack,readonly" \
+    "${image_id}" \
+    tar "$@"
+}
+
+helper_tar_extract() {
+  local image_id="$1"
+  local destination="$2"
+  local archive="$3"
+  docker run --rm -i \
+    --user 0:0 \
+    --network none \
+    --read-only \
+    --security-opt no-new-privileges:true \
+    --cap-drop ALL \
+    --cap-add CHOWN \
+    --cap-add DAC_OVERRIDE \
+    --cap-add FOWNER \
+    --mount "type=bind,src=${destination},dst=/restore" \
+    "${image_id}" \
+    tar -xzf - -C /restore < "${archive}"
+}
+
+sqlite_integrity_from_path() {
+  local image_id="$1"
+  local data_root="$2"
+  docker run --rm \
+    --user 0:0 \
+    --network none \
+    --read-only \
+    --security-opt no-new-privileges:true \
+    --cap-drop ALL \
+    --cap-add DAC_READ_SEARCH \
+    --mount "type=bind,src=${data_root},dst=/data,readonly" \
+    "${image_id}" \
+    python -c 'import sqlite3; db=sqlite3.connect("file:/data/dashboard/dashboard.db?mode=ro", uri=True); print(db.execute("PRAGMA integrity_check").fetchone()[0])'
+}
+
+write_checksums() {
+  local directory="$1"
+  (
+    cd "${directory}"
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum manifest.json persistent-data.tar.gz stack-files.tar.gz metadata/* > SHA256SUMS
+    else
+      shasum -a 256 manifest.json persistent-data.tar.gz stack-files.tar.gz metadata/* > SHA256SUMS
+    fi
+  )
+}
+
+verify_checksums() {
+  local directory="$1"
+  (
+    cd "${directory}"
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum --check SHA256SUMS
+    else
+      shasum -a 256 --check SHA256SUMS
+    fi
+  )
+}
+
+validate_archive_entries() {
+  local archive="$1"
+  local entry
+  while IFS= read -r entry; do
+    case "${entry}" in
+      /*|../*|*/../*|*/..)
+        fail "Archive contains an unsafe path: ${entry}"
+        ;;
+    esac
+  done < <(tar -tzf "${archive}")
+}
+
+cold_backup() {
+  [[ $# -eq 1 ]] || { usage; exit 2; }
+  require_commands
+  local backup_root image_id backup_id temporary final git_commit sqlite_result
+  backup_root="$(absolute_existing_directory "$1")"
+  validate_external_target "${backup_root}"
+  image_id="$(dashboard_image)"
+  backup_id="$(date -u '+%Y%m%dt%H%M%Sz')-$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
+  temporary="${backup_root}/.cold-${backup_id}.tmp"
+  final="${backup_root}/cold-${backup_id}"
+  [[ ! -e "${temporary}" && ! -e "${final}" ]] || fail "Backup destination already exists"
+
+  acquire_lock
+  trap release_lock EXIT
+  mkdir -m 700 "${temporary}"
+  mkdir -m 700 "${temporary}/metadata"
+  running_services > "${temporary}/metadata/running-services.txt"
+
+  if service_in_file opensearch "${temporary}/metadata/running-services.txt"; then
+    compose exec -T opensearch curl -fsS http://localhost:9200/_cluster/health \
+      > "${temporary}/metadata/opensearch-health.json"
+    compose exec -T opensearch curl -fsS 'http://localhost:9200/_cat/indices/dmarc_*?format=json&h=index,docs.count,store.size,status' \
+      > "${temporary}/metadata/opensearch-indices.json"
+  else
+    printf '{}\n' > "${temporary}/metadata/opensearch-health.json"
+    printf '[]\n' > "${temporary}/metadata/opensearch-indices.json"
+  fi
+
+  : > "${temporary}/metadata/service-images.tsv"
+  local service container_id image_reference image_digest
+  for service in opensearch dashboard grafana parsedmarc; do
+    container_id="$(compose ps -a -q "${service}" 2>/dev/null || true)"
+    if [[ -n "${container_id}" ]]; then
+      image_reference="$(docker inspect --format '{{.Config.Image}}' "${container_id}")"
+      image_digest="$(docker inspect --format '{{.Image}}' "${container_id}")"
+      printf '%s\t%s\t%s\n' "${service}" "${image_reference}" "${image_digest}" \
+        >> "${temporary}/metadata/service-images.tsv"
+    fi
+  done
+
+  git_commit="$(git -C "${STACK_ROOT}" rev-parse HEAD 2>/dev/null || printf 'not-a-git-checkout')"
+  printf '%s\n' "${git_commit}" > "${temporary}/metadata/git-commit.txt"
+
+  ensure_no_snapshot_running
+  stop_stack_ordered
+  local restart_pending=1
+  restore_after_backup() {
+    local exit_code=$?
+    if (( restart_pending == 1 )); then
+      log "Backup failed; attempting to restart the previously running services"
+      if service_in_file opensearch "${temporary}/metadata/running-services.txt"; then
+        compose up -d opensearch >/dev/null 2>&1 || true
+      fi
+      if service_in_file dashboard "${temporary}/metadata/running-services.txt"; then
+        compose up -d dashboard >/dev/null 2>&1 || true
+      fi
+      if service_in_file grafana "${temporary}/metadata/running-services.txt"; then
+        compose up -d grafana >/dev/null 2>&1 || true
+      fi
+      if service_in_file parsedmarc "${temporary}/metadata/running-services.txt"; then
+        compose up -d parsedmarc >/dev/null 2>&1 || true
+      fi
+    fi
+    release_lock
+    return "${exit_code}"
+  }
+  trap restore_after_backup EXIT
+
+  sqlite_result="$(sqlite_integrity_from_path "${image_id}" "${STACK_ROOT}/data")"
+  [[ "${sqlite_result}" == "ok" ]] || fail "SQLite integrity check failed: ${sqlite_result}"
+  printf '%s\n' "${sqlite_result}" > "${temporary}/metadata/sqlite-integrity.txt"
+
+  log "Creating stopped persistent-data archive"
+  helper_tar_create "${image_id}" -czf - --numeric-owner -C /stack data \
+    > "${temporary}/persistent-data.tar.gz"
+
+  local stack_entries=()
+  local candidate
+  for candidate in docker-compose.yml compose.yaml .env .env.example .gitignore README.md config dashboard parser docs; do
+    [[ -e "${STACK_ROOT}/${candidate}" ]] && stack_entries+=("${candidate}")
+  done
+  log "Creating reproducible stack-files archive"
+  helper_tar_create "${image_id}" -czf - --numeric-owner \
+    --exclude='dashboard/frontend/node_modules' \
+    --exclude='dashboard/frontend/dist' \
+    --exclude='**/__pycache__' \
+    --exclude='*.pyc' \
+    -C /stack "${stack_entries[@]}" \
+    > "${temporary}/stack-files.tar.gz"
+
+  python3 - "${temporary}" "${backup_id}" "${git_commit}" <<'PY'
+import json
+import pathlib
+import sys
+from datetime import UTC, datetime
+
+root = pathlib.Path(sys.argv[1])
+backup_id = sys.argv[2]
+git_commit = sys.argv[3]
+services = []
+for line in (root / "metadata/service-images.tsv").read_text().splitlines():
+    if not line:
+        continue
+    service, reference, digest = line.split("\t", 2)
+    services.append({"service": service, "image": reference, "image_id": digest})
+manifest = {
+    "schema": "dmarc-control.cold-backup.v1",
+    "backup_id": backup_id,
+    "created_at": datetime.now(UTC).isoformat(),
+    "git_commit": git_commit,
+    "storage_encryption": "operator-managed; required",
+    "archives": ["persistent-data.tar.gz", "stack-files.tar.gz"],
+    "sqlite_integrity_check": (root / "metadata/sqlite-integrity.txt").read_text().strip(),
+    "services": services,
+}
+(root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+PY
+  write_checksums "${temporary}"
+  find "${temporary}" -type d -exec chmod 700 {} +
+  find "${temporary}" -type f -exec chmod 600 {} +
+  mv "${temporary}" "${final}"
+  restart_pending=0
+  start_recorded_services "${final}/metadata/running-services.txt"
+  trap release_lock EXIT
+  log "Cold backup completed: ${final}"
+}
+
+verify_backup() {
+  [[ $# -eq 1 ]] || { usage; exit 2; }
+  require_commands
+  local backup_directory
+  backup_directory="$(cd "$1" && pwd -P)"
+  [[ -f "${backup_directory}/manifest.json" ]] || fail "manifest.json is missing"
+  [[ -f "${backup_directory}/SHA256SUMS" ]] || fail "SHA256SUMS is missing"
+  [[ -f "${backup_directory}/persistent-data.tar.gz" ]] || fail "Persistent data archive is missing"
+  [[ -f "${backup_directory}/stack-files.tar.gz" ]] || fail "Stack files archive is missing"
+  python3 - "${backup_directory}/manifest.json" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+if manifest.get("schema") != "dmarc-control.cold-backup.v1":
+    raise SystemExit("Unsupported cold-backup manifest schema")
+if manifest.get("sqlite_integrity_check") != "ok":
+    raise SystemExit("Backup was not created from an intact SQLite database")
+print(f"Manifest OK: {manifest['backup_id']}")
+PY
+  verify_checksums "${backup_directory}"
+  validate_archive_entries "${backup_directory}/persistent-data.tar.gz"
+  validate_archive_entries "${backup_directory}/stack-files.tar.gz"
+  log "Backup verification completed"
+}
+
+cold_restore() {
+  [[ $# -ge 2 ]] || { usage; exit 2; }
+  require_commands
+  local backup_directory="$1"
+  shift
+  local confirmed=0 restore_config=0 allow_image_mismatch=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --confirm) confirmed=1 ;;
+      --restore-config) restore_config=1 ;;
+      --allow-image-mismatch) allow_image_mismatch=1 ;;
+      *) fail "Unknown restore option: $1" ;;
+    esac
+    shift
+  done
+  (( confirmed == 1 )) || fail "Restore requires the explicit --confirm option"
+  backup_directory="$(cd "${backup_directory}" && pwd -P)"
+  validate_external_target "${backup_directory}"
+  verify_backup "${backup_directory}"
+
+  local image_id expected_opensearch current_opensearch staging rollback timestamp
+  image_id="$(dashboard_image)"
+  expected_opensearch="$(python3 - "${backup_directory}/manifest.json" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+print(next((item["image_id"] for item in manifest["services"] if item["service"] == "opensearch"), ""))
+PY
+)"
+  current_opensearch="$(compose images -q opensearch 2>/dev/null | head -n 1)"
+  if [[ -n "${expected_opensearch}" && -n "${current_opensearch}" && "${expected_opensearch}" != "${current_opensearch}" ]]; then
+    (( allow_image_mismatch == 1 )) \
+      || fail "OpenSearch image differs from the backup; use the recorded image or explicitly pass --allow-image-mismatch"
+  fi
+
+  timestamp="$(date -u '+%Y%m%dt%H%M%Sz')"
+  staging="${STACK_ROOT}/.restore-staging-${timestamp}"
+  rollback="${STACK_ROOT}/data.pre-restore-${timestamp}"
+  [[ ! -e "${staging}" && ! -e "${rollback}" ]] || fail "Restore staging path already exists"
+  mkdir -m 700 "${staging}"
+  helper_tar_extract "${image_id}" "${staging}" "${backup_directory}/persistent-data.tar.gz"
+  [[ -d "${staging}/data" ]] || fail "Persistent data archive does not contain data/"
+  local sqlite_result
+  sqlite_result="$(sqlite_integrity_from_path "${image_id}" "${staging}/data")"
+  [[ "${sqlite_result}" == "ok" ]] || fail "Restored SQLite integrity check failed: ${sqlite_result}"
+
+  acquire_lock
+  trap release_lock EXIT
+  ensure_no_snapshot_running
+  stop_stack_ordered
+  [[ -d "${STACK_ROOT}/data" ]] && mv "${STACK_ROOT}/data" "${rollback}"
+  mv "${staging}/data" "${STACK_ROOT}/data"
+  rmdir "${staging}"
+
+  if (( restore_config == 1 )); then
+    log "Restoring stack files and configuration"
+    helper_tar_extract "${image_id}" "${STACK_ROOT}" "${backup_directory}/stack-files.tar.gz"
+  fi
+
+  if ! start_full_stack; then
+    fail "Restore data is in place, but health checks failed. Previous data remains available at ${rollback}"
+  fi
+  log "Cold restore completed. Previous data is preserved at ${rollback}"
+}
+
+case "${1:-}" in
+  cold-backup)
+    shift
+    cold_backup "$@"
+    ;;
+  verify)
+    shift
+    verify_backup "$@"
+    ;;
+  cold-restore)
+    shift
+    cold_restore "$@"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

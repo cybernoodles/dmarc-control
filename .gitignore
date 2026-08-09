@@ -1,6 +1,7 @@
 .env
 config/parsedmarc.ini
 dmarc-reports/
+backups/
 data/opensearch/*
 !data/opensearch/.gitkeep
 data/grafana/*
