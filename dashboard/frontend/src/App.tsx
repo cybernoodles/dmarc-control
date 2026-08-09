@@ -1928,6 +1928,9 @@ function NotificationSettingsPanel({
   const { t, formatDate } = useI18n();
   const [settingsState, setSettingsState] =
     useState<NotificationSettings | null>(null);
+  const [statusState, setStatusState] = useState<
+    Pick<NotificationSettings, "configured" | "enabled"> | null
+  >(null);
   const [form, setForm] = useState<NotificationSettingsUpdate>(
     defaultNotificationForm,
   );
@@ -1935,7 +1938,7 @@ function NotificationSettingsPanel({
   const [smtpPassword, setSmtpPassword] = useState("");
   const [graphSecret, setGraphSecret] = useState("");
   const [dirty, setDirty] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"save" | "test" | null>(null);
   const [feedback, setFeedback] = useState("");
   const [feedbackTone, setFeedbackTone] = useState<
@@ -1978,6 +1981,7 @@ function NotificationSettingsPanel({
 
   const hydrate = useCallback((next: NotificationSettings) => {
     setSettingsState(next);
+    setStatusState({ configured: next.configured, enabled: next.enabled });
     setForm({
       enabled: next.enabled,
       transport: next.transport,
@@ -2005,10 +2009,15 @@ function NotificationSettingsPanel({
   }, []);
 
   const load = useCallback(async () => {
-    if (!auth.authenticated) return;
     setLoading(true);
+    setFeedback("");
     try {
-      hydrate(await api.notificationSettings());
+      if (auth.authenticated) {
+        hydrate(await api.notificationSettings());
+      } else {
+        setSettingsState(null);
+        setStatusState(await api.notificationStatus());
+      }
     } catch (reason) {
       setFeedbackTone("critical");
       setFeedback(
@@ -2023,9 +2032,8 @@ function NotificationSettingsPanel({
   }, [auth.authenticated, handleError, hydrate, t]);
 
   useEffect(() => {
-    if (auth.authenticated) load();
-    else setSettingsState(null);
-  }, [auth.authenticated, load]);
+    load();
+  }, [load]);
 
   const updateForm = (
     updater: (current: NotificationSettingsUpdate) => NotificationSettingsUpdate,
@@ -2114,16 +2122,22 @@ function NotificationSettingsPanel({
     }
   };
 
-  const statusTone = !settingsState?.configured
+  const statusTone = !statusState
     ? ("neutral" as const)
-    : settingsState.enabled
-      ? ("success" as const)
-      : ("info" as const);
-  const statusLabel = !settingsState?.configured
-    ? t("Nicht eingerichtet")
-    : settingsState.enabled
-      ? t("E-Mail-Alerting aktiv")
-      : t("E-Mail-Alerting pausiert");
+    : !statusState.configured
+      ? ("neutral" as const)
+      : statusState.enabled
+        ? ("success" as const)
+        : ("info" as const);
+  const statusLabel = loading && !statusState
+    ? t("Benachrichtigungen werden geladen")
+    : !statusState
+      ? t("Status nicht verfügbar")
+      : !statusState.configured
+        ? t("Nicht eingerichtet")
+        : statusState.enabled
+          ? t("E-Mail-Alerting aktiv")
+          : t("E-Mail-Alerting pausiert");
 
   return (
     <section className="surface notification-settings">

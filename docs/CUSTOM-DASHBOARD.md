@@ -191,6 +191,7 @@ möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 | `PUT /api/auth/read-credentials` | Read-Benutzername und -Passwort als Admin ändern |
 | `GET /api/settings/appearance` | globalen UI-Farbstandard lesen |
 | `PUT /api/settings/appearance` | globalen UI-Farbstandard als Admin ändern |
+| `GET /api/settings/notifications/status` | Read-sicheren Konfigurations- und Aktivstatus des E-Mail-Alertings lesen |
 | `GET /api/settings/mailbox` | Entwurf, aktive Revision und Parserstatus lesen |
 | `PUT /api/settings/mailbox` | neuen Verbindungsentwurf als Admin speichern |
 | `POST /api/settings/mailbox/test` | gespeicherten Entwurf streng lesend prüfen |

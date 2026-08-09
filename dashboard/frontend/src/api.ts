@@ -270,6 +270,11 @@ export interface NotificationSettings {
   };
 }
 
+export interface NotificationStatus {
+  configured: boolean;
+  enabled: boolean;
+}
+
 export interface NotificationSettingsUpdate {
   enabled: boolean;
   transport: NotificationTransport;
@@ -413,6 +418,8 @@ export const api = {
     }),
   notificationSettings: () =>
     request<NotificationSettings>("/api/settings/notifications"),
+  notificationStatus: () =>
+    request<NotificationStatus>("/api/settings/notifications/status"),
   saveNotificationSettings: (update: NotificationSettingsUpdate) =>
     request<NotificationSettings>("/api/settings/notifications", {
       method: "PUT",

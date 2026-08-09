@@ -49,7 +49,7 @@ from .notifications import (
 from .service import DashboardService
 from .store import StateStore
 
-VERSION = "2.0.0-rc.1"
+VERSION = "2.0.0-rc.2"
 NOTIFICATION_VAULT_AAD = b"dmarc-control-notifications-v1"
 logger = logging.getLogger(__name__)
 
@@ -730,6 +730,14 @@ def public_notification_state(current: dict | None = None) -> dict:
     }
 
 
+def public_notification_status(current: dict | None = None) -> dict:
+    stored = current if current is not None else store.notification_settings()
+    return {
+        "configured": stored is not None,
+        "enabled": bool(stored and stored["settings"].get("enabled")),
+    }
+
+
 async def dispatch_notification_cycle() -> None:
     current = store.notification_settings()
     if not current or not current["settings"].get("enabled"):
@@ -1201,6 +1209,11 @@ async def activate_mailbox_settings(request: Request):
             detail="The current mailbox settings require a successful test",
         )
     return public_mailbox_state()
+
+
+@app.get("/api/settings/notifications/status")
+async def notification_status():
+    return public_notification_status()
 
 
 @app.get("/api/settings/notifications")

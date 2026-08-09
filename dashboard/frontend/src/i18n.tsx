@@ -69,6 +69,7 @@ const english: Record<string, string> = {
   "Versandwege, Empfänger und auslösende Fälle sind ausschließlich für Administratoren sichtbar.":
     "Delivery methods, recipients and triggering cases are visible only to administrators.",
   "Benachrichtigungen werden geladen": "Loading notifications",
+  "Status nicht verfügbar": "Status unavailable",
   "Automatischen E-Mail-Versand aktivieren": "Enable automatic email delivery",
   "Neue offene Ereignisse werden einmalig versendet und über Container-Neustarts hinweg dedupliziert.":
     "New open events are sent once and deduplicated across container restarts.",

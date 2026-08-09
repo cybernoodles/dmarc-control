@@ -6,7 +6,7 @@ import unittest
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -155,6 +155,66 @@ class NotificationTransportTests(unittest.TestCase):
 
 
 class NotificationSettingsApiTests(unittest.TestCase):
+    def test_read_user_sees_notification_status_without_sensitive_settings(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            test_settings = Settings(
+                database_path=Path(directory) / "dashboard.db",
+                connection_key_path=Path(directory) / "connection.key",
+            )
+            test_store = StateStore(test_settings.database_path)
+            payload = notification_configuration()
+            payload["smtp"]["password"] = "smtp-secret"
+
+            with (
+                patch.object(main, "settings", test_settings),
+                patch.object(main, "store", test_store),
+                patch.object(
+                    main,
+                    "dispatch_notification_cycle",
+                    new_callable=AsyncMock,
+                ),
+                TestClient(main.app) as client,
+            ):
+                client.post(
+                    "/api/auth/setup",
+                    json={
+                        "admin_password": "initial-admin-password",
+                        "read_username": "dmarc-reader",
+                        "read_password": "initial-read-password",
+                    },
+                )
+                saved = client.put(
+                    "/api/settings/notifications",
+                    json=payload,
+                )
+                client.post("/api/auth/logout")
+
+                status = client.get("/api/settings/notifications/status")
+                protected = client.get("/api/settings/notifications")
+
+                client.post("/api/auth/read-logout")
+                unauthenticated = client.get(
+                    "/api/settings/notifications/status"
+                )
+
+            self.assertEqual(saved.status_code, 200)
+            self.assertEqual(
+                status.json(),
+                {"configured": True, "enabled": True},
+            )
+            self.assertEqual(protected.status_code, 401)
+            self.assertEqual(
+                protected.json(),
+                {"detail": "Admin login required"},
+            )
+            self.assertEqual(unauthenticated.status_code, 401)
+            self.assertEqual(
+                unauthenticated.json(),
+                {"detail": "Read login required"},
+            )
+
     def test_admin_can_save_masked_settings_and_send_explicit_test(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             test_settings = Settings(
