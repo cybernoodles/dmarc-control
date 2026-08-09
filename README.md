@@ -6,9 +6,10 @@ Self-hosted DMARC report parsing and visualization using [parsedmarc](https://gi
 
 | Component | Image | Zweck |
 |---|---|---|
-| parsedmarc | gebaut aus GitHub | Parser, liest DMARC-Reports via Microsoft Graph oder IMAP |
+| parsedmarc 10.4.0 | `ghcr.io/domainaware/parsedmarc:10.4.0` + lokaler Supervisor | Ein verwalteter Mailbox-Consumer für Microsoft Graph oder IMAP |
 | OpenSearch 2.x | `opensearchproject/opensearch:2` | Datenspeicher |
 | Grafana | `grafana/grafana:latest` | Visualisierung |
+| DMARC Control | lokaler Multi-Stage-Build | Eigenes risikoorientiertes Webdashboard und API |
 
 ## Voraussetzungen
 
@@ -33,14 +34,26 @@ parsedmarc-stack/
 ├── .gitignore
 ├── README.md
 ├── docs/
+│   ├── BACKLOG.md                           ← geplante Weiterentwicklung von DMARC Control
+│   ├── BACKUP-RESTORE.md                    ← Dateninventar und Wiederherstellungsabhängigkeiten
 │   ├── M365.md                              ← M365-Setup und RBAC-Prüfung
-│   └── MIGRATION-TO-PORTABLE-DATA.md        ← Einmalmigration bestehender Docker-Volumes
+│   ├── MIGRATION-TO-PORTABLE-DATA.md        ← Einmalmigration bestehender Docker-Volumes
+│   └── CUSTOM-DASHBOARD.md                  ← Architektur und Betrieb von DMARC Control
+├── dashboard/
+│   ├── Dockerfile                           ← React-Build und FastAPI-Laufzeit
+│   ├── frontend/                            ← React, TypeScript und ECharts
+│   └── backend/                             ← Kontrollierte OpenSearch-API und lokale Zustände
+├── parser/
+│   ├── Dockerfile                           ← gepinntes parsedmarc 10.4.0
+│   └── supervisor.py                        ← übernimmt nur aktivierte GUI-Konfigurationen
 ├── data/                                    ← Persistente Laufzeitdaten (nicht im Git)
 │   ├── opensearch/                          ← Indizes und OpenSearch-Zustand
-│   └── grafana/                             ← Grafana SQLite, Benutzer und Plugins
+│   ├── grafana/                             ← Grafana SQLite, Benutzer und Plugins
+│   ├── dashboard/                           ← UI-Zustände, Zugangs-Hashes und verschlüsselte Verbindungen
+│   └── parser-control/                      ← automatisch erzeugtes internes Control-Token
 ├── config/
-│   ├── parsedmarc.ini                      ← Mailbox & OpenSearch Konfig (nicht ins Git!)
-│   ├── parsedmarc.ini.example              ← Vorlage ohne echte Credentials
+│   ├── parsedmarc.ini                       ← optionaler Legacy-/Migrations-Fallback
+│   ├── parsedmarc.ini.example               ← Referenz für bestehende Installationen
 │   └── grafana/
 │       └── provisioning/
 │           ├── datasources/
@@ -70,10 +83,10 @@ cd parsedmarc-stack
 cp .env.example .env
 nano .env
 
-# parsedmarc konfigurieren
-cp config/parsedmarc.ini.example config/parsedmarc.ini
-nano config/parsedmarc.ini
 ```
+
+Die Mailbox wird nach dem ersten Start im Webdashboard konfiguriert. Eine
+`config/parsedmarc.ini` ist für neue Installationen nicht erforderlich.
 
 **3. Datenverzeichnisse vorbereiten**
 
@@ -82,19 +95,28 @@ das Projektverzeichnis vollständig auf einen anderen Host übertragen werden
 kann. Die Inhalte sind absichtlich nicht versioniert.
 
 ```bash
-mkdir -p data/opensearch data/grafana dmarc-reports
+mkdir -p data/opensearch data/grafana data/dashboard data/parser-control dmarc-reports
 sudo chown 1000:1000 data/opensearch
 sudo chown 472:472 data/grafana
+sudo chown 10001:10001 data/dashboard data/parser-control
 ```
 
-OpenSearch läuft im Container als UID 1000; Grafana als UID 472. Ohne diese
-Eigentümer kann der jeweilige Dienst beim ersten Start nicht in sein
-Datenverzeichnis schreiben.
+OpenSearch läuft im Container als UID 1000, Grafana als UID 472 und DMARC
+Control als UID 10001. Ohne diese Eigentümer kann der jeweilige Dienst beim
+ersten Start nicht in sein Datenverzeichnis schreiben. Beim ersten Aufruf von
+DMARC Control führt ein Setup-Screen durch das einmalige Festlegen eines
+Read-Benutzers mit Passwort und des separaten Admin-Passworts. Das Dashboard
+ist anschließend nur mit einer gültigen Read-Sitzung erreichbar.
+
+Bei bestehenden Installationen ohne Read-Benutzer erscheint nach dem Update
+ebenfalls der Setup-Screen. Das vorhandene Admin-Passwort muss dort bestätigt
+werden; es wird nicht ersetzt. Danach wird lediglich der neue Read-Zugang
+ergänzt.
 
 > **Dockge:** Relative Pfade wie `./data` beziehen sich auf den Ordner der
 > Compose-Datei. Daher entweder das gesamte Repository als Stack-Ordner
-> verwenden oder beim Übertragen nach Dockge alle drei Pfade (`./config`,
-> `./data`, `./dmarc-reports`) konsistent auf den Projektordner umstellen.
+> verwenden oder beim Übertragen nach Dockge die relativen Pfade (`./config`,
+> `./data` und `./dmarc-reports`) konsistent auf den Projektordner umstellen.
 
 **4. Stack starten**
 
@@ -102,7 +124,9 @@ Datenverzeichnis schreiben.
 docker compose up -d --build --remove-orphans
 ```
 
-Der erste Start dauert länger da parsedmarc direkt aus dem GitHub-Repo gebaut wird.
+Beim ersten Start werden das Dashboard und der kleine Parser-Supervisor lokal
+gebaut. Die darunterliegende parsedmarc-Version ist reproduzierbar auf 10.4.0
+gepinnt.
 
 **5. Logs verfolgen**
 
@@ -119,46 +143,49 @@ beschrieben. Nicht vorab einen leeren Stack mit dem neuen Compose starten.
 
 ## Mailbox-Konfiguration
 
+Die Einrichtung erfolgt unter **Einstellungen → Postfachanbindung**:
+
+1. Als Admin anmelden und Microsoft 365 oder IMAP auswählen.
+2. Verbindungsdaten eingeben und als neuen Entwurf speichern.
+3. **Verbindung testen**. Dieser Test authentifiziert sich und prüft nur den
+   lesenden Zugriff auf die angegebenen Ordner. Er liest, verarbeitet,
+   verschiebt und löscht keine Nachrichten.
+4. Den erfolgreich getesteten Entwurf ausdrücklich aktivieren. Der Supervisor
+   beendet bei einem Wechsel seinen bisherigen Kindprozess kontrolliert und
+   startet genau einen parsedmarc-Prozess mit der neuen Revision.
+
+Das Client Secret beziehungsweise IMAP-Passwort wird verschlüsselt in
+`data/dashboard/dashboard.db` abgelegt. Der AES-Schlüssel entsteht automatisch
+als `data/dashboard/connection.key`; für ein vollständiges Backup werden beide
+Dateien benötigt. Weder Secret noch Schlüssel werden über die API an den
+Browser zurückgegeben.
+
 ### Microsoft 365 via Microsoft Graph API (empfohlen)
 
-Für den Betrieb ein separates Postfach wie `dmarc-reports@example.com` mit dem Ordner `Inbox/DMARC` verwenden. Es enthält ausschließlich DMARC-Reports und wird nicht interaktiv genutzt.
+Für den Betrieb ein separates Postfach wie `dmarc-reports@example.com` mit dem
+Ordner `Inbox/DMARC` verwenden. Es enthält ausschließlich DMARC-Reports und wird
+nicht interaktiv genutzt.
 
 - **Berechtigung:** App-only `Mail.ReadWrite`; parsedmarc archiviert verarbeitete Nachrichten.
 - **Scope:** Zugriff zwingend auf dieses eine Postfach beschränken. Für neue Unternehmens-Setups ist Exchange Online Application RBAC vorgesehen; das ausführliche Vorgehen steht in [docs/M365.md](docs/M365.md).
-- **Anmeldung:** Für produktiven Betrieb Zertifikat bevorzugen; Client Secret nur für den ersten Funktionstest und mit dokumentiertem Ablauf zur Rotation.
-
-Beim ersten Lauf bleibt `test = True` gesetzt. Erst wenn Logs und Dashboard korrekt aussehen, `test = False` setzen; dann werden verarbeitete Mails in `Inbox/DMARC/Processed` verschoben.
-
-Konfiguration in `parsedmarc.ini`:
-
-```ini
-[msgraph]
-auth_method = ClientSecret
-tenant_id = TENANT_ID
-client_id = CLIENT_ID
-client_secret = CLIENT_SECRET
-mailbox = dmarc@example.com
-
-[mailbox]
-test = True
-delete = False
-watch = True
-reports_folder = Inbox/DMARC
-archive_folder = Inbox/DMARC/Processed
-```
+- **Anmeldung:** Die aktuelle GUI unterstützt App-only `ClientSecret`.
+  Eigentümer, Ablaufdatum und Rotation müssen dokumentiert werden.
 
 ### Forensic-/RUF-Reports (nur nach Freigabe)
 
 Forensic-Berichte können Header, Empfänger und Betreffzeilen enthalten. Die Speicherung ist deshalb standardmäßig deaktiviert. Ein `git pull` aktiviert sie **nicht** und ändert auch keine vorhandene `config/parsedmarc.ini`.
 
-Erst nach Freigabe von Retention, Berechtigungskonzept und Incident-Prozess in der lokalen, nicht versionierten Konfiguration aktivieren:
+Erst nach Freigabe von Retention, Berechtigungskonzept und Incident-Prozess in
+der lokalen `.env` aktivieren:
 
-```ini
-[general]
-save_failure = True
+```dotenv
+PARSEDMARC_SAVE_FAILURE=True
 ```
 
-`save_failure` ist die aktuelle Bezeichnung. Bestehende Installationen mit `save_forensic = True` funktionieren weiterhin, da parsedmarc dies als Legacy-Alias behandelt. Nicht beide Optionen gleichzeitig setzen – `save_failure` hat Vorrang.
+Der Compose-Wert wird als parsedmarc-Option `save_failure` übernommen.
+Bestehende Legacy-Konfigurationen mit `save_forensic = True` funktionieren
+weiterhin, da parsedmarc dies als Alias behandelt. Nicht beide Optionen
+gleichzeitig setzen – `save_failure` hat Vorrang.
 
 Danach parsedmarc neu starten und eingehende RUF-Berichte abwarten:
 
@@ -168,18 +195,34 @@ docker compose restart parsedmarc
 
 Das Dashboard **DMARC Forensic Analysis** zeigt ausschließlich minimierte Betriebsmetadaten – keine Betreffzeilen, Empfänger, Header oder Rohinhalte. Es wird in den separaten Grafana-Ordner **Forensic** provisioniert. Diesem Ordner in Grafana nur den zuständigen Security-/Incident-Rollen Zugriff gewähren.
 
-### IMAP (nur Fallback)
+### IMAP
 
-```ini
-[imap]
-host = mail.example.com
-user = dmarc@example.com
-password = PASSWORT
+Host, Port, TLS, Benutzer, Passwort sowie Report- und Archivordner werden
+ebenfalls unter **Einstellungen → Postfachanbindung** verwaltet. Der Verbindungstest
+öffnet die Ordner mit `read-only`; Abruf und Verarbeitung beginnen erst nach
+der expliziten Aktivierung.
 
-[mailbox]
-watch = True
-reports_folder = Inbox
-```
+## E-Mail-Benachrichtigungen
+
+Das Alerting wird unter **Einstellungen → Benachrichtigungen** eingerichtet und
+ist nach Installation oder Update standardmäßig deaktiviert. Unterstützt werden:
+
+- SMTP mit STARTTLS, implizitem TLS oder einem explizit gewählten internen Relay,
+  jeweils mit optionaler Benutzeranmeldung
+- Microsoft Graph mit einer eigenen App-Registrierung oder wiederverwendeten
+  Zugangsdaten der gespeicherten Microsoft-365-Postfachanbindung
+
+Für Graph-Versand benötigt die App-Registrierung die Application-Berechtigung
+`Mail.Send`. Der Zugriff sollte in Exchange Online auf das konfigurierte
+Absenderpostfach begrenzt werden.
+
+Empfänger, E-Mail-Sprache, öffentliche Dashboard-URL und auslösende Fälle sind
+im GUI wählbar. Ein expliziter Testversand ist möglich, ohne das automatische
+Alerting einzuschalten. Jede Nachricht enthält eine HTML- und Klartext-Version,
+stabile `X-DMARC-Control-*`-Header und den versionierten JSON-Anhang
+`dmarc-alert.json`. Erfolgreich versendete Ereignisse werden in
+`dashboard.db` dedupliziert; vorübergehende Fehler werden höchstens dreimal mit
+ansteigendem Abstand versucht.
 
 ## Grafana
 
@@ -197,11 +240,50 @@ Datasources und Dashboards sind schreibgeschützt provisioniert. Änderungen erf
 
 Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in `docker-compose.yml` definiert.
 
+## DMARC Control
+
+Das eigene Webdashboard läuft parallel zu Grafana und übernimmt dessen
+Informationsumfang in einer risikoorientierten Oberfläche:
+
+- Übersicht mit Volumen, Passrate, echten DMARC-Fails, Datenfrische und Trend
+- klare Trennung zwischen finalem DMARC-Fail und kompensiertem SPF-/DKIM-Alignment
+- vollständiges Sending-Host-Inventar mit IP, PTR, ASN/Land, Identitäten und Last Seen
+- mehrstufige Dienst-Erkennung mit Konfidenz und manueller Bestätigung
+- deduplizierte Warnungen mit Status `offen`, `bestätigt`, `behoben` und `ignoriert`
+- durchgängige Alert-Triage mit direkter Sending-Host-Untersuchung, Rückweg zum
+  Ausgangs-Alert und kompatiblen Deep Links aus E-Mail-Benachrichtigungen
+- konfigurierbares E-Mail-Alerting über SMTP oder Microsoft Graph
+- datenschutzreduzierte Forensik ohne Laden von Rohinhalt, Empfängern, Betreff oder Headern
+
+Der Browser spricht ausschließlich mit FastAPI. OpenSearch ist nicht direkt aus
+dem Browser erreichbar und wird von der API ausschließlich lesend abgefragt.
+Warnungsstatus, Benachrichtigungszustellungen, manuelle Zuordnungen, der globale
+UI-Farbstandard sowie verschlüsselte Mailbox- und Benachrichtigungszugänge
+liegen getrennt in
+`data/dashboard/dashboard.db`. Lokale Farbanpassungen bleiben als
+Browser-Präferenz erhalten. Globale Farb- und Mailboxänderungen sind mit dem
+separaten Admin-Passwort geschützt. Gleiches gilt für
+Benachrichtigungseinstellungen und Testversand. Der Zugriff auf das gesamte
+Dashboard erfordert zusätzlich eine gültige Read-Sitzung. Beide Passwörter
+werden ausschließlich als gesalzene Hashes gespeichert und können unter
+**Einstellungen → Administration** geändert werden.
+
+Weitere Details und der Dockge-Betriebsablauf stehen in
+[docs/CUSTOM-DASHBOARD.md](docs/CUSTOM-DASHBOARD.md).
+
+Die vollständige Trennung zwischen historischen OpenSearch-Daten,
+Dashboard-Steuerungsdaten, Verschlüsselungsschlüssel und optionalem
+Grafana-Zustand ist in
+[docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) beschrieben. Dort ist auch
+festgehalten, welche Teilwiederherstellungen möglich sind und in welcher
+Reihenfolge ein vollständiger Restore erfolgen muss.
+
 ## Ports
 
 | Service | Port | Beschreibung |
 |---|---|---|
 | Grafana | 3020 | Haupt-Dashboard und Analyse |
+| DMARC Control | 3030 | Eigenes v2-Webdashboard |
 | OpenSearch API | 9200 | Nur intern |
 
 ## Ressourcenbedarf

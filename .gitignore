@@ -5,4 +5,16 @@ data/opensearch/*
 !data/opensearch/.gitkeep
 data/grafana/*
 !data/grafana/.gitkeep
+data/dashboard/*
+!data/dashboard/.gitkeep
+data/parser-control/*
+!data/parser-control/.gitkeep
+dashboard/frontend/node_modules/
+dashboard/frontend/dist/
+dashboard/frontend/*.tsbuildinfo
+dashboard/frontend/vite.config.js
+dashboard/frontend/vite.config.d.ts
+.pnpm-store/
+**/__pycache__/
+*.pyc
 .DS_Store

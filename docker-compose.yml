@@ -1,6 +1,6 @@
 ---
-# parsedmarc Stack: OpenSearch + Grafana
-# Getestet mit parsedmarc 9.x, OpenSearch 2.x, Grafana 11.x
+# parsedmarc Stack: DMARC Control + parsedmarc + OpenSearch + Grafana
+# parsedmarc ist auf 10.4.0 gepinnt; OpenSearch verwendet die 2.x-Linie.
 #
 # Voraussetzungen auf dem Docker-Host (docker01):
 #   sudo sysctl -w vm.max_map_count=262144
@@ -9,10 +9,12 @@
 # Persistente Daten liegen bewusst im Projektverzeichnis unter ./data.
 # Dies macht den Stack zusammen mit Konfiguration und .env transportabel.
 # Vor dem ersten Start: README.md beachten (insbesondere Eigentümer der
-# Unterverzeichnisse data/opensearch und data/grafana).
+# Unterverzeichnisse data/opensearch, data/grafana, data/dashboard und
+# data/parser-control).
 #
 # Start: docker compose up -d
 # Grafana UI: http://docker01:3020  (admin / siehe GF_SECURITY_ADMIN_PASSWORD)
+# DMARC Control: http://docker01:3030
 
 services:
 
@@ -65,22 +67,71 @@ services:
     networks:
       - dmarc-net
 
-  # ── parsedmarc (Parser, läuft als Daemon und liest IMAP) ────────────────────
-  # Kein offizielles Public Image vorhanden – wird direkt aus dem
-  # offiziellen Dockerfile gebaut (einmalig beim ersten "docker compose up --build")
-  parsedmarc:
+  # ── DMARC Control (eigenes v2 Webdashboard) ────────────────────────────────
+  dashboard:
     build:
-      context: https://github.com/domainaware/parsedmarc.git
-      dockerfile: Dockerfile
-    image: parsedmarc:local          # lokaler Image-Name nach dem Build
-    container_name: dmarc-parser
+      context: ./dashboard
+    image: parsedmarc-dashboard:local
+    container_name: dmarc-dashboard
     restart: unless-stopped
+    ports:
+      - "3030:8000"
+    environment:
+      - OPENSEARCH_URL=http://opensearch:9200
+      - DMARC_AGGREGATE_INDEX=dmarc_aggregate-*
+      - DMARC_FORENSIC_INDEX=dmarc_failure-*
+      - DASHBOARD_DATABASE_PATH=/app/data/dashboard.db
+      - STALE_REPORT_DAYS=3
+      - NEW_HOST_WINDOW_DAYS=7
     volumes:
-      - ./config/parsedmarc.ini:/etc/parsedmarc.ini:ro
-      - ./dmarc-reports:/input:ro    # alternativ: Dateien manuell ablegen
-    command: parsedmarc -c /etc/parsedmarc.ini
+      - ./data/dashboard:/app/data
+      - ./data/parser-control:/app/parser-control
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       opensearch:
+        condition: service_healthy
+    networks:
+      - dmarc-net
+
+  # ── parsedmarc (ein verwalteter Mailbox-Consumer) ──────────────────────────
+  # Der Supervisor startet genau einen auf 10.4.0 gepinnten parsedmarc-Prozess.
+  # Bis eine GUI-Konfiguration erfolgreich getestet und aktiviert wurde,
+  # verwendet er unverändert die bestehende Legacy-Konfiguration.
+  parsedmarc:
+    build:
+      context: ./parser
+    image: parsedmarc-managed:local
+    container_name: dmarc-parser
+    restart: unless-stopped
+    environment:
+      - PARSER_CONTROL_API=http://dashboard:8000/api/internal/parser
+      - PARSER_CONTROL_TOKEN_FILE=/run/parser-control/control.token
+      - PARSER_LEGACY_CONFIG=/legacy/parsedmarc.ini
+      - PARSER_SAVE_AGGREGATE=True
+      - PARSER_SAVE_FAILURE=${PARSEDMARC_SAVE_FAILURE:-False}
+      - PARSER_SAVE_SMTP_TLS=False
+      - PARSER_OPENSEARCH_HOSTS=opensearch:9200
+      - PARSER_OPENSEARCH_SSL=False
+    volumes:
+      - ./config:/legacy:ro
+      - ./data/parser-control:/run/parser-control:ro
+      - ./dmarc-reports:/input:ro    # alternativ: Dateien manuell ablegen
+    group_add:
+      - "10001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      dashboard:
         condition: service_healthy
     networks:
       - dmarc-net
