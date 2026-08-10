@@ -1,15 +1,19 @@
-# parsedmarc-stack
+# DMARC Control
 
-Self-hosted DMARC report parsing and visualization using [parsedmarc](https://github.com/domainaware/parsedmarc), OpenSearch and Grafana – containerized with Docker Compose.
+DMARC Control ist eine selbst gehostete Plattform zur Auswertung und
+Überwachung von DMARC-Berichten. Sie baut auf
+[parsedmarc](https://github.com/domainaware/parsedmarc) auf und kombiniert den
+Parser mit OpenSearch, Grafana sowie einem eigenen Webdashboard – vollständig
+containerisiert mit Docker Compose.
 
 ## Stack
 
 | Component | Image | Zweck |
 |---|---|---|
+| DMARC Control | lokaler Multi-Stage-Build | Eigenes risikoorientiertes Webdashboard und API |
 | parsedmarc 10.4.0 | `ghcr.io/domainaware/parsedmarc:10.4.0` + lokaler Supervisor | Ein verwalteter Mailbox-Consumer für Microsoft Graph oder IMAP |
 | OpenSearch 2.x | `opensearchproject/opensearch:2` | Datenspeicher |
 | Grafana | `grafana/grafana:latest` | Visualisierung |
-| DMARC Control | lokaler Multi-Stage-Build | Eigenes risikoorientiertes Webdashboard und API |
 
 ## Voraussetzungen
 
@@ -27,7 +31,7 @@ echo "vm.max_map_count=262144" | sudo tee /etc/sysctl.d/99-opensearch.conf
 ## Verzeichnisstruktur
 
 ```
-parsedmarc-stack/
+dmarc-control/
 ├── docker-compose.yml
 ├── .env                                    ← Passwörter (nicht ins Git!)
 ├── .env.example                            ← Vorlage ohne echte Werte
@@ -72,8 +76,8 @@ parsedmarc-stack/
 **1. Repo klonen**
 
 ```bash
-git clone https://github.com/DEIN-USERNAME/parsedmarc-stack.git
-cd parsedmarc-stack
+git clone https://github.com/cybernoodles/dmarc-control.git
+cd dmarc-control
 ```
 
 **2. Konfiguration anlegen**
@@ -243,7 +247,9 @@ Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in 
 ## DMARC Control
 
 Das eigene Webdashboard läuft parallel zu Grafana und übernimmt dessen
-Informationsumfang in einer risikoorientierten Oberfläche:
+Informationsumfang in einer risikoorientierten Oberfläche. Für die
+Normalisierung und Ablage der DMARC-Berichte verwendet DMARC Control
+[parsedmarc](https://github.com/domainaware/parsedmarc) als technische Basis:
 
 - Übersicht mit Volumen, Passrate, echten DMARC-Fails, Datenfrische und Trend
 - klare Trennung zwischen finalem DMARC-Fail und kompensiertem SPF-/DKIM-Alignment
@@ -326,4 +332,6 @@ docker compose up -d
 
 ## Lizenz
 
-Dieses Setup-Repo steht unter [Apache 2.0](LICENSE). parsedmarc selbst steht ebenfalls unter [Apache 2.0](https://github.com/domainaware/parsedmarc/blob/master/LICENSE).
+DMARC Control steht unter [Apache 2.0](LICENSE). Das zugrunde liegende
+[parsedmarc](https://github.com/domainaware/parsedmarc) steht ebenfalls unter
+[Apache 2.0](https://github.com/domainaware/parsedmarc/blob/master/LICENSE).

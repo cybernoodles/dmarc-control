@@ -44,6 +44,7 @@ const english: Record<string, string> = {
   "Domain-Liste nicht verfügbar: {error}": "Domain list unavailable: {error}",
   "OpenSearch ist ausschließlich über die kontrollierte API erreichbar.":
     "OpenSearch is accessible exclusively through the controlled API.",
+  "Basiert auf": "Built on",
   "Branding und Darstellung dieses Browsers":
     "Branding and display preferences for this browser",
   "Eigenes Branding aktiv": "Custom branding active",

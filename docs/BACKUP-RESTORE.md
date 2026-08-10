@@ -1,9 +1,9 @@
 # Datenhaltung, Backup und Restore
 
-Dieses Dokument definiert, welche Daten der parseDMARC-Stack besitzt, wo sie
+Dieses Dokument definiert, welche Daten DMARC Control besitzt, wo sie
 liegen und welche Abhängigkeiten bei Backup und Wiederherstellung gelten. Es
 ist die fachliche Grundlage für die noch zu automatisierenden Abläufe aus
-[Issue #2](https://github.com/cybernoodles/parsedmarc-stack/issues/2).
+[Issue #2](https://github.com/cybernoodles/dmarc-control/issues/2).
 
 ## Grundsatz: Datenebene und Steuerungsebene bleiben getrennt
 

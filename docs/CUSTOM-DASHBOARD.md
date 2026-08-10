@@ -1,8 +1,9 @@
 # DMARC Control
 
-DMARC Control ist das eigene v2-Webdashboard des parseDMARC-Stacks. Es läuft
-parallel zu Grafana und verwendet dieselben von parsedmarc geschriebenen
-OpenSearch-Indizes.
+DMARC Control ist eine selbst gehostete Plattform zur Überwachung und Analyse
+von DMARC-Berichten. Sie baut auf
+[parsedmarc](https://github.com/domainaware/parsedmarc) auf, läuft parallel zu
+Grafana und verwendet die vom Parser geschriebenen OpenSearch-Indizes.
 
 ## Architektur
 
@@ -219,7 +220,7 @@ Die API akzeptiert keine frei eingebbare Query-DSL.
 Der produktive Dockge-Stack liegt unter:
 
 ```text
-/opt/stacks/parsedmarc
+/opt/stacks/dmarc-control
 ```
 
 Dockge verwendet dort `compose.yaml`. Das Dashboard-Verzeichnis liegt relativ

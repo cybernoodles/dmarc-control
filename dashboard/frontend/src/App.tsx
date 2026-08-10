@@ -1142,7 +1142,16 @@ function DashboardApp({
       </main>
 
       <footer>
-        <span>DMARC Control MVP</span>
+        <span>
+          DMARC Control · {t("Basiert auf")} {" "}
+          <a
+            href="https://github.com/domainaware/parsedmarc"
+            target="_blank"
+            rel="noreferrer"
+          >
+            parsedmarc
+          </a>
+        </span>
         <span>
           {t(
             "OpenSearch ist ausschließlich über die kontrollierte API erreichbar.",

@@ -1,5 +1,5 @@
 ---
-# parsedmarc Stack: DMARC Control + parsedmarc + OpenSearch + Grafana
+# DMARC Control: Webdashboard + parsedmarc + OpenSearch + Grafana
 # parsedmarc ist auf 10.4.0 gepinnt; OpenSearch verwendet die 2.x-Linie.
 #
 # Voraussetzungen auf dem Docker-Host (docker01):
@@ -15,6 +15,8 @@
 # Start: docker compose up -d
 # Grafana UI: http://docker01:3020  (admin / siehe GF_SECURITY_ADMIN_PASSWORD)
 # DMARC Control: http://docker01:3030
+
+name: dmarc-control
 
 services:
 
@@ -71,7 +73,7 @@ services:
   dashboard:
     build:
       context: ./dashboard
-    image: parsedmarc-dashboard:local
+    image: dmarc-control:local
     container_name: dmarc-dashboard
     restart: unless-stopped
     ports:
