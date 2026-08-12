@@ -281,7 +281,9 @@ class DashboardService:
                 }
             },
         }
-        response = await self.client.search(self.settings.aggregate_index, body)
+        response = await self.client.search(
+            self.settings.aggregate_index, body, allow_missing=True
+        )
         return [
             {
                 "domain": bucket["key"],
@@ -417,7 +419,9 @@ class DashboardService:
                 },
             },
         }
-        response = await self.client.search(self.settings.aggregate_index, body)
+        response = await self.client.search(
+            self.settings.aggregate_index, body, allow_missing=True
+        )
         aggregations = response.get("aggregations", {})
         total = _sum(aggregations)
         passed = _sum(aggregations.get("dmarc_pass", {}))
@@ -627,7 +631,9 @@ class DashboardService:
                 }
             },
         }
-        response = await self.client.search(self.settings.aggregate_index, body)
+        response = await self.client.search(
+            self.settings.aggregate_index, body, allow_missing=True
+        )
         overrides = self.store.host_overrides()
         items = []
         new_cutoff = datetime.now(UTC) - timedelta(

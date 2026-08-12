@@ -189,6 +189,33 @@ class ForensicPrivacyTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("original_rcpt_to", serialized)
 
 
+class EmptyInstallationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_aggregate_index_returns_empty_views(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake = FakeClient()
+            settings = Settings(database_path=Path(directory) / "dashboard.db")
+            service = DashboardService(
+                fake,
+                StateStore(settings.database_path),
+                settings,
+            )
+
+            domains = await service.domains()
+            overview = await service.overview("*", 30)
+            hosts = await service.hosts("*", 30)
+
+            self.assertEqual(domains, [])
+            self.assertEqual(overview["totals"]["messages"], 0)
+            self.assertEqual(overview["totals"]["dmarc_pass"], 0)
+            self.assertEqual(overview["totals"]["dmarc_fail"], 0)
+            self.assertEqual(overview["trend"], [])
+            self.assertEqual(hosts, [])
+            self.assertEqual(
+                [allow_missing for _, _, allow_missing in fake.calls],
+                [True, True, True],
+            )
+
+
 class OverviewQueryTests(unittest.IsolatedAsyncioTestCase):
     async def test_data_freshness_uses_report_period_end(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
