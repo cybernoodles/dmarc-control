@@ -2,8 +2,9 @@
 
 Diese Anleitung verschiebt eine bestehende parsedmarc-Installation von den
 historischen Docker-Volumes in die projektlokalen Bind-Mounts `./data/opensearch`
-und `./data/grafana`. Sie ist für einen kontrollierten Wartungszeitraum gedacht
-und wird nicht automatisch durch ein `git pull` ausgeführt.
+und – nur bei weiterhin aktiviertem Grafana-Profil – `./data/grafana`. Sie ist
+für einen kontrollierten Wartungszeitraum gedacht und wird nicht automatisch
+durch ein `git pull` ausgeführt.
 
 ## Vorbedingungen
 
@@ -12,6 +13,8 @@ und wird nicht automatisch durch ein `git pull` ausgeführt.
 - Für den gesamten Kopiervorgang bleibt der Stack gestoppt.
 - Vor dem Eingriff existiert ein getestetes OpenSearch-Snapshot oder ein
   zusätzlicher Volume-Export.
+- Soll Grafana weiterlaufen, enthält `.env` vor dem Start
+  `COMPOSE_PROFILES=grafana` und ein gesetztes `GRAFANA_ADMIN_PASSWORD`.
 
 Die nachfolgenden Volume-Namen gelten für einen bisherigen Compose-Projektnamen
 `parsedmarc`:
@@ -32,12 +35,12 @@ docker volume ls | grep -E 'parsedmarc.*(opensearch|grafana)'
 Im Projektverzeichnis ausführen:
 
 ```bash
-docker compose stop
-mkdir -p data/opensearch data/grafana
+docker compose --profile grafana stop
+mkdir -p data/opensearch
 ```
 
-Die beiden bisherigen Volumes in die neuen Verzeichnisse kopieren. Ersetze die
-Volume-Namen, falls die vorherige Prüfung andere Namen ergeben hat:
+Das bisherige OpenSearch-Volume in das neue Verzeichnis kopieren. Ersetze den
+Volume-Namen, falls die vorherige Prüfung einen anderen Namen ergeben hat:
 
 ```bash
 docker run --rm \
@@ -45,12 +48,17 @@ docker run --rm \
   -v "$PWD/data/opensearch":/destination \
   alpine:3.20 sh -c 'cp -a /source/. /destination/'
 
+sudo chown -R 1000:1000 data/opensearch
+```
+
+Nur wenn Grafana weiter betrieben werden soll, auch dessen Volume übernehmen:
+
+```bash
+mkdir -p data/grafana
 docker run --rm \
   -v parsedmarc_grafana-data:/source:ro \
   -v "$PWD/data/grafana":/destination \
   alpine:3.20 sh -c 'cp -a /source/. /destination/'
-
-sudo chown -R 1000:1000 data/opensearch
 sudo chown -R 472:472 data/grafana
 ```
 
@@ -65,11 +73,16 @@ docker compose up -d
 ```bash
 docker exec dmarc-opensearch curl -sf http://localhost:9200/_cluster/health
 docker exec dmarc-opensearch curl -s 'http://localhost:9200/_cat/indices/dmarc_*?v'
+```
+
+Nur bei aktiviertem Grafana-Profil zusätzlich:
+
+```bash
 docker logs --tail=100 dmarc-grafana
 ```
 
-Prüfe anschließend Anmeldung, vorhandene Dashboards und die historischen
-Aggregate in Grafana.
+Prüfe anschließend DMARC Control und, falls aktiviert, die Grafana-Anmeldung,
+die vorhandenen Dashboards und die historischen Aggregate.
 
 ## Erst nach erfolgreicher Prüfung
 

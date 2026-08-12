@@ -1810,7 +1810,7 @@ function MailboxConnectionSettings({
                 <strong>{t("Neue Anbindung jetzt aktivieren?")}</strong>
                 <p>
                   {t(
-                    "Der bestehende einzelne Parser-Prozess wird kurz gestoppt und mit dem geprüften Entwurf neu gestartet. Grafana und OpenSearch laufen weiter.",
+                    "Der bestehende einzelne Parser-Prozess wird kurz gestoppt und mit dem geprüften Entwurf neu gestartet. OpenSearch läuft weiter.",
                   )}
                 </p>
                 <div>

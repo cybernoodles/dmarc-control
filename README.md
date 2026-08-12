@@ -3,8 +3,10 @@
 DMARC Control ist eine selbst gehostete Plattform zur Auswertung und
 Überwachung von DMARC-Berichten. Sie baut auf
 [parsedmarc](https://github.com/domainaware/parsedmarc) auf und kombiniert den
-Parser mit OpenSearch, Grafana sowie einem eigenen Webdashboard – vollständig
-containerisiert mit Docker Compose.
+Parser mit OpenSearch sowie einem eigenen Webdashboard – vollständig
+containerisiert mit Docker Compose. Grafana bleibt vorläufig als optionales
+Compose-Profil für bestehende Installationen verfügbar, gehört aber nicht mehr
+zur Standardinstallation.
 
 ## Stack
 
@@ -13,7 +15,7 @@ containerisiert mit Docker Compose.
 | DMARC Control | lokaler Multi-Stage-Build | Eigenes risikoorientiertes Webdashboard und API |
 | parsedmarc 10.4.0 | `ghcr.io/domainaware/parsedmarc:10.4.0` + lokaler Supervisor | Ein verwalteter Mailbox-Consumer für Microsoft Graph oder IMAP |
 | OpenSearch 2.x | `opensearchproject/opensearch:2` | Datenspeicher |
-| Grafana | `grafana/grafana:latest` | Visualisierung |
+| Grafana (optional) | `grafana/grafana:latest` | Übergangsvisualisierung im Compose-Profil `grafana` |
 
 ## Voraussetzungen
 
@@ -52,13 +54,13 @@ dmarc-control/
 │   └── supervisor.py                        ← übernimmt nur aktivierte GUI-Konfigurationen
 ├── data/                                    ← Persistente Laufzeitdaten (nicht im Git)
 │   ├── opensearch/                          ← Indizes und OpenSearch-Zustand
-│   ├── grafana/                             ← Grafana SQLite, Benutzer und Plugins
+│   ├── grafana/                             ← optional: Grafana SQLite, Benutzer und Plugins
 │   ├── dashboard/                           ← UI-Zustände, Zugangs-Hashes und verschlüsselte Verbindungen
 │   └── parser-control/                      ← automatisch erzeugtes internes Control-Token
 ├── config/
 │   ├── parsedmarc.ini                       ← optionaler Legacy-/Migrations-Fallback
 │   ├── parsedmarc.ini.example               ← Referenz für bestehende Installationen
-│   └── grafana/
+│   └── grafana/                             ← optionales Provisioning
 │       └── provisioning/
 │           ├── datasources/
 │           │   └── opensearch.yml          ← Grafana Datasources (auto-provisioniert)
@@ -83,34 +85,68 @@ cd dmarc-control
 **2. Konfiguration anlegen**
 
 ```bash
-# Passwörter setzen
+# Konfiguration und Passwörter setzen
 cp .env.example .env
 nano .env
-
 ```
 
 Die Mailbox wird nach dem ersten Start im Webdashboard konfiguriert. Eine
 `config/parsedmarc.ini` ist für neue Installationen nicht erforderlich.
 
+### Deployment-Varianten
+
+| Variante | `COMPOSE_PROFILES` | Laufende Dienste |
+|---|---|---|
+| Standard/Kunde | leer | OpenSearch, DMARC Control, parsedmarc |
+| Übergang/Bestand mit Grafana | `grafana` | Kern-Stack plus Grafana |
+
+In der Standardinstallation bleiben diese beiden Werte leer:
+
+```dotenv
+COMPOSE_PROFILES=
+GRAFANA_ADMIN_PASSWORD=
+```
+
+Damit besteht der Stack ausschließlich aus OpenSearch, DMARC Control und
+parsedmarc. Für eine bestehende Installation, die Grafana vorläufig weiter
+betreiben soll, muss die lokale `.env` stattdessen beide Werte enthalten:
+
+```dotenv
+COMPOSE_PROFILES=grafana
+GRAFANA_ADMIN_PASSWORD=EIN_EIGENES_STARKES_PASSWORT
+```
+
+`COMPOSE_PROFILES` ist damit die verbindliche, installationsspezifische
+Auswahl. Der Kommandozeilenparameter `--profile grafana` ist zwar ebenfalls
+möglich, sollte für dauerhafte Installationen aber nicht der einzige Nachweis
+der gewählten Variante sein.
+
 **3. Datenverzeichnisse vorbereiten**
 
-Die persistenten OpenSearch- und Grafana-Daten liegen unter `./data`, damit
-das Projektverzeichnis vollständig auf einen anderen Host übertragen werden
-kann. Die Inhalte sind absichtlich nicht versioniert.
+Die persistenten Daten liegen unter `./data`, damit das Projektverzeichnis
+vollständig auf einen anderen Host übertragen werden kann. Die Inhalte sind
+absichtlich nicht versioniert.
 
 ```bash
-mkdir -p data/opensearch data/grafana data/dashboard data/parser-control dmarc-reports
+mkdir -p data/opensearch data/dashboard data/parser-control dmarc-reports
 sudo chown 1000:1000 data/opensearch
-sudo chown 472:472 data/grafana
 sudo chown 10001:10001 data/dashboard data/parser-control
 ```
 
-OpenSearch läuft im Container als UID 1000, Grafana als UID 472 und DMARC
-Control als UID 10001. Ohne diese Eigentümer kann der jeweilige Dienst beim
-ersten Start nicht in sein Datenverzeichnis schreiben. Beim ersten Aufruf von
-DMARC Control führt ein Setup-Screen durch das einmalige Festlegen eines
-Read-Benutzers mit Passwort und des separaten Admin-Passworts. Das Dashboard
-ist anschließend nur mit einer gültigen Read-Sitzung erreichbar.
+Nur bei aktiviertem Grafana-Profil wird zusätzlich dessen Datenverzeichnis
+benötigt:
+
+```bash
+mkdir -p data/grafana
+sudo chown 472:472 data/grafana
+```
+
+OpenSearch läuft im Container als UID 1000, DMARC Control als UID 10001 und
+das optionale Grafana als UID 472. Ohne diese Eigentümer kann der jeweilige
+Dienst beim ersten Start nicht in sein Datenverzeichnis schreiben. Beim ersten
+Aufruf von DMARC Control führt ein Setup-Screen durch das einmalige Festlegen
+eines Read-Benutzers mit Passwort und des separaten Admin-Passworts. Das
+Dashboard ist anschließend nur mit einer gültigen Read-Sitzung erreichbar.
 
 Bei bestehenden Installationen ohne Read-Benutzer erscheint nach dem Update
 ebenfalls der Setup-Screen. Das vorhandene Admin-Passwort muss dort bestätigt
@@ -130,7 +166,8 @@ docker compose up -d --build --remove-orphans
 
 Beim ersten Start werden das Dashboard und der kleine Parser-Supervisor lokal
 gebaut. Die darunterliegende parsedmarc-Version ist reproduzierbar auf 10.4.0
-gepinnt.
+gepinnt. Ohne `COMPOSE_PROFILES=grafana` wird weder ein Grafana-Container
+erzeugt noch Port `3020` veröffentlicht.
 
 **5. Logs verfolgen**
 
@@ -139,6 +176,11 @@ docker compose logs -f parsedmarc
 ```
 
 ### Bestehende Installation migrieren
+
+Bestehende Installationen, die Grafana behalten sollen, müssen vor dem ersten
+Start mit dieser Compose-Version `COMPOSE_PROFILES=grafana` sowie ein
+`GRAFANA_ADMIN_PASSWORD` in ihrer `.env` setzen. Damit bleiben Container, Port
+und Datenpfad bei den gewohnten Compose-Befehlen Bestandteil des Stacks.
 
 Ältere Versionen dieses Repositories verwendeten Docker-Volumes für
 OpenSearch und Grafana. Die einmalige, datenerhaltende Übernahme in das neue
@@ -197,7 +239,11 @@ Danach parsedmarc neu starten und eingehende RUF-Berichte abwarten:
 docker compose restart parsedmarc
 ```
 
-Das Dashboard **DMARC Forensic Analysis** zeigt ausschließlich minimierte Betriebsmetadaten – keine Betreffzeilen, Empfänger, Header oder Rohinhalte. Es wird in den separaten Grafana-Ordner **Forensic** provisioniert. Diesem Ordner in Grafana nur den zuständigen Security-/Incident-Rollen Zugriff gewähren.
+Bei aktiviertem Grafana-Profil zeigt das zusätzliche Dashboard **DMARC
+Forensic Analysis** ausschließlich minimierte Betriebsmetadaten – keine
+Betreffzeilen, Empfänger, Header oder Rohinhalte. Es wird in den separaten
+Grafana-Ordner **Forensic** provisioniert. Diesem Ordner in Grafana nur den
+zuständigen Security-/Incident-Rollen Zugriff gewähren.
 
 ### IMAP
 
@@ -228,7 +274,12 @@ stabile `X-DMARC-Control-*`-Header und den versionierten JSON-Anhang
 `dashboard.db` dedupliziert; vorübergehende Fehler werden höchstens dreimal mit
 ansteigendem Abstand versucht.
 
-## Grafana
+## Optionales Grafana-Profil
+
+Grafana ist nicht Bestandteil der Standardinstallation. Es bleibt als
+Übergangsvariante in derselben Compose-Datei versioniert und wird nur mit
+`COMPOSE_PROFILES=grafana` in der lokalen `.env` oder explizit mit
+`docker compose --profile grafana ...` aktiviert.
 
 | URL | Credentials |
 |---|---|
@@ -240,15 +291,31 @@ Grafana provisioniert drei versionierte Dashboards und öffnet nach Anmeldung di
 - **DMARC Analysis:** Sender-, IP-, SPF- und DKIM-Detailanalyse; Zeitraum 90 Tage. Forensic-Daten sind bewusst ausgeschlossen.
 - **DMARC Forensic Analysis:** RUF-/Forensic-Untersuchung mit 30 Tagen Standardzeitraum und begrenzten Aggregationen. Aktuelle parsedmarc-Versionen speichern diese Berichte in `dmarc_failure-*`; das Dashboard bleibt leer, solange `save_failure = False` gesetzt ist oder keine RUF-Berichte eingehen.
 
-Datasources und Dashboards sind schreibgeschützt provisioniert. Änderungen erfolgen im Repository, dann mit `docker compose restart grafana` übernehmen. Damit bleibt die laufende Instanz nachvollziehbar und frei von UI-Drift.
+Datasources und Dashboards sind schreibgeschützt provisioniert. Änderungen
+erfolgen im Repository und werden danach mit `docker compose restart grafana`
+übernommen. Damit bleibt die laufende Instanz nachvollziehbar und frei von
+UI-Drift.
 
-Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in `docker-compose.yml` definiert.
+Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in
+`docker-compose.yml` definiert.
+
+Um Grafana in einer bestehenden Installation kontrolliert stillzulegen, zuerst
+den Dienst stoppen und entfernen:
+
+```bash
+docker compose --profile grafana stop grafana
+docker compose --profile grafana rm -f grafana
+```
+
+Danach `COMPOSE_PROFILES=` und `GRAFANA_ADMIN_PASSWORD=` in `.env` leeren. Das
+Verzeichnis `data/grafana/` wird dabei nicht gelöscht und kann bis zum Ende der
+vereinbarten Rückrollfrist gesichert aufbewahrt werden.
 
 ## DMARC Control
 
-Das eigene Webdashboard läuft parallel zu Grafana und übernimmt dessen
-Informationsumfang in einer risikoorientierten Oberfläche. Für die
-Normalisierung und Ablage der DMARC-Berichte verwendet DMARC Control
+Das eigene Webdashboard ist die Standardoberfläche. Das optionale Grafana kann
+in Übergangsinstallationen parallel laufen. Für die Normalisierung und Ablage
+der DMARC-Berichte verwendet DMARC Control
 [parsedmarc](https://github.com/domainaware/parsedmarc) als technische Basis:
 
 - Übersicht mit Volumen, Passrate, echten DMARC-Fails, Datenfrische und Trend
@@ -288,7 +355,7 @@ Reihenfolge ein vollständiger Restore erfolgen muss.
 
 | Service | Port | Beschreibung |
 |---|---|---|
-| Grafana | 3020 | Haupt-Dashboard und Analyse |
+| Grafana (optional) | 3020 | Nur bei aktiviertem Profil `grafana` |
 | DMARC Control | 3030 | Eigenes v2-Webdashboard |
 | OpenSearch API | 9200 | Nur intern |
 
@@ -304,7 +371,10 @@ Reihenfolge ein vollständiger Restore erfolgen muss.
 
 - **Zeitfelder:** Aggregate verwenden `date_begin`, Failure-/Forensic-Indizes `arrival_date`.
 - **Forensic/RUF:** Standardmäßig deaktiviert, weil diese Reports personenbezogene Header oder Betreffzeilen enthalten können. Bei Bedarf nur mit dokumentierter Retention und getrennten Berechtigungen aktivieren.
-- **OpenSearch-Sicherheit:** Der aktuelle Ad-hoc-Stack veröffentlicht keine OpenSearch-Ports und nutzt nur Grafana als Oberfläche. Vor einem Firmenbetrieb müssen OpenSearch Security, TLS, Zugriffskontrolle und Back-up verbindlich ergänzt werden.
+- **OpenSearch-Sicherheit:** Der Stack veröffentlicht keine OpenSearch-Ports;
+  Dashboard, Parser und optional Grafana greifen nur im Compose-Netz darauf zu.
+  Vor einem Firmenbetrieb müssen OpenSearch Security, TLS, Zugriffskontrolle
+  und Back-up verbindlich ergänzt werden.
 - **Portabilität:** Konfiguration, `.env` und alle persistenten Containerdaten liegen unter dem Projektverzeichnis. Für einen Hostwechsel den Stack sauber stoppen, das gesamte Verzeichnis inklusive `data/` übertragen und auf dem Zielhost mit kompatiblen Image-Versionen starten. Für OpenSearch ist ein Snapshot zusätzlich der empfohlene Backup- und Migrationsweg.
 
 ## Troubleshooting
@@ -319,8 +389,14 @@ docker exec dmarc-opensearch curl -s http://localhost:9200/_cat/indices?v | grep
 # parsedmarc Logs
 docker compose logs parsedmarc --tail=50
 
-# Prüfen, ob beide Dashboards und die Datasource provisioniert wurden
+# Optional: prüfen, ob die Grafana-Dashboards und Datasource provisioniert wurden
 docker compose logs grafana | grep -i "provision\|opensearch"
+
+# Aktive Standarddienste anzeigen; ohne Profil darf grafana nicht erscheinen
+docker compose config --services
+
+# Optionale Variante auflösen; hier muss grafana erscheinen
+docker compose --profile grafana config --services
 
 # Stack neu starten
 docker compose restart

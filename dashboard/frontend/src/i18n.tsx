@@ -221,8 +221,8 @@ const english: Record<string, string> = {
   "Der Test meldet sich an und prüft die Ordner ausschließlich lesend. Er lädt, verarbeitet, verschiebt und löscht keine Nachrichten.":
     "The test signs in and checks the folders read-only. It does not download, process, move or delete any messages.",
   "Neue Anbindung jetzt aktivieren?": "Activate the new connection now?",
-  "Der bestehende einzelne Parser-Prozess wird kurz gestoppt und mit dem geprüften Entwurf neu gestartet. Grafana und OpenSearch laufen weiter.":
-    "The existing single parser process is briefly stopped and restarted with the tested draft. Grafana and OpenSearch continue running.",
+  "Der bestehende einzelne Parser-Prozess wird kurz gestoppt und mit dem geprüften Entwurf neu gestartet. OpenSearch läuft weiter.":
+    "The existing single parser process is briefly stopped and restarted with the tested draft. OpenSearch continues running.",
   "Wird aktiviert …": "Activating …",
   "Geprüfte Anbindung aktivieren": "Activate tested connection",
   Abbrechen: "Cancel",

@@ -2,14 +2,15 @@
 
 DMARC Control ist eine selbst gehostete Plattform zur Überwachung und Analyse
 von DMARC-Berichten. Sie baut auf
-[parsedmarc](https://github.com/domainaware/parsedmarc) auf, läuft parallel zu
-Grafana und verwendet die vom Parser geschriebenen OpenSearch-Indizes.
+[parsedmarc](https://github.com/domainaware/parsedmarc) auf und verwendet die
+vom Parser geschriebenen OpenSearch-Indizes. Grafana kann in bestehenden
+Installationen über das optionale Compose-Profil `grafana` parallel laufen.
 
 ## Architektur
 
 ```text
 Browser ──HTTP──> DMARC Control (React + FastAPI) ──HTTP intern──> OpenSearch
-Browser ──HTTP──> Grafana                         ──HTTP intern──> OpenSearch
+Browser ──HTTP──> Grafana (optionales Profil)      ──HTTP intern──> OpenSearch
                          │
                          └── aktivierte Revision ──> Parser-Supervisor
                          └── offene Warnungen ─────> SMTP / Microsoft Graph
@@ -54,7 +55,7 @@ Statusänderungen an Warnungen, Benachrichtigungseinstellungen und
 -zustellungen, manuell bestätigte Sending Hosts, der globale UI-Farbstandard
 sowie versionierte Mailbox-Verbindungen werden in
 `data/dashboard/dashboard.db` gespeichert. Diese SQLite-Datei ist vollständig
-von den OpenSearch- und Grafana-Daten getrennt.
+von den OpenSearch- und optionalen Grafana-Daten getrennt.
 
 Mailbox- und Benachrichtigungs-Secrets werden mit getrennten
 AES-GCM-Kontexten verschlüsselt. Der gemeinsame Schlüssel wird beim ersten
@@ -226,15 +227,21 @@ Der produktive Dockge-Stack liegt unter:
 Dockge verwendet dort `compose.yaml`. Das Dashboard-Verzeichnis liegt relativ
 dazu unter `./dashboard`, die eigene Persistenz unter `./data/dashboard`.
 
-Beim Update werden nur der Dashboard-Quellcode und der zusätzliche
-`dashboard`- und `parsedmarc`-Service verändert. OpenSearch und Grafana bleiben
-unangetastet. Beim ersten Rollout wird nur der bestehende Parser-Container
-ersetzt; der neue Supervisor startet darin genau einen Kindprozess mit der
-vorhandenen Legacy-Konfiguration. Erst eine später in der GUI getestete und
-aktivierte Revision ersetzt diese Konfiguration.
+Soll Grafana auf `docker01` vorläufig weiterlaufen, muss die lokale `.env` vor
+dem Update `COMPOSE_PROFILES=grafana` und ein gesetztes
+`GRAFANA_ADMIN_PASSWORD` enthalten. Kundeninstallationen ohne Grafana lassen
+beide Werte leer.
 
-Das neue Dashboard ist nach dem Start unter `http://HOSTNAME:3030` erreichbar;
-Grafana bleibt parallel unter Port `3020` verfügbar.
+Beim Update werden nur der Dashboard-Quellcode und der zusätzliche
+`dashboard`- und `parsedmarc`-Service verändert. OpenSearch und ein über das
+Profil aktiviertes Grafana bleiben unangetastet. Beim ersten Rollout wird nur
+der bestehende Parser-Container ersetzt; der neue Supervisor startet darin
+genau einen Kindprozess mit der vorhandenen Legacy-Konfiguration. Erst eine
+später in der GUI getestete und aktivierte Revision ersetzt diese
+Konfiguration.
+
+Das neue Dashboard ist nach dem Start unter `http://HOSTNAME:3030` erreichbar.
+Port `3020` wird nur bei aktiviertem Grafana-Profil veröffentlicht.
 
 ## Lokale Prüfungen
 

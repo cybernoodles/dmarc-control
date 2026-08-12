@@ -10,7 +10,7 @@ ist die fachliche Grundlage für die noch zu automatisierenden Abläufe aus
 Der Stack verwendet bewusst zwei unabhängige Persistenzebenen:
 
 ```text
-Mailbox -> parsedmarc -> OpenSearch -> DMARC Control / Grafana
+Mailbox -> parsedmarc -> OpenSearch -> DMARC Control / optionales Grafana
                               ^
                               | historische DMARC-Daten
 
@@ -37,8 +37,8 @@ Administrator -> DMARC Control -> SQLite + connection.key
 | DMARC Control SQLite | Read- und Admin-Hashes samt Sitzungen, Alertstatus, Hostklassifizierungen und Notizen, globale UI-Einstellungen, Mailboxrevisionen, Benachrichtigungskonfiguration, Zustellhistorie und Parserstatus | `data/dashboard/dashboard.db` | Steuerungs- und Workflowzustand |
 | Verschlüsselungsschlüssel | AES-GCM-Schlüssel für Mailbox- und Benachrichtigungs-Secrets | `data/dashboard/connection.key` | Muss gemeinsam mit SQLite gesichert werden |
 | Parser-Steuerung | Gemeinsames Token zwischen Dashboard und Parser-Supervisor | `data/parser-control/control.token` | Betriebsrelevant, aber bei kontrolliertem Neustart regenerierbar |
-| Stack-Konfiguration | Compose-Datei, `.env`, optionale Legacy-Konfiguration und provisionierte Grafana-Dateien | Repository, `.env`, `config/` | Für reproduzierbaren Wiederaufbau erforderlich |
-| Grafana-Laufzeitdaten | Benutzer, Sitzungen, lokale Präferenzen und weitere nicht provisionierte Grafana-Zustände | `data/grafana/` | Optional, solange nur die versionierten Provisioning-Dateien verwendet werden |
+| Stack-Konfiguration | Compose-Datei, `.env` inklusive der Profilwahl, optionale Legacy-Konfiguration und provisionierte Grafana-Dateien | Repository, `.env`, `config/` | Für reproduzierbaren Wiederaufbau erforderlich |
+| Grafana-Laufzeitdaten | Benutzer, Sitzungen, lokale Präferenzen und weitere nicht provisionierte Grafana-Zustände | `data/grafana/` | Nur bei aktiviertem Profil `grafana`; optional, solange nur die versionierten Provisioning-Dateien verwendet werden |
 | Browserpräferenzen | Lokale Sprache und lokale Farbanpassung | Local Storage des jeweiligen Browsers | Nicht Bestandteil eines Server-Backups |
 | Mailboxarchive | Originale beziehungsweise archivierte Report-E-Mails | Externes Mailboxsystem | Separate Datenquelle; kein Bestandteil des Stack-Backups |
 
@@ -68,8 +68,8 @@ keine Ersatzkopie der von parsedmarc importierten Reporthistorie.
 | Vorhandene Daten | Was funktioniert? | Was fehlt oder ist gefährdet? |
 |---|---|---|
 | OpenSearch + SQLite + Schlüssel | Vollständiger Normalbetrieb | Nichts, sofern Versionen und Konfiguration kompatibel sind |
-| Nur OpenSearch | Historische Analysen bleiben grundsätzlich verfügbar; Grafana kann mit provisionierter Konfiguration neu aufgebaut werden | Read-/Admin-Setup, Alertstatus, Klassifizierungen, Mailbox- und Alerting-Konfiguration sowie Versand-Deduplizierung fehlen |
-| SQLite + Schlüssel, aber kein OpenSearch | Konfiguration und Workflowzustand sind erhalten | Dashboard-Abfragen und Grafana liefern keine historischen Daten; der Stack ist fachlich nicht betriebsbereit |
+| Nur OpenSearch | Historische Analysen bleiben grundsätzlich verfügbar; optionales Grafana kann mit provisionierter Konfiguration neu aufgebaut werden | Read-/Admin-Setup, Alertstatus, Klassifizierungen, Mailbox- und Alerting-Konfiguration sowie Versand-Deduplizierung fehlen |
+| SQLite + Schlüssel, aber kein OpenSearch | Konfiguration und Workflowzustand sind erhalten | Dashboard-Abfragen und optionales Grafana liefern keine historischen Daten; der Stack ist fachlich nicht betriebsbereit |
 | SQLite ohne `connection.key` | Nicht verschlüsselte Zustände wie Read-/Admin-Hashes, Alertstatus und Notizen bleiben lesbar | Mailbox- und Benachrichtigungs-Secrets können nicht entschlüsselt werden; der verwaltete Parser und Graph-/SMTP-Versand können dadurch ausfallen |
 | `connection.key` ohne SQLite | Keine nutzbare Anwendungspersistenz | Der Schlüssel allein enthält weder Konfiguration noch Daten |
 | Repository und Konfiguration ohne `data/` | Reproduzierbare Neuinstallation | Keine Historie und kein bisheriger Workflowzustand |
@@ -142,6 +142,7 @@ gemeinsame Backup-ID. Zusätzlich enthält es ein Manifest mit:
 - Dokumentanzahl pro relevantem Index
 - Ergebnis von `PRAGMA integrity_check` für die SQLite-Sicherung
 - Prüfsummen aller exportierten Dateien
+- aktive Compose-Profile, insbesondere ob `grafana` aktiviert war
 - Information, ob Grafana-Laufzeitdaten enthalten sind
 
 Secrets oder Klartext-Zugangsdaten dürfen nicht in das Manifest geschrieben
@@ -188,14 +189,15 @@ Restore-Prüfung muss deshalb die Quell- und Zielversion berücksichtigen. Bei
 Namenskonflikten mit bereits offenen Indizes muss in einen leeren Cluster oder
 unter umbenannten Indizes restauriert werden.
 
-## Grafana
+## Optionales Grafana-Profil
 
-Die Dashboards und Datasources werden aus dem Repository provisioniert. Ohne
-`data/grafana/` kann Grafana deshalb grundsätzlich neu aufgebaut werden.
-Verloren gehen dabei jedoch lokale Benutzer, Sitzungen, Präferenzen und nicht
-versionierte Änderungen. Sobald Grafana mehr als ein optionales
-Legacy-Frontend ist oder lokale Zustände behalten werden sollen, wird
-`data/grafana/` Bestandteil des vollständigen Backups.
+Grafana wird nur mit dem Compose-Profil `grafana` betrieben. Die Dashboards und
+Datasources werden aus dem Repository provisioniert. Ohne `data/grafana/` kann
+Grafana deshalb grundsätzlich neu aufgebaut werden. Verloren gehen dabei jedoch
+lokale Benutzer, Sitzungen, Präferenzen und nicht versionierte Änderungen.
+Sobald lokale Grafana-Zustände behalten werden sollen, wird `data/grafana/`
+Bestandteil des vollständigen Backups. Bei Installationen ohne Grafana-Profil
+existiert dieses Backup-Objekt nicht.
 
 ## Noch zu automatisieren
 
