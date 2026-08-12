@@ -216,32 +216,30 @@ möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 Alle Filter werden serverseitig als strukturierte OpenSearch-Abfragen erzeugt.
 Die API akzeptiert keine frei eingebbare Query-DSL.
 
-## Dockge auf docker01
+## Deployment mit Dockge
 
-Der produktive Dockge-Stack liegt unter:
+Dockge legt jeden Stack in einem eigenen Verzeichnis unter seinem
+konfigurierten Stacks-Verzeichnis ab, beispielsweise:
 
 ```text
-/opt/stacks/dmarc-control
+DOCKGE_STACKS_DIRECTORY/dmarc-control
 ```
 
-Dockge verwendet dort `compose.yaml`. Das Dashboard-Verzeichnis liegt relativ
-dazu unter `./dashboard`, die eigene Persistenz unter `./data/dashboard`.
+Die Compose-Datei, `.env`, `dashboard/`, `parser/`, `config/` und `data/` müssen
+gemeinsam in diesem Projektverzeichnis liegen. Relative Pfade werden von
+Compose gegen den Speicherort der Compose-Datei aufgelöst.
 
-Soll Grafana auf `docker01` vorläufig weiterlaufen, muss die lokale `.env` vor
-dem Update `COMPOSE_PROFILES=grafana` und ein gesetztes
-`GRAFANA_ADMIN_PASSWORD` enthalten. Kundeninstallationen ohne Grafana lassen
-beide Werte leer.
+Soll Grafana aktiviert werden, muss die lokale `.env`
+`COMPOSE_PROFILES=grafana` und ein gesetztes `GRAFANA_ADMIN_PASSWORD`
+enthalten. Installationen ohne Grafana lassen beide Werte leer.
 
-Beim Update werden nur der Dashboard-Quellcode und der zusätzliche
-`dashboard`- und `parsedmarc`-Service verändert. OpenSearch und ein über das
-Profil aktiviertes Grafana bleiben unangetastet. Beim ersten Rollout wird nur
-der bestehende Parser-Container ersetzt; der neue Supervisor startet darin
-genau einen Kindprozess mit der vorhandenen Legacy-Konfiguration. Erst eine
-später in der GUI getestete und aktivierte Revision ersetzt diese
-Konfiguration.
+Bei der Migration einer bestehenden Installation kann eine vorhandene
+`config/parsedmarc.ini` zunächst als Legacy-Fallback eingebunden bleiben. Der
+Supervisor startet damit genau einen parsedmarc-Kindprozess. Erst eine später
+in der GUI getestete und aktivierte Revision ersetzt diese Konfiguration.
 
-Das neue Dashboard ist nach dem Start unter `http://HOSTNAME:3030` erreichbar.
-Port `3020` wird nur bei aktiviertem Grafana-Profil veröffentlicht.
+Das Dashboard ist nach dem Start unter `http://HOSTNAME_OR_IP:3030`
+erreichbar. Port `3020` wird nur bei aktiviertem Grafana-Profil veröffentlicht.
 
 ## Lokale Prüfungen
 

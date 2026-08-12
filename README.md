@@ -97,8 +97,8 @@ Die Mailbox wird nach dem ersten Start im Webdashboard konfiguriert. Eine
 
 | Variante | `COMPOSE_PROFILES` | Laufende Dienste |
 |---|---|---|
-| Standard/Kunde | leer | OpenSearch, DMARC Control, parsedmarc |
-| Übergang/Bestand mit Grafana | `grafana` | Kern-Stack plus Grafana |
+| Standard (ohne Grafana) | leer | OpenSearch, DMARC Control, parsedmarc |
+| Optional (mit Grafana) | `grafana` | Kern-Stack plus Grafana |
 
 In der Standardinstallation bleiben diese beiden Werte leer:
 
@@ -283,7 +283,7 @@ Grafana ist nicht Bestandteil der Standardinstallation. Es bleibt als
 
 | URL | Credentials |
 |---|---|
-| `http://HOSTNAME:3020` | `admin` / Passwort aus `.env` |
+| `http://HOSTNAME_OR_IP:3020` | `admin` / Passwort aus `.env` |
 
 Grafana provisioniert drei versionierte Dashboards und öffnet nach Anmeldung direkt **DMARC Overview**:
 

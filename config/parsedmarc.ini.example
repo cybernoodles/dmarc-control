@@ -89,7 +89,7 @@ hosts = opensearch:9200
 ssl = False
 # Kein Username/Passwort nötig solange Security deaktiviert (siehe docker-compose)
 # username = admin
-# password = Ch@ngeMe!2024
+# password = OPENSEARCH_PASSWORT_HIER
 
 
 # ── Optionale GeoIP-Anreicherung ────────────────────────────────────────────

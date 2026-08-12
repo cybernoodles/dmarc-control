@@ -16,18 +16,20 @@ durch ein `git pull` ausgeführt.
 - Soll Grafana weiterlaufen, enthält `.env` vor dem Start
   `COMPOSE_PROFILES=grafana` und ein gesetztes `GRAFANA_ADMIN_PASSWORD`.
 
-Die nachfolgenden Volume-Namen gelten für einen bisherigen Compose-Projektnamen
-`parsedmarc`:
+Die tatsächlichen Volume-Namen hängen vom bisherigen Compose-Projektnamen und
+von der bisherigen Compose-Datei ab. In den nachfolgenden Befehlen stehen
+deshalb diese neutralen Platzhalter:
 
 ```text
-parsedmarc_opensearch-data
-parsedmarc_grafana-data
+OLD_OPENSEARCH_VOLUME
+OLD_GRAFANA_VOLUME
 ```
 
-Vor dem Kopieren die tatsächlichen Namen prüfen:
+Vor dem Kopieren die tatsächlichen Namen ermitteln und sicherstellen, dass die
+ausgewählten Volumes zur zu migrierenden Installation gehören:
 
 ```bash
-docker volume ls | grep -E 'parsedmarc.*(opensearch|grafana)'
+docker volume ls --format '{{.Name}}' | grep -E '(opensearch|grafana)'
 ```
 
 ## Migration
@@ -39,24 +41,25 @@ docker compose --profile grafana stop
 mkdir -p data/opensearch
 ```
 
-Das bisherige OpenSearch-Volume in das neue Verzeichnis kopieren. Ersetze den
-Volume-Namen, falls die vorherige Prüfung einen anderen Namen ergeben hat:
+Das bisherige OpenSearch-Volume in das neue Verzeichnis kopieren. Vor dem
+Ausführen `OLD_OPENSEARCH_VOLUME` durch den zuvor geprüften Namen ersetzen:
 
 ```bash
 docker run --rm \
-  -v parsedmarc_opensearch-data:/source:ro \
+  -v OLD_OPENSEARCH_VOLUME:/source:ro \
   -v "$PWD/data/opensearch":/destination \
   alpine:3.20 sh -c 'cp -a /source/. /destination/'
 
 sudo chown -R 1000:1000 data/opensearch
 ```
 
-Nur wenn Grafana weiter betrieben werden soll, auch dessen Volume übernehmen:
+Nur wenn Grafana weiter betrieben werden soll, auch dessen Volume übernehmen.
+Vor dem Ausführen `OLD_GRAFANA_VOLUME` durch den zuvor geprüften Namen ersetzen:
 
 ```bash
 mkdir -p data/grafana
 docker run --rm \
-  -v parsedmarc_grafana-data:/source:ro \
+  -v OLD_GRAFANA_VOLUME:/source:ro \
   -v "$PWD/data/grafana":/destination \
   alpine:3.20 sh -c 'cp -a /source/. /destination/'
 sudo chown -R 472:472 data/grafana

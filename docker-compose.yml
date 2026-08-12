@@ -3,7 +3,7 @@
 # Grafana bleibt über das optionale Compose-Profil "grafana" verfügbar.
 # parsedmarc ist auf 10.4.0 gepinnt; OpenSearch verwendet die 2.x-Linie.
 #
-# Voraussetzungen auf dem Docker-Host (docker01):
+# Voraussetzungen auf dem Docker-Host:
 #   sudo sysctl -w vm.max_map_count=262144
 #   (dauerhaft: /etc/sysctl.d/99-opensearch.conf mit "vm.max_map_count=262144")
 #
@@ -15,8 +15,8 @@
 #
 # Standardstart ohne Grafana: docker compose up -d
 # Optional mit Grafana: docker compose --profile grafana up -d
-# Grafana UI bei aktivem Profil: http://docker01:3020
-# DMARC Control: http://docker01:3030
+# Grafana UI bei aktivem Profil: http://HOSTNAME_OR_IP:3020
+# DMARC Control: http://HOSTNAME_OR_IP:3030
 
 name: dmarc-control
 

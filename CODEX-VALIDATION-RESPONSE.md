@@ -92,8 +92,9 @@ PUT    /api/hosts/<2010 Zeichen>/classification -> 200
 PATCH  /api/alerts/<5000 Zeichen>             -> 200
 ```
 
-Kein Live-Test gegen die OpenSearch-Instanz auf `docker01` wurde durchgeführt. Aussagen zu
-realer Laufzeit, Heap und Query-Profil von F-04/F-05 bleiben daher statisch hergeleitet.
+Kein Live-Test gegen eine bestehende OpenSearch-Installation wurde durchgeführt.
+Aussagen zu realer Laufzeit, Heap und Query-Profil von F-04/F-05 bleiben daher
+statisch hergeleitet.
 
 ---
 

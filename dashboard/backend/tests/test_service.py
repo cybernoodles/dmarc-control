@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from app.config import Settings
 from app.service import DashboardService, _score_service
@@ -46,14 +47,20 @@ class ServiceDetectionTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["evidence"]), 2)
 
     def test_dynamic_public_ip_uses_multiple_ptr_patterns(self) -> None:
-        result = _score_service(
-            {
-                "source_ip_address": "157.143.102.109",
-                "source_reverse_dns": "109.102.143.157.bbcs.as8758.net",
-                "source_base_domain": "as8758.net",
-            },
-            ["dp0.ch"],
-        )
+        with patch("app.service.ipaddress.ip_address") as parse_address:
+            parse_address.return_value.version = 4
+            parse_address.return_value.is_global = True
+            parse_address.return_value.__str__.return_value = "203.0.113.42"
+            result = _score_service(
+                {
+                    "source_ip_address": "203.0.113.42",
+                    "source_reverse_dns": (
+                        "42.113.0.203.dynamic.example.net"
+                    ),
+                    "source_base_domain": "example.net",
+                },
+                ["example.org"],
+            )
 
         self.assertEqual(result["service"], "Dynamischer IP-Bereich")
         self.assertEqual(result["profile"], "dynamic_ip")
@@ -61,14 +68,20 @@ class ServiceDetectionTests(unittest.TestCase):
         self.assertEqual(len(result["evidence"]), 2)
 
     def test_explicit_static_ptr_is_not_classified_as_dynamic(self) -> None:
-        result = _score_service(
-            {
-                "source_ip_address": "46.140.105.26",
-                "source_reverse_dns": "46-140-105-26.static.cablecom.ch",
-                "source_base_domain": "cablecom.ch",
-            },
-            [],
-        )
+        with patch("app.service.ipaddress.ip_address") as parse_address:
+            parse_address.return_value.version = 4
+            parse_address.return_value.is_global = True
+            parse_address.return_value.__str__.return_value = "198.51.100.17"
+            result = _score_service(
+                {
+                    "source_ip_address": "198.51.100.17",
+                    "source_reverse_dns": (
+                        "198-51-100-17.static.example.net"
+                    ),
+                    "source_base_domain": "example.net",
+                },
+                [],
+            )
 
         self.assertEqual(result["service"], "Unbekannt")
         self.assertEqual(result["profile"], "unknown")
