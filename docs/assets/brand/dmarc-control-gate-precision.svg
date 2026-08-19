@@ -1,0 +1,20 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 64 64"
+  role="img"
+  aria-labelledby="dmarc-control-logo-title dmarc-control-logo-description"
+>
+  <title id="dmarc-control-logo-title">DMARC Control</title>
+  <desc id="dmarc-control-logo-description">
+    Two opposing gates forming a precise diamond in negative space.
+  </desc>
+
+  <path
+    fill="#173f43"
+    d="M13.15 6.6A4.7 4.7 0 0 0 5.75 10.45v43.1a4.7 4.7 0 0 0 7.4 3.85l16.32-11.48a3.2 3.2 0 0 0 .59-4.72l-6.31-7.04a3.24 3.24 0 0 1 0-4.32l6.31-7.04a3.2 3.2 0 0 0-.59-4.72L13.15 6.6Z"
+  />
+  <path
+    fill="#dceceb"
+    d="M50.85 6.6a4.7 4.7 0 0 1 7.4 3.85v43.1a4.7 4.7 0 0 1-7.4 3.85L34.53 45.92a3.2 3.2 0 0 1-.59-4.72l6.31-7.04a3.24 3.24 0 0 0 0-4.32l-6.31-7.04a3.2 3.2 0 0 1 .59-4.72L50.85 6.6Z"
+  />
+</svg>

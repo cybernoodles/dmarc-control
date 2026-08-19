@@ -1,0 +1,34 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 64 64"
+  role="img"
+  aria-labelledby="dmarc-control-logo-title dmarc-control-logo-description"
+>
+  <title id="dmarc-control-logo-title">DMARC Control</title>
+  <desc id="dmarc-control-logo-description">
+    A shield containing an envelope and a separate checkmark.
+  </desc>
+
+  <path
+    fill="#173f43"
+    d="M32 3.25c-6.82 4.73-14.44 8.08-23.47 10.57A4.81 4.81 0 0 0 5 18.46v10.32c0 13.66 8.7 24.52 27 32.17 18.3-7.65 27-18.51 27-32.17V18.46a4.81 4.81 0 0 0-3.53-4.64C46.44 11.33 38.82 7.98 32 3.25Z"
+  />
+
+  <path
+    fill="#dceceb"
+    d="M15.85 17.5h32.3c1.46 0 2.12 1.83.99 2.75L34.37 32.33a3.75 3.75 0 0 1-4.74 0L14.86 20.25c-1.13-.92-.47-2.75.99-2.75Z"
+  />
+  <path
+    fill="#dceceb"
+    d="m13.5 23.05 12.7 10.38-10.25 3.97a6.45 6.45 0 0 1-2.45-5.05v-9.3Zm37 0v9.3a6.45 6.45 0 0 1-2.45 5.05L37.8 33.43l12.7-10.38Z"
+  />
+
+  <path
+    fill="none"
+    stroke="#dceceb"
+    stroke-linecap="square"
+    stroke-linejoin="miter"
+    stroke-width="5.25"
+    d="m23.75 47 5.75 5.25L42 41"
+  />
+</svg>
