@@ -1,7 +1,7 @@
 ---
 # DMARC Control: Webdashboard + parsedmarc + OpenSearch
 # Grafana bleibt über das optionale Compose-Profil "grafana" verfügbar.
-# parsedmarc ist auf 10.4.0 gepinnt; OpenSearch verwendet die 2.x-Linie.
+# parsedmarc ist auf 10.4.0 gepinnt; OpenSearch auf 2.19.6.
 #
 # Voraussetzungen auf dem Docker-Host:
 #   sudo sysctl -w vm.max_map_count=262144
@@ -24,13 +24,19 @@ services:
 
   # ── OpenSearch (Datenspeicher) ──────────────────────────────────────────────
   opensearch:
-    image: opensearchproject/opensearch:2
+    image: opensearchproject/opensearch:2.19.6@sha256:8690b204fe914c60ca76d451ac73bc0481e034d32d3779944c8caca56a2b003f
     container_name: dmarc-opensearch
     restart: unless-stopped
     environment:
       - discovery.type=single-node
+      - bootstrap.memory_lock=true
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_ADMIN_PASSWORD}
+      # DMARC Control verwendet Query Insights nicht. OpenSearch 2.19 aktiviert
+      # sonst drei Top-N-Sammler und schreibt dafür täglich lokale Indizes.
+      - search.insights.top_queries.latency.enabled=${OPENSEARCH_QUERY_INSIGHTS_ENABLED:-false}
+      - search.insights.top_queries.cpu.enabled=${OPENSEARCH_QUERY_INSIGHTS_ENABLED:-false}
+      - search.insights.top_queries.memory.enabled=${OPENSEARCH_QUERY_INSIGHTS_ENABLED:-false}
       # Performance / Sicherheit für Single-Node
       - plugins.security.ssl.http.enabled=false
       - plugins.security.disabled=true        # intern kein TLS nötig (nur lokal erreichbar)
@@ -44,7 +50,7 @@ services:
         soft: 65536
         hard: 65536
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 10
@@ -123,6 +129,7 @@ services:
       - PARSER_SAVE_SMTP_TLS=False
       - PARSER_OPENSEARCH_HOSTS=opensearch:9200
       - PARSER_OPENSEARCH_SSL=False
+      - PARSER_OPENSEARCH_MONTHLY_INDEXES=${PARSER_OPENSEARCH_MONTHLY_INDEXES:-True}
     volumes:
       - ./config:/legacy:ro
       - ./data/parser-control:/run/parser-control:ro

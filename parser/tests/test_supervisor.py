@@ -42,7 +42,7 @@ class ManagedConfigurationTests(unittest.TestCase):
                 patch.dict(
                     os.environ,
                     {"PARSER_SAVE_FAILURE": "true"},
-                    clear=False,
+                    clear=True,
                 ),
             ):
                 result = supervisor.render_managed_configuration(connection)
@@ -55,6 +55,7 @@ class ManagedConfigurationTests(unittest.TestCase):
             self.assertEqual(config["mailbox"]["watch"], "True")
             self.assertEqual(config["mailbox"]["delete"], "False")
             self.assertEqual(config["general"]["save_failure"], "True")
+            self.assertEqual(config["opensearch"]["monthly_indexes"], "True")
             self.assertEqual(result.stat().st_mode & 0o777, 0o600)
 
     def test_imap_runtime_config_forces_tls_verification(self) -> None:
@@ -80,6 +81,11 @@ class ManagedConfigurationTests(unittest.TestCase):
             with (
                 patch.object(supervisor, "BASE_CONFIG", base),
                 patch.object(supervisor, "RUNTIME_CONFIG", runtime),
+                patch.dict(
+                    os.environ,
+                    {"PARSER_OPENSEARCH_MONTHLY_INDEXES": "false"},
+                    clear=True,
+                ),
             ):
                 supervisor.render_managed_configuration(connection)
 
@@ -92,6 +98,7 @@ class ManagedConfigurationTests(unittest.TestCase):
                 config["imap"]["skip_certificate_verification"],
                 "False",
             )
+            self.assertEqual(config["opensearch"]["monthly_indexes"], "False")
 
 
 if __name__ == "__main__":

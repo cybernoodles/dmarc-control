@@ -87,6 +87,9 @@ archive_folder = Inbox/DMARC/Processed
 [opensearch]
 hosts = opensearch:9200
 ssl = False
+# Monatsindizes vermeiden bei typischen DMARC-Datenmengen hunderte sehr kleine
+# Tages-Shards. Nur für außergewöhnlich große Installationen auf False setzen.
+monthly_indexes = True
 # Kein Username/Passwort nötig solange Security deaktiviert (siehe docker-compose)
 # username = admin
 # password = OPENSEARCH_PASSWORT_HIER

@@ -138,6 +138,11 @@ def render_managed_configuration(connection: dict[str, Any]) -> Path:
         "ssl",
         _boolean_environment("PARSER_OPENSEARCH_SSL", False),
     )
+    configuration.set(
+        "opensearch",
+        "monthly_indexes",
+        _boolean_environment("PARSER_OPENSEARCH_MONTHLY_INDEXES", True),
+    )
 
     provider = connection["provider"]
     if provider == "msgraph":

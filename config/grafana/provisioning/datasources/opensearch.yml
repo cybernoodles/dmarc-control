@@ -19,7 +19,7 @@ datasources:
       database: dmarc_aggregate-*
       timeField: date_begin
       # grafana-opensearch-datasource 2.34+ validates this as SemVer.
-      version: 2.19.5
+      version: 2.19.6
       # A wildcard index must use "No pattern". Setting interval: Daily makes
       # the plugin interpret database as a Moment-style date pattern and yields
       # empty index names for dmarc_aggregate-*.
@@ -47,7 +47,7 @@ datasources:
       database: dmarc_failure-*
       timeField: arrival_date
       # grafana-opensearch-datasource 2.34+ validates this as SemVer.
-      version: 2.19.5
+      version: 2.19.6
       # Wildcard index: omit interval so the plugin uses "No pattern".
       timeInterval: 1h
       flavor: opensearch
