@@ -1063,6 +1063,67 @@ td > strong {
   flex: 1 1 100%;
 }
 
+.unsaved-changes-dialog {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  max-height: calc(100dvh - 2rem);
+  max-width: 34rem;
+  overflow-y: auto;
+  padding: 1.25rem;
+  width: calc(100% - 2rem);
+}
+
+.unsaved-changes-dialog::backdrop {
+  background: rgb(12 29 34 / 55%);
+}
+
+.unsaved-changes-dialog h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.7rem;
+}
+
+.unsaved-changes-dialog p {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  margin: 0 0 1rem;
+}
+
+.unsaved-changes-note {
+  color: var(--ink-muted);
+}
+
+.unsaved-changes-error {
+  background: var(--warning-soft);
+  border-radius: 0.5rem;
+  padding: 0.7rem;
+}
+
+.unsaved-changes-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.unsaved-changes-actions .button {
+  max-width: 100%;
+}
+
+.session-draft-notice {
+  background: var(--warning-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  color: var(--ink);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin: 1rem auto;
+  max-width: 34rem;
+  padding: 0.9rem 1rem;
+  width: calc(100% - 2rem);
+}
+
 .host-detection {
   display: grid;
   gap: 0.8rem;

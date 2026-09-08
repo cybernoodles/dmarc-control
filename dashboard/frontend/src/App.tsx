@@ -66,7 +66,10 @@ import { AlertDeliveryBadge, AlertDeliveryPanel } from "./AlertDeliveryView";
 import { HostClassificationForm, classificationMode } from "./HostClassificationForm";
 import { HostServiceDetection } from "./HostServiceDetection";
 
-type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
+import { UnsavedChangesProvider, useUnsavedChanges } from "./UnsavedChanges";
+import { useInvestigationNavigation } from "./useInvestigationNavigation";
+import { validDomain, type View } from "./investigationLocation";
+import { useAlertUpdates } from "./useAlertUpdates";
 type SettingsSection =
   | "appearance"
   | "notifications"
@@ -370,7 +373,7 @@ function TopList({
 export function App() {
   return (
     <LanguageProvider>
-      <AppGate />
+      <UnsavedChangesProvider><AppGate /></UnsavedChangesProvider>
     </LanguageProvider>
   );
 }
@@ -379,6 +382,12 @@ function AppGate() {
   const { language, setLanguage, t } = useI18n();
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [error, setError] = useState("");
+  const [preserveDraft, setPreserveDraft] = useState(false);
+  const { hasUnsavedChanges, cancelPendingNavigation } = useUnsavedChanges();
+  const completeAuthentication = (status: AuthStatus) => {
+    setPreserveDraft(false);
+    setAuth(status);
+  };
 
   const loadStatus = useCallback(() => {
     setError("");
@@ -391,6 +400,8 @@ function AppGate() {
 
   useEffect(() => {
     const handleExpiredReadSession = () => {
+      setPreserveDraft(hasUnsavedChanges());
+      cancelPendingNavigation();
       setAuth((current) =>
         current
           ? {
@@ -411,7 +422,7 @@ function AppGate() {
         "dmarc-read-session-expired",
         handleExpiredReadSession,
       );
-  }, []);
+  }, [hasUnsavedChanges, cancelPendingNavigation]);
 
   if (!auth) {
     return (
@@ -447,22 +458,24 @@ function AppGate() {
         adminConfigured={auth.admin_configured}
         language={language}
         setLanguage={setLanguage}
-        onComplete={setAuth}
+        onComplete={completeAuthentication}
       />
     );
   }
 
-  if (!auth.read_authenticated) {
-    return (
-      <ReadLogin
-        language={language}
-        setLanguage={setLanguage}
-        onComplete={setAuth}
-      />
-    );
-  }
-
-  return <DashboardApp auth={auth} setAuth={setAuth} />;
+  return <>
+    {!auth.read_authenticated && <>
+      {preserveDraft && <p className="session-draft-notice" role="status">
+        {t("Deine Sitzung ist abgelaufen. Ungespeicherte Host-Änderungen bleiben für die erneute Anmeldung in diesem Tab erhalten.")}
+      </p>}
+      <ReadLogin language={language} setLanguage={setLanguage} onComplete={completeAuthentication} />
+    </>}
+    {(auth.read_authenticated || preserveDraft) && (
+      <div hidden={!auth.read_authenticated} inert={!auth.read_authenticated}>
+        <DashboardApp auth={auth} setAuth={completeAuthentication} />
+      </div>
+    )}
+  </>;
 }
 
 function AdminSetup({
@@ -768,27 +781,10 @@ function DashboardApp({
 }) {
   const { t } = useI18n();
   const [readLogoutBusy, setReadLogoutBusy] = useState(false);
-  const [view, setView] = useState<View>(() => {
-    const requested = new URLSearchParams(window.location.search).get("view");
-    return ["overview", "hosts", "alerts", "forensics", "settings"].includes(
-      requested ?? "",
-    )
-      ? (requested as View)
-      : "overview";
-  });
-  const [targetAlertId, setTargetAlertId] = useState<string | undefined>(
-    () => new URLSearchParams(window.location.search).get("alert") ?? undefined,
-  );
-  const [targetHostIp, setTargetHostIp] = useState<string | undefined>(
-    () => new URLSearchParams(window.location.search).get("host") ?? undefined,
-  );
-  const [originAlertId, setOriginAlertId] = useState<string | undefined>(
-    () =>
-      new URLSearchParams(window.location.search).get("from_alert") ?? undefined,
-  );
+  const { location, go } = useInvestigationNavigation();
+  const { request } = useUnsavedChanges();
+  const { view, domain, days, alert: targetAlertId, host: targetHostIp, fromAlert: originAlertId } = location;
   const [domains, setDomains] = useState<DomainItem[]>([]);
-  const [domain, setDomain] = useState("*");
-  const [days, setDays] = useState(30);
   const [domainError, setDomainError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [brandColor, setBrandColorState] = useState(() => {
@@ -909,51 +905,25 @@ function DashboardApp({
     loadDomains();
   }, [loadDomains, refreshKey]);
 
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    if (view === "overview") url.searchParams.delete("view");
-    else url.searchParams.set("view", view);
-    if (view === "alerts" && targetAlertId) {
-      url.searchParams.set("alert", targetAlertId);
-    } else {
-      url.searchParams.delete("alert");
-    }
-    if (view === "hosts" && targetHostIp) {
-      url.searchParams.set("host", targetHostIp);
-    } else {
-      url.searchParams.delete("host");
-    }
-    if (view === "hosts" && originAlertId) {
-      url.searchParams.set("from_alert", originAlertId);
-    } else {
-      url.searchParams.delete("from_alert");
-    }
-    window.history.replaceState(null, "", url);
-  }, [originAlertId, targetAlertId, targetHostIp, view]);
-
-  const navigate = (nextView: View) => {
-    setView(nextView);
-    if (nextView !== "alerts") setTargetAlertId(undefined);
-    if (nextView !== "hosts") {
-      setTargetHostIp(undefined);
-      setOriginAlertId(undefined);
-    }
-  };
+  const navigate = (nextView: View) => go({
+    view: nextView, domain, days,
+    alert: nextView === "alerts" ? targetAlertId : undefined,
+    host: nextView === "hosts" ? targetHostIp : undefined,
+    fromAlert: nextView === "hosts" ? originAlertId : undefined,
+    fromDomain: nextView === "hosts" ? location.fromDomain : undefined,
+    fromDays: nextView === "hosts" ? location.fromDays : undefined,
+  });
 
   const investigateAlertHost = (alert: Alert) => {
     if (!alert.source_ip) return;
-    setTargetAlertId(undefined);
-    setTargetHostIp(alert.source_ip);
-    setOriginAlertId(alert.id);
-    setView("hosts");
+    go({ view: "hosts", domain: validDomain(alert.domain), days, host: alert.source_ip,
+      fromAlert: alert.id, fromDomain: domain, fromDays: days });
   };
 
   const returnToAlert = () => {
     if (!originAlertId) return;
-    setTargetAlertId(originAlertId);
-    setTargetHostIp(undefined);
-    setOriginAlertId(undefined);
-    setView("alerts");
+    go({ view: "alerts", domain: location.fromDomain ?? domain,
+      days: location.fromDays ?? days, alert: originAlertId });
   };
 
   const logoutRead = async () => {
@@ -1007,7 +977,7 @@ function DashboardApp({
             className="button button-ghost read-logout"
             type="button"
             disabled={readLogoutBusy}
-            onClick={logoutRead}
+            onClick={() => request(() => void logoutRead())}
           >
             <LogOut aria-hidden="true" />
             {t("Abmelden")}
@@ -1051,8 +1021,9 @@ function DashboardApp({
           <div className="filters">
             <label>
               <span>Domain</span>
-              <select value={domain} onChange={(event) => setDomain(event.target.value)}>
+              <select value={domain} onChange={(event) => go({ ...location, domain: event.target.value })}>
                 <option value="*">{t("Alle Domains")}</option>
+                {domain !== "*" && !domains.some((item) => item.domain === domain) && <option value={domain}>{domain}</option>}
                 {domains.map((item) => (
                   <option value={item.domain} key={item.domain}>
                     {item.domain}
@@ -1064,12 +1035,13 @@ function DashboardApp({
               <span>{t("Zeitraum")}</span>
               <select
                 value={days}
-                onChange={(event) => setDays(Number(event.target.value))}
+                onChange={(event) => go({ ...location, days: Number(event.target.value) })}
               >
                 <option value={7}>{t("Letzte 7 Tage")}</option>
                 <option value={30}>{t("Letzte 30 Tage")}</option>
                 <option value={90}>{t("Letzte 90 Tage")}</option>
                 <option value={365}>{t("Letzte 12 Monate")}</option>
+                {![7, 30, 90, 365].includes(days) && <option value={days}>{t("{days} Tage", { days })}</option>}
               </select>
             </label>
           </div>
@@ -1102,7 +1074,7 @@ function DashboardApp({
             days={days}
             refreshKey={refreshKey}
             openAlerts={() => navigate("alerts")}
-            openHosts={() => navigate("hosts")}
+            openHosts={(ip, sourceDomain) => go({ view: "hosts", domain: validDomain(sourceDomain ?? domain), days, host: ip })}
           />
         )}
         {view === "hosts" && (
@@ -1112,10 +1084,8 @@ function DashboardApp({
             refreshKey={refreshKey}
             targetHostIp={targetHostIp}
             originAlertId={originAlertId}
-            clearTargetHost={() => {
-              setTargetHostIp(undefined);
-              setOriginAlertId(undefined);
-            }}
+            selectHost={(ip) => go({ ...location, host: ip })}
+            clearTargetHost={() => go({ view: "hosts", domain, days })}
             returnToAlert={returnToAlert}
           />
         )}
@@ -3561,7 +3531,7 @@ function OverviewView({
   days: number;
   refreshKey: number;
   openAlerts: () => void;
-  openHosts: () => void;
+  openHosts: (ip: string, domain?: string) => void;
 }) {
   const {
     t,
@@ -3575,19 +3545,20 @@ function OverviewView({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError("");
-    api
-      .overview(domain, days)
-      .then(setData)
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setLoading(false));
-  }, [domain, days]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const load = useCallback(() => setReloadKey((value) => value + 1), []);
 
   useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    setData(null);
+    api.overview(domain, days, controller.signal)
+      .then((next) => { if (!controller.signal.aborted) setData(next); })
+      .catch((reason: Error) => { if (!controller.signal.aborted) setError(reason.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [domain, days, refreshKey, reloadKey]);
 
   if (loading && !data) return <LoadingState />;
   if (error && !data) return <ErrorState message={error} retry={load} />;
@@ -3674,7 +3645,7 @@ function OverviewView({
                         <StatusPill tone="critical">{t("Kritisch")}</StatusPill>
                       </td>
                       <td>
-                        <button className="cell-link" type="button" onClick={openHosts}>
+                        <button className="cell-link" type="button" aria-label={t("Quelle {ip} untersuchen", { ip: source.source_ip })} onClick={() => openHosts(source.source_ip, source.header_from ?? undefined)}>
                           <IpWithFlag
                             ip={source.source_ip}
                             country={source.country}
@@ -3841,6 +3812,7 @@ function HostsView({
   targetHostIp,
   originAlertId,
   clearTargetHost,
+  selectHost,
   returnToAlert,
 }: {
   domain: string;
@@ -3849,6 +3821,7 @@ function HostsView({
   targetHostIp?: string;
   originAlertId?: string;
   clearTargetHost: () => void;
+  selectHost: (ip: string) => void;
   returnToAlert: () => void;
 }) {
   const { t, formatNumber, formatDate, translateBackendLabel } = useI18n();
@@ -3859,9 +3832,11 @@ function HostsView({
   const [pagination, setPagination] = useState({ scope: "", offset: 0 });
   const [total, setTotal] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
-  const [selectedIp, setSelectedIp] = useState<string | null>(null);
+  const { request } = useUnsavedChanges();
+  const focusedContext = useRef("");
   const [selected, setSelected] = useState<Host | null>(null);
   const selectedContext = useRef("");
+  const loadedDetailContext = useRef("");
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -3869,7 +3844,7 @@ function HostsView({
   const pageSize = 100;
   const scope = JSON.stringify([domain, days, risk, searchQuery]);
   const offset = pagination.scope === scope ? pagination.offset : 0;
-  const activeIp = targetHostIp ?? selectedIp;
+  const activeIp = targetHostIp;
   const searchPending = search.trim() !== searchQuery;
 
   const load = useCallback(() => setReloadKey((value) => value + 1), []);
@@ -3926,11 +3901,16 @@ function HostsView({
     if (activeIp) {
       api.host(activeIp, domain, days, controller.signal)
         .then((host) => {
-          if (!controller.signal.aborted) setSelected(host);
+          if (!controller.signal.aborted) {
+            loadedDetailContext.current = context;
+            setSelected(host);
+          }
         })
         .catch((reason: Error) => {
           if (controller.signal.aborted) return;
-          if (reason instanceof ApiError && reason.status === 404) setSelected(null);
+          if (reason instanceof ApiError && reason.status === 404) request(() => {
+            if (!controller.signal.aborted) setSelected(null);
+          });
           setDetailError(
             reason instanceof ApiError && reason.status === 404
               ? t("Die Quelle {ip} ist für die gewählte Domain und den Zeitraum nicht vorhanden. Passe die Filter an.", { ip: activeIp })
@@ -3944,11 +3924,24 @@ function HostsView({
     return () => controller.abort();
   }, [activeIp, domain, days, refreshKey, reloadKey, t]);
 
-  const closeDetail = () => {
-    setSelectedIp(null);
+  useEffect(() => {
+    const context = JSON.stringify([activeIp, domain, days]);
+    if (!activeIp) { focusedContext.current = ""; return; }
+    if (!selected || selected.source_ip !== activeIp || loadedDetailContext.current !== context || focusedContext.current === activeIp) return;
+    const heading = document.getElementById("host-detail-heading");
+    if (heading) {
+      focusedContext.current = activeIp;
+      heading.focus({ preventScroll: true });
+      heading.scrollIntoView({ block: "start" });
+    }
+  }, [selected, activeIp, domain, days]);
+
+  const closeDetail = () => request(() => {
+    const sourceIp = activeIp;
     setSelected(null);
     clearTargetHost();
-  };
+    window.requestAnimationFrame(() => document.getElementById(`host-open-${sourceIp}`)?.focus());
+  });
   const listLoading = loading || searchPending;
 
   return (
@@ -4100,9 +4093,11 @@ function HostsView({
                       <button
                         className="button button-ghost"
                         type="button"
+                        id={`host-open-${host.source_ip}`}
+                        aria-label={t("Details für Quelle {ip}", { ip: host.source_ip })}
                         onClick={() => {
-                          setSelectedIp(host.source_ip);
-                          if (targetHostIp !== host.source_ip) clearTargetHost();
+                          if (activeIp === host.source_ip) document.getElementById("host-detail-heading")?.focus();
+                          else selectHost(host.source_ip);
                         }}
                       >
                         {t("Details")}
@@ -4255,7 +4250,7 @@ function HostDetail({
       <div className="host-detail-head">
         <div>
           <div className="eyebrow">{t("Host-Detail")}</div>
-          <h2>
+          <h2 id="host-detail-heading" tabIndex={-1}>
             <IpWithFlag ip={host.source_ip} country={host.country} />
           </h2>
           <p>{host.reverse_dns || t("Kein Reverse-DNS-Name vorhanden")}</p>
@@ -4375,7 +4370,8 @@ function AlertsView({
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [updating, setUpdating] = useState("");
+  const [statusCounts, setStatusCounts] = useState<import("./api").AlertStatusCounts | null>(null);
+  const focusedOnce = useRef<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [targetResult, setTargetResult] = useState<{
     requestedId: string;
@@ -4393,15 +4389,20 @@ function AlertsView({
     : null;
 
   const load = useCallback(() => setReloadKey((value) => value + 1), []);
+  const { update, pending, error: updateError, clearError: clearUpdateError } = useAlertUpdates(
+    JSON.stringify([domain, days, status]),
+    () => { load(); setTargetReloadKey((value) => value + 1); },
+  );
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
     setAlerts([]);
+    setStatusCounts(null);
     api.alerts(domain, days, status, controller.signal)
-      .then((items) => {
-        if (!controller.signal.aborted) setAlerts(items);
+      .then((page) => {
+        if (!controller.signal.aborted) { setAlerts(page.items); setStatusCounts(page.status_counts ?? null); }
       })
       .catch((reason: Error) => {
         if (!controller.signal.aborted) setError(reason.message);
@@ -4441,30 +4442,17 @@ function AlertsView({
   }, [alerts, loading, targetAlertId, targetReloadKey, t]);
 
   useEffect(() => {
-    if (!focusedTargetId || loading) return;
-    document
-      .getElementById(`alert-${focusedTargetId}`)
-      ?.scrollIntoView({ block: "center" });
+    if (!focusedTargetId) { focusedOnce.current = null; return; }
+    if (loading || focusedOnce.current === focusedTargetId) return;
+    const target = document.getElementById(`alert-${focusedTargetId}`);
+    if (target) {
+      focusedOnce.current = focusedTargetId;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: "center" });
+    }
   }, [alerts, loading, focusedTargetId, outsideAlert]);
 
-  const update = async (alertId: string, nextStatus: AlertStatus) => {
-    setUpdating(alertId);
-    try {
-      await api.updateAlert(alertId, nextStatus);
-      load();
-      setTargetReloadKey((value) => value + 1);
-    } catch (reason) {
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : t("Statusänderung fehlgeschlagen"),
-      );
-    } finally {
-      setUpdating("");
-    }
-  };
-
-  const openCount = alerts.filter((item) => item.status === "open").length;
+  const openCount = !loading && !error ? statusCounts?.open : undefined;
   const alertTitle = (alert: Alert) => t(alert.title);
   const alertTrigger = (alert: Alert) => {
     if (language === "de") return alert.trigger;
@@ -4513,6 +4501,7 @@ function AlertsView({
             <tr
               key={alert.id}
               id={`alert-${alert.id}`}
+              tabIndex={-1}
               className={classNames(
                 focusedTargetId === alert.id && "selected-row",
               )}
@@ -4559,7 +4548,7 @@ function AlertsView({
                     <button
                       className="button button-secondary"
                       type="button"
-                      disabled={updating === alert.id}
+                      disabled={pending.has(alert.id)}
                       onClick={() => update(alert.id, "acknowledged")}
                     >
                       {t("Bestätigen")}
@@ -4569,18 +4558,25 @@ function AlertsView({
                     <button
                       className="button button-secondary"
                       type="button"
-                      disabled={updating === alert.id}
+                      disabled={pending.has(alert.id)}
+                      aria-label={t("Quelle {ip} untersuchen", { ip: alert.source_ip })}
                       onClick={() => investigateHost(alert)}
                     >
                       <Server aria-hidden="true" />
                       {t("Sending Host untersuchen")}
                     </button>
                   )}
+                  {alert.status !== "open" && (
+                    <button className="button button-secondary" type="button"
+                      disabled={pending.has(alert.id)} onClick={() => update(alert.id, "open")}>
+                      {t("Wieder öffnen")}
+                    </button>
+                  )}
                   {alert.status !== "resolved" && (
                     <button
                       className="button button-ghost"
                       type="button"
-                      disabled={updating === alert.id}
+                      disabled={pending.has(alert.id)}
                       onClick={() => update(alert.id, "resolved")}
                     >
                       {t("Behoben")}
@@ -4590,7 +4586,7 @@ function AlertsView({
                     <button
                       className="button button-ghost"
                       type="button"
-                      disabled={updating === alert.id}
+                      disabled={pending.has(alert.id)}
                       onClick={() => update(alert.id, "ignored")}
                     >
                       {t("Ignorieren")}
@@ -4612,9 +4608,11 @@ function AlertsView({
           "Deduplizierte Ereignisse mit nachvollziehbarem Auslöser",
         )}
         action={
-          <StatusPill tone={openCount ? "critical" : "success"}>
-            {t("{count} offen", { count: openCount })}
-          </StatusPill>
+          <span title={t("Offene Warnungen für die gewählte Domain und den Zeitraum, unabhängig vom Statusfilter.")}>
+            <StatusPill tone={openCount === undefined ? "neutral" : openCount ? "critical" : "success"}>
+              {openCount === undefined ? t(loading ? "Offenzahl wird geladen" : "Offenzahl nicht verfügbar") : t("{count} offen", { count: formatNumber(openCount) })}
+            </StatusPill>
+          </span>
         }
       />
       <AlertEvaluationMonitor refreshKey={refreshKey} />
@@ -4638,6 +4636,7 @@ function AlertsView({
         </label>
       </div>
       {error && <ErrorState message={error} retry={load} />}
+      {updateError && <div role="alert"><ErrorState message={t(updateError)} retry={() => { clearUpdateError(); load(); }} /></div>}
       {targetLoading && <LoadingState label={t("Verlinkte Warnung wird geladen")} />}
       {targetError && (
         <ErrorState message={targetError} retry={() => setTargetReloadKey((value) => value + 1)} />
@@ -4674,7 +4673,7 @@ function AlertsView({
           <div>
             <strong>{t("Sofort kritisch")}</strong>
             <span>
-              {t("Neuer oder nicht autorisierter Host mit echtem DMARC-Fail.")}
+              {t("Eine Quelle mit echtem DMARC-Fail. Die Dienstzuordnung ist keine Sendefreigabe.")}
             </span>
           </div>
         </article>

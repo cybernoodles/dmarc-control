@@ -406,6 +406,54 @@ niedrige Konfidenz. Ein dynamischer Bereich zusammen mit einem echten DMARC-Fail
 als starkes Indiz für Spoofing oder Spam hervorgehoben, bleibt aber wegen
 möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 
+## Untersuchungskontext und Bearbeitung
+
+Browserlinks enthalten `domain` und `days` (1–730 Tage), zusammen mit `view`
+und bei Bedarf `alert`, `host` und `from_alert`. Ohne Filter gelten wie bisher
+alle Domains und 30 Tage. Domainnamen werden syntaktisch geprüft; eine
+historische Domain muss nicht mehr in der aktuellen Domainliste vorkommen.
+Ungültige Parameter fallen auf sichere Standardwerte zurück. Ein frei
+übermittelter gültiger Zeitraum bleibt auch dann sichtbar, wenn er nicht zu
+den vier üblichen Auswahlwerten gehört.
+
+E-Mail-Links verwenden die konkrete Domain des Ereignisses und den bei der
+Erstellung eingestellten Alerting-Zeitraum. Bestehende Links bleiben gültig.
+Beim Wechsel Warnung → Sending Host wird die konkrete Domain übernommen;
+`from_domain` und `from_days` erhalten den Ausgangskontext für die Rückkehr.
+Browser-Zurück/Vorwärts und Neuladen stellen den gespeicherten Kontext wieder
+her. IPs in der Übersicht öffnen direkt die Quelle. Gezieltes Öffnen setzt
+Tastaturfokus auf das Detail; reine Datenaktualisierungen tun dies nicht.
+
+`GET /api/alerts` ergänzt `status_counts` mit `all`, `open`, `acknowledged`,
+`resolved` und `ignored`. Diese Zahlen entstehen vor dem Statusfilter aus
+derselben vollständigen Auswertung für Domain und Zeitraum. Laden, ein
+Auswertungsfehler oder fehlende Zähldaten werden nicht als „0 offen“ angezeigt.
+Jede laufende Statusänderung sperrt nur die betreffende Warnung. Verspätete
+Antworten aus einem verlassenen Kontext verändern weder dessen Nachfolger
+noch die Sperren anderer Warnungen. „Wieder öffnen“ verwendet den bestehenden
+Status `open` und erzeugt weder eine neue ID noch eine neue Versandberechtigung.
+
+Ungespeicherte Host-Zuordnungen und Notizen werden beim Schließen, Quellen-,
+Domain-, Zeitraum- oder Ansichtswechsel sowie beim Abmelden geschützt.
+Speichern und Weitergehen ist erst nach erfolgreicher Speicherung ohne
+neueren Entwurf möglich. Verwerfen ist während eines laufenden Speicherns
+nicht möglich. Browser-Zurück stellt bei offenen Änderungen zunächst den
+aktiven Eintrag wieder her; Abbrechen lässt URL und Ansicht unverändert.
+Beim Neuladen oder Verlassen der Website greift die übliche Browserwarnung.
+Such- und Risikofilter behalten das geöffnete Detail und dessen Entwurf bei.
+Bei einem Sitzungsablauf bleibt ein offener Host-Entwurf im selben Tab im
+Speicher erhalten, während die Anwendung verborgen und die Anmeldung
+angezeigt wird. Eine erneute Anmeldung stellt den Entwurf wieder her. Eine
+zuvor angefragte Navigation wird dabei verworfen. Verspätete Fehler einer alten
+Sitzung können die neue Anmeldung nicht wieder beenden; beim bewussten
+Neuladen oder Schließen des Tabs gilt weiterhin die Browserwarnung.
+
+URL-Vertrag und Sitzungsfehler lassen sich im Frontend-Verzeichnis mit
+`pnpm test` prüfen;
+es werden der vorhandene TypeScript-Compiler und Nodes Testwerkzeuge benutzt.
+Die Browserabnahme umfasst zusätzlich Fokus, verzögerte Antwortreihenfolgen,
+parallele Statusänderungen, mobile Darstellung und alle drei Dialogaktionen.
+
 ## API
 
 | Endpunkt | Zweck |

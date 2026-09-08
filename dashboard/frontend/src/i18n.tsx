@@ -16,6 +16,30 @@ export type Translate = (
 const LANGUAGE_STORAGE_KEY = "dmarc-control-language";
 
 const english: Record<string, string> = {
+  "Deine Sitzung ist abgelaufen. Ungespeicherte Host-Änderungen bleiben für die erneute Anmeldung in diesem Tab erhalten.":
+    "Your session has expired. Unsaved host changes are kept in this tab so you can sign in again.",
+  "Quelle {ip} untersuchen": "Investigate source {ip}",
+  "Details für Quelle {ip}": "Details for source {ip}",
+  "Wieder öffnen": "Reopen",
+  "Offene Warnungen für die gewählte Domain und den Zeitraum, unabhängig vom Statusfilter.":
+    "Open alerts for the selected domain and time range, regardless of the status filter.",
+  "Offenzahl wird geladen": "Loading open alert count",
+  "Offenzahl nicht verfügbar": "Open alert count unavailable",
+  "Eine Quelle mit echtem DMARC-Fail. Die Dienstzuordnung ist keine Sendefreigabe.":
+    "A source with an actual DMARC failure. Service classification does not authorize sending.",
+  "Ungespeicherte Host-Zuordnung": "Unsaved host classification",
+  "Für diesen Sending Host gibt es ungespeicherte Änderungen. Wie möchtest du fortfahren?":
+    "This sending host has unsaved changes. How would you like to continue?",
+  "Ein Speichervorgang läuft bereits. Speichern und weiter wartet auf dessen Ergebnis.":
+    "A save is already in progress. Save and continue will wait for its result.",
+  "Es bestehen weiterhin ungespeicherte Änderungen. Prüfe den Entwurf oder versuche das Speichern erneut.":
+    "There are still unsaved changes. Review the draft or try saving again.",
+  "Speichern fehlgeschlagen. Der Entwurf bleibt erhalten.": "Saving failed. Your draft is preserved.",
+  "Speichern und weiter": "Save and continue",
+  "Verwerfen und weiter": "Discard and continue",
+  "Weiterbearbeiten": "Keep editing",
+  "Speichern läuft …": "Saving …",
+  "Bitte gib einen manuellen Dienstnamen ein.": "Enter a manual service name.",
   "Host-Zuordnung bearbeiten": "Edit host classification",
   "Änderungen gespeichert.": "Changes saved.",
   "Diensterkennung": "Service detection",

@@ -3,6 +3,7 @@ import { RefreshCw, Save } from "lucide-react";
 import { api } from "./api";
 import type { ClassificationMode, Host, HostClassification, HostClassificationPatch, TrustStatus } from "./api";
 import { useI18n } from "./i18n";
+import { useUnsavedChangesRegistration } from "./UnsavedChanges";
 
 type Draft = {
   mode: ClassificationMode;
@@ -58,7 +59,13 @@ export function HostClassificationForm({ host, saved }: { host: Host; saved: () 
   const [baseline, setBaseline] = useState(initial);
   const baselineRef = useRef(initial);
   const draftRef = useRef(initial);
-  draftRef.current = draft;
+  const inFlight = useRef<Promise<boolean> | null>(null);
+  const editDraft = (update: (current: Draft) => Draft) => {
+    const next = update(draftRef.current);
+    draftRef.current = next;
+    setDraft(next);
+  };
+  const hasDraftChanges = () => Object.keys(changes(draftRef.current, baselineRef.current)).length > 0;
   const mounted = useRef(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -77,7 +84,7 @@ export function HostClassificationForm({ host, saved }: { host: Host; saved: () 
     const previous = baselineRef.current;
     baselineRef.current = next;
     setBaseline(next);
-    setDraft((current) => {
+    editDraft((current) => {
       const merged = { ...current };
       for (const field of fields) {
         if (current[field] === previous[field]) Object.assign(merged, { [field]: next[field] });
@@ -86,50 +93,80 @@ export function HostClassificationForm({ host, saved }: { host: Host; saved: () 
     });
   }, [host]);
 
-  const save = async (update: HostClassificationPatch) => {
-    if (saving || Object.keys(update).length === 0) return;
+  const save = (update: HostClassificationPatch): Promise<boolean> => {
+    if (inFlight.current) return inFlight.current;
+    if (Object.keys(update).length === 0) return Promise.resolve(!hasDraftChanges());
     const submitted = { ...draftRef.current };
     const previous = baselineRef.current;
     setSaving(true);
     setMessage("");
     setFailed(false);
-    try {
-      const stored = await api.updateHost(host.source_ip, update);
-      if (!mounted.current) return;
-      const next = storedDraft(stored);
-      const requested: Record<keyof Draft, boolean> = {
-        mode: "classification_mode" in update,
-        serviceName: "manual_service_name" in update,
-        trustStatus: "trust_status" in update,
-        notes: "notes" in update,
-      };
-      baselineRef.current = next;
-      setBaseline(next);
-      setDraft((current) => {
-        const merged = { ...current };
-        for (const field of fields) {
-          // Apply saved values only to unchanged inputs; a newer edit remains a draft.
-          if (current[field] === previous[field] || (requested[field] && current[field] === submitted[field])) {
-            Object.assign(merged, { [field]: next[field] });
+    const operation = (async () => {
+      try {
+        const stored = await api.updateHost(host.source_ip, update);
+        if (!mounted.current) return false;
+        const next = storedDraft(stored);
+        const requested: Record<keyof Draft, boolean> = {
+          mode: "classification_mode" in update,
+          serviceName: "manual_service_name" in update,
+          trustStatus: "trust_status" in update,
+          notes: "notes" in update,
+        };
+        baselineRef.current = next;
+        setBaseline(next);
+        editDraft((current) => {
+          const merged = { ...current };
+          for (const field of fields) {
+            if (requested[field] ? current[field] === submitted[field] : current[field] === previous[field]) {
+              Object.assign(merged, { [field]: next[field] });
+            }
           }
+          return merged;
+        });
+        setMessage(t("Änderungen gespeichert."));
+        saved();
+        return !hasDraftChanges();
+      } catch (reason) {
+        if (mounted.current) {
+          setFailed(true);
+          setMessage(reason instanceof Error ? reason.message : t("Speichern fehlgeschlagen"));
         }
-        return merged;
-      });
-      setMessage(t("Änderungen gespeichert."));
-      saved();
-    } catch (reason) {
-      if (!mounted.current) return;
-      setFailed(true);
-      setMessage(reason instanceof Error ? reason.message : t("Speichern fehlgeschlagen"));
-    } finally {
+        return false;
+      }
+    })().finally(() => {
+      if (inFlight.current === operation) inFlight.current = null;
       if (mounted.current) setSaving(false);
-    }
+    });
+    inFlight.current = operation;
+    return operation;
   };
+
+  const saveDraft = (): Promise<boolean> => {
+    if (inFlight.current) return inFlight.current;
+    const current = draftRef.current;
+    if (current.mode === "manual" && !current.serviceName.trim()) {
+      setFailed(true);
+      setMessage(t("Bitte gib einen manuellen Dienstnamen ein."));
+      return Promise.resolve(false);
+    }
+    return save(changes(current, baselineRef.current));
+  };
+
+  useUnsavedChangesRegistration({
+    isDirty: () => hasDraftChanges() || inFlight.current !== null,
+    isSaving: () => inFlight.current !== null,
+    save: saveDraft,
+    discard: () => {
+      if (inFlight.current) return;
+      editDraft(() => ({ ...baselineRef.current }));
+      setMessage("");
+      setFailed(false);
+    },
+  }, dirty, saving);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (draft.mode === "manual" && !draft.serviceName.trim()) return;
-    void save(changes(draftRef.current, baselineRef.current));
+    void saveDraft();
   };
 
   return (
@@ -138,7 +175,7 @@ export function HostClassificationForm({ host, saved }: { host: Host; saved: () 
         <span>{t("Diensterkennung")}</span>
         <select value={draft.mode} onChange={(event) => {
           const mode = event.target.value as ClassificationMode;
-          setDraft((current) => ({ ...current, mode,
+          editDraft((current) => ({ ...current, mode,
             serviceName: mode === "manual" && !current.serviceName ? automaticName : current.serviceName }));
         }}>
           <option value="automatic">{t("Automatisch ermitteln")}</option>
@@ -150,11 +187,11 @@ export function HostClassificationForm({ host, saved }: { host: Host; saved: () 
         <span>{t(draft.mode === "manual" ? "Manueller Dienstname" : "Dienst")}</span>
         <input value={draft.mode === "automatic" ? translateBackendLabel(automaticName) : draft.serviceName}
           readOnly={draft.mode !== "manual"} required={draft.mode === "manual"} maxLength={120}
-          onChange={(event) => setDraft((current) => ({ ...current, serviceName: event.target.value }))} />
+          onChange={(event) => editDraft((current) => ({ ...current, serviceName: event.target.value }))} />
       </label>
       <label>
         <span>{t("Zuordnungsstatus")}</span>
-        <select value={draft.trustStatus} onChange={(event) => setDraft((current) => ({ ...current, trustStatus: event.target.value as TrustStatus }))}>
+        <select value={draft.trustStatus} onChange={(event) => editDraft((current) => ({ ...current, trustStatus: event.target.value as TrustStatus }))}>
           <option value="automatic">{t("Automatisch aus Erkennung ableiten")}</option>
           <option value="unconfirmed">{t("Prüfung ausstehend")}</option>
           <option value="confirmed">{t("Zuordnung bestätigt")}</option>
@@ -164,7 +201,7 @@ export function HostClassificationForm({ host, saved }: { host: Host; saved: () 
       <label className="notes-field">
         <span>{t("Notiz")}</span>
         <input value={draft.notes} maxLength={500} placeholder={t("Optionaler administrativer Kontext")}
-          onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} />
+          onChange={(event) => editDraft((current) => ({ ...current, notes: event.target.value }))} />
       </label>
       {draft.mode === "legacy_preserved" && <p className="classification-explanation">
         {t("Die bisherige Zuordnung bleibt erhalten. Ob der Dienstname früher bewusst festgelegt wurde, ist nicht sicher bekannt. Notizen können unabhängig geändert werden; für eine neue Entscheidung wähle automatische oder manuelle Erkennung.")}

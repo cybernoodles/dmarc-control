@@ -104,10 +104,15 @@ festlegen, danach Formular und Evidenzanzeige anpassen. **Mittel.**
 
 ## 5. Untersuchungswege vervollständigen — F09/F10 und UI
 
-**Als Nächstes:** Zuerst Domain-/Zeitraumkontext in Links und Regressionen für
-Antwortreihenfolgen, danach Fokusführung, Offenzähler und Schutz beim
-Verlassen geänderter Formulare. Der Schutz neuer Eingaben während einer
-laufenden Speicherung ist bereits Bestandteil von Phase 4.
+**Stand:** Implementiert. Browser- und E-Mail-Links erhalten Domain, Zeitraum
+und konkrete Quelle. Die Rückkehr zur Warnung bewahrt den Ausgangskontext.
+Details erhalten gezielten Tastaturfokus; Aktualisierungen verschieben ihn
+nicht erneut. Statusänderungen werden pro Warnung abgesichert; Offenzahlen
+beziehen sich unabhängig vom Statusfilter auf Domain und Zeitraum.
+„Wieder öffnen“ erhält Ereignis- und Versandzustände. Beim Verlassen eines
+geänderten Host-Formulars stehen Speichern, Verwerfen und Weiterbearbeiten
+zur Wahl. Alte GET-Antworten und fehlgeschlagenes Speichern können den
+aktuellen Kontext beziehungsweise Entwurf nicht still überschreiben.
 
 **Umsetzung:** Die ergänzten Abbruchprüfungen und getrennten Host-Loader als
 Regression absichern. Domain und Zeitraum validiert in Browser- und
@@ -131,6 +136,12 @@ Abbruchprüfungen und historischen Einzelabrufe sind Ausgangspunkt, keine
 erneut zu entwickelnden Funktionen.
 
 ## 6. Erwartete und stillgelegte Domains verwalten
+
+**Als Nächstes:** Zuerst Zustände und Übergänge für beobachtete, erwartete und
+stillgelegte Domains festlegen. Danach die persistente Domainverwaltung und
+die geschützte Bedienung ergänzen; zuletzt Wartefristen und Frischewarnungen
+mit Migration des vorhandenen Bestands prüfen. Manuelle Versandwiederholungen
+bleiben ein separates Paket nach den bereits dokumentierten Empfängerregeln.
 
 **Umsetzung:** Überwachungsstatus pro Domain ausdrücklich verwalten:
 beobachtet und aktiv, erwartet aber noch nie beobachtet, sowie stillgelegt.

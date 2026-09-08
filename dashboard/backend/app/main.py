@@ -1477,10 +1477,16 @@ async def alerts(
     ] = "all",
 ):
     items = await service.alerts(domain, days)
+    status_counts = {
+        "all": len(items),
+        **{state: sum(item["status"] == state for item in items)
+           for state in ("open", "acknowledged", "resolved", "ignored")},
+    }
     if status != "all":
         items = [item for item in items if item["status"] == status]
     deliveries = store.alert_delivery_summaries([item["id"] for item in items])
     return {"scope": {"domain": domain, "days": days},
+            "status_counts": status_counts,
             "items": [{**item, "delivery": deliveries[item["id"]]} for item in items]}
 
 

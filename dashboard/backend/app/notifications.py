@@ -5,6 +5,7 @@ import copy
 import hashlib
 import html
 import json
+import re
 import smtplib
 import ssl
 from dataclasses import dataclass
@@ -82,17 +83,43 @@ def destination_hash(settings: dict[str, Any]) -> str:
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
-def _dashboard_link(settings: dict[str, Any], alert_id: str) -> str | None:
+def _navigation_context(settings: dict[str, Any], domain: Any) -> dict[str, str | int]:
+    selected_domain = "*"
+    if isinstance(domain, str):
+        candidate = domain.strip()
+        try:
+            ascii_domain = candidate.removesuffix(".").encode("idna").decode("ascii").lower()
+        except UnicodeError:
+            ascii_domain = ""
+        if (
+            1 <= len(candidate) <= 253
+            and 1 <= len(ascii_domain) <= 253
+            and all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                    for label in ascii_domain.split("."))
+        ):
+            # Keep the observed spelling: OpenSearch domain filters are exact.
+            selected_domain = candidate
+    days = settings.get("lookback_days")
+    if isinstance(days, str) and re.fullmatch(r"[0-9]{1,3}", days.strip()):
+        days = int(days.strip())
+    if type(days) is not int or not 1 <= days <= 730:
+        days = 30
+    return {"domain": selected_domain, "days": days}
+
+
+def _dashboard_link(settings: dict[str, Any], alert_id: str, domain: Any = None) -> str | None:
     base_url = str(settings.get("dashboard_url") or "").strip().rstrip("/")
     if not base_url:
         return None
-    return f"{base_url}/?{urlencode({'view': 'alerts', 'alert': alert_id})}"
+    parameters = {"view": "alerts", "alert": alert_id, **_navigation_context(settings, domain)}
+    return f"{base_url}/?{urlencode(parameters)}"
 
 
 def _host_link(
     settings: dict[str, Any],
     alert_id: str,
     source_ip: str | None,
+    domain: Any = None,
 ) -> str | None:
     base_url = str(settings.get("dashboard_url") or "").strip().rstrip("/")
     if not base_url or not source_ip:
@@ -101,6 +128,7 @@ def _host_link(
         "view": "hosts",
         "host": source_ip,
         "from_alert": alert_id,
+        **_navigation_context(settings, domain),
     }
     return f"{base_url}/?{urlencode(parameters)}"
 
@@ -320,11 +348,12 @@ def _payload(
             },
         },
         "links": {
-            "dashboard": _dashboard_link(settings, str(alert["id"])),
+            "dashboard": _dashboard_link(settings, str(alert["id"]), alert.get("domain")),
             "host": _host_link(
                 settings,
                 str(alert["id"]),
                 alert.get("source_ip"),
+                alert.get("domain"),
             ),
         },
     }

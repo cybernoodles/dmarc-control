@@ -176,6 +176,13 @@ export interface AlertDeliveryDetails extends AlertDeliverySummary {
   limit: number;
 }
 
+export type AlertStatusCounts = Record<AlertStatus | "all", number>;
+export interface AlertPage {
+  scope: { domain: string; days: number };
+  items: Alert[];
+  status_counts?: AlertStatusCounts;
+}
+
 export interface Alert {
   id: string;
   priority: "critical" | "warning" | "info";
@@ -416,10 +423,17 @@ export class ApiError extends Error {
   }
 }
 
+let readSessionGeneration = 0;
+function changedReadSession<T>(result: T): T {
+  readSessionGeneration += 1;
+  return result;
+}
+
 async function request<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
+  const generation = readSessionGeneration;
   const response = await fetch(path, {
     ...options,
     credentials: "same-origin",
@@ -428,10 +442,12 @@ async function request<T>(
       ...(options?.headers ?? {}),
     },
   });
+  options?.signal?.throwIfAborted();
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
+    options?.signal?.throwIfAborted();
     const message = responseErrorMessage(payload, response.status);
-    if (response.status === 401 && message === "Read login required") {
+    if (response.status === 401 && message === "Read login required" && generation === readSessionGeneration) {
       window.dispatchEvent(new Event("dmarc-read-session-expired"));
     }
     throw new ApiError(message, response.status);
@@ -458,11 +474,11 @@ export const api = {
     request<AuthStatus>("/api/auth/read-login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
-    }),
+    }).then(changedReadSession),
   logoutRead: () =>
     request<AuthStatus>("/api/auth/read-logout", {
       method: "POST",
-    }),
+    }).then(changedReadSession),
   loginAdmin: (password: string) =>
     request<AuthStatus>("/api/auth/login", {
       method: "POST",
@@ -531,8 +547,8 @@ export const api = {
     request<{ items: DomainItem[] }>("/api/domains").then(
       (response) => response.items,
     ),
-  overview: (domain: string, days: number) =>
-    request<Overview>(`/api/overview?${query({ domain, days })}`),
+  overview: (domain: string, days: number, signal?: AbortSignal) =>
+    request<Overview>(`/api/overview?${query({ domain, days })}`, { signal }),
   hosts: (
     domain: string,
     days: number,
@@ -556,10 +572,10 @@ export const api = {
       { signal },
     ),
   alerts: (domain: string, days: number, status = "all", signal?: AbortSignal) =>
-    request<{ items: Alert[] }>(
+    request<AlertPage>(
       `/api/alerts?${query({ domain, days, status })}`,
       { signal },
-    ).then((response) => response.items),
+    ),
   alert: (alertId: string, signal?: AbortSignal) =>
     request<Alert>(`/api/alerts/${encodeURIComponent(alertId)}`, { signal }),
   updateAlert: (alertId: string, status: AlertStatus) =>
