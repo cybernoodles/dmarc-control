@@ -1,0 +1,115 @@
+.alert-delivery-badge {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.alert-delivery-badge-line {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.alert-delivery-volume,
+.alert-delivery-time {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.alert-delivery-exhausted {
+  color: var(--danger);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.alert-delivery-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow);
+  margin: 1rem 0;
+  min-width: 0;
+  padding: 1.25rem;
+  scroll-margin: 1rem;
+}
+
+.alert-delivery-panel:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.alert-delivery-panel-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.alert-delivery-panel-heading > div {
+  min-width: 0;
+}
+
+.alert-delivery-panel-heading h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.alert-delivery-panel-heading p {
+  color: var(--ink-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.alert-delivery-panel-heading button {
+  flex-shrink: 0;
+}
+
+.alert-delivery-loading,
+.alert-delivery-retry-note {
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 1rem 0 0;
+}
+
+.alert-delivery-load-error {
+  background: var(--warning-soft);
+  border-radius: 0.65rem;
+  padding: 1rem;
+}
+
+.alert-delivery-load-error p {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0 0 0.75rem;
+}
+
+.alert-delivery-legacy {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.alert-delivery-legacy p {
+  color: var(--ink-muted);
+  margin: 0.4rem 0 0;
+}
+
+@media (max-width: 600px) {
+  .alert-delivery-panel {
+    padding: 1rem;
+  }
+
+  .alert-delivery-panel-heading {
+    gap: 0.5rem;
+  }
+}

@@ -141,3 +141,199 @@ class RecipientDeliveryStore:
                 "pending": counts.get("sending", 0),
                 "items": [dict(row) for row in items], "limit": 100,
                 "total": sum(counts.values())}
+
+    @staticmethod
+    def _alert_delivery_scope(
+        connection: sqlite3.Connection, alert_ids: list[str],
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        aliases = {
+            row["legacy_id"]: row["alert_id"]
+            for row in connection.execute("SELECT legacy_id, alert_id FROM alert_aliases")
+        }
+        resolved: dict[str, str] = {}
+
+        def canonical(alert_id: str) -> str:
+            visited = set()
+            current = alert_id
+            while current in aliases and current not in resolved:
+                if current in visited:
+                    raise ValueError("Cyclic alert aliases")
+                visited.add(current)
+                current = aliases[current]
+            result = resolved.get(current, current)
+            for previous in visited:
+                resolved[previous] = result
+            return result
+
+        requested = {alert_id: canonical(alert_id) for alert_id in alert_ids}
+        selected = set(requested.values())
+        sources = {alert_id: alert_id for alert_id in selected}
+        for legacy_id in aliases:
+            target = canonical(legacy_id)
+            if target in selected:
+                sources[legacy_id] = target
+        return requested, sources
+
+    @staticmethod
+    def _empty_alert_delivery_summary(alert_id: str) -> dict[str, Any]:
+        return {
+            "alert_id": alert_id, "mode": "none", "accepted": 0,
+            "temporary_failure": 0, "permanent_failure": 0,
+            "exhausted": 0, "pending": 0, "total": 0, "attempts_total": 0,
+            "last_attempt_at": None, "next_attempt_at": None,
+            "legacy": {
+                "total": 0, "sent": 0, "failed": 0, "pending": 0,
+                "attempts_total": 0, "last_attempt_at": None,
+            },
+        }
+
+    @staticmethod
+    def _alert_delivery_summaries(
+        connection: sqlite3.Connection, sources: dict[str, str],
+    ) -> dict[str, dict[str, Any]]:
+        summaries = {
+            alert_id: RecipientDeliveryStore._empty_alert_delivery_summary(alert_id)
+            for alert_id in set(sources.values())
+        }
+        source_ids = list(sources)
+        legacy_groups: dict[tuple[str, str], dict[str, Any]] = {}
+        for offset in range(0, len(source_ids), 400):
+            batch = source_ids[offset:offset + 400]
+            placeholders = ",".join("?" for _ in batch)
+            # Read only aggregate metadata here: addresses and transport errors
+            # are loaded exclusively by the administrator detail method.
+            rows = connection.execute(f"""
+                SELECT alert_id, status, COUNT(*) AS count,
+                       SUM(attempts) AS attempts_total,
+                       MAX(last_attempt_at) AS last_attempt_at,
+                       MIN(CASE WHEN status = 'temporary_failure'
+                                THEN next_attempt_at END) AS next_attempt_at
+                FROM notification_recipient_deliveries
+                WHERE alert_id IN ({placeholders})
+                GROUP BY alert_id, status
+            """, batch).fetchall()
+            for row in rows:
+                summary = summaries[sources[row["alert_id"]]]
+                status = "pending" if row["status"] == "sending" else row["status"]
+                if status not in {
+                    "accepted", "temporary_failure", "permanent_failure", "exhausted", "pending",
+                }:
+                    raise ValueError("Unknown recipient delivery status")
+                summary[status] += row["count"]
+                summary["total"] += row["count"]
+                summary["attempts_total"] += row["attempts_total"]
+                latest = summary["last_attempt_at"]
+                if latest is None or row["last_attempt_at"] > latest:
+                    summary["last_attempt_at"] = row["last_attempt_at"]
+                upcoming = row["next_attempt_at"]
+                if upcoming and (
+                    summary["next_attempt_at"] is None or upcoming < summary["next_attempt_at"]
+                ):
+                    summary["next_attempt_at"] = upcoming
+
+            rows = connection.execute(f"""
+                SELECT alert_id, destination_hash, status, attempts, last_attempt_at
+                FROM notification_deliveries WHERE alert_id IN ({placeholders})
+            """, batch).fetchall()
+            for row in rows:
+                key = (sources[row["alert_id"]], row["destination_hash"])
+                previous = legacy_groups.get(key)
+                if previous is None:
+                    legacy_groups[key] = dict(row)
+                    continue
+                # Migration retains the old row and a canonical copy. Match the
+                # existing migration rule without counting that evidence twice.
+                if row["status"] == "sent" or (
+                    previous["status"] != "sent"
+                    and row["last_attempt_at"] > previous["last_attempt_at"]
+                ):
+                    previous["status"] = row["status"]
+                previous["attempts"] = max(previous["attempts"], row["attempts"])
+                previous["last_attempt_at"] = max(
+                    previous["last_attempt_at"], row["last_attempt_at"]
+                )
+
+        for (alert_id, _), row in legacy_groups.items():
+            summary = summaries[alert_id]
+            legacy = summary["legacy"]
+            status = "pending" if row["status"] == "sending" else row["status"]
+            if status not in {"sent", "failed", "pending"}:
+                raise ValueError("Unknown legacy delivery status")
+            legacy[status] += 1
+            legacy["total"] += 1
+            legacy["attempts_total"] += row["attempts"]
+            if legacy["last_attempt_at"] is None or row["last_attempt_at"] > legacy["last_attempt_at"]:
+                legacy["last_attempt_at"] = row["last_attempt_at"]
+            if summary["last_attempt_at"] is None or row["last_attempt_at"] > summary["last_attempt_at"]:
+                summary["last_attempt_at"] = row["last_attempt_at"]
+
+        for summary in summaries.values():
+            if summary["legacy"]["total"]:
+                summary["mode"] = "legacy_hold"
+                # No automatic recipient retry is allowed while an old group
+                # outcome exists, even if recipient records also exist.
+                summary["next_attempt_at"] = None
+            elif not summary["total"]:
+                summary["mode"] = "none"
+            elif summary["accepted"] == summary["total"]:
+                summary["mode"] = "accepted"
+            elif summary["accepted"]:
+                summary["mode"] = "partial"
+            elif summary["temporary_failure"] or summary["pending"]:
+                summary["mode"] = "pending"
+            else:
+                summary["mode"] = "failed"
+        return summaries
+
+    def alert_delivery_summaries(self, alert_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return read-safe outcomes keyed by requested ID, resolving aliases.
+
+        ``total`` and ``attempts_total`` cover recorded recipient outcomes;
+        legacy group evidence remains separate. ``next_attempt_at`` is only a
+        known retry lower bound, not a scheduled send or proof of active setup.
+        Unknown IDs have mode ``none``; API callers validate event existence.
+        """
+        if not alert_ids:
+            return {}
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN")
+            requested, sources = self._alert_delivery_scope(connection, alert_ids)
+            summaries = self._alert_delivery_summaries(connection, sources)
+        return {
+            requested_id: {**summaries[canonical], "legacy": dict(summaries[canonical]["legacy"])}
+            for requested_id, canonical in requested.items()
+        }
+
+    def alert_delivery_details(self, alert_id: str) -> dict[str, Any]:
+        """Administrator-only recipient details, bounded to 100 recent records.
+
+        Authorization belongs to the API caller. Reading this method does not
+        claim attempts, alter outcomes or enable notifications.
+        """
+        limit = 100
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN")
+            requested, sources = self._alert_delivery_scope(connection, [alert_id])
+            canonical = requested[alert_id]
+            summary = self._alert_delivery_summaries(connection, sources)[canonical]
+            items = []
+            source_ids = list(sources)
+            for offset in range(0, len(source_ids), 400):
+                batch = source_ids[offset:offset + 400]
+                placeholders = ",".join("?" for _ in batch)
+                rows = connection.execute(f"""
+                    SELECT alert_id, recipient, status, attempts, last_attempt_at,
+                           next_attempt_at, accepted_at, last_error, smtp_code
+                    FROM notification_recipient_deliveries
+                    WHERE alert_id IN ({placeholders})
+                    ORDER BY last_attempt_at DESC, alert_id DESC, recipient DESC LIMIT ?
+                """, [*batch, limit]).fetchall()
+                items.extend(dict(row) for row in rows)
+            items.sort(
+                key=lambda item: (item["last_attempt_at"], item["alert_id"], item["recipient"]),
+                reverse=True,
+            )
+        return {
+            **summary, "limit": limit,
+            "items": [{**item, "alert_id": canonical} for item in items[:limit]],
+        }

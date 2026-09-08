@@ -18,7 +18,7 @@ class UpgradeTests(unittest.IsolatedAsyncioTestCase):
             state = StateStore(settings.database_path)
             state.set_alert_status("old-alert", "resolved")
             client = AsyncMock()
-            client.search.return_value = {"aggregations": {}}
+            client.search.return_value = {"hits": {"total": {"value": 0}}, "aggregations": {}}
             service = DashboardService(client, state, settings)
             with self.assertRaises(OpenSearchError):
                 await service.alerts("*", 30)
@@ -30,7 +30,7 @@ class UpgradeTests(unittest.IsolatedAsyncioTestCase):
             settings = Settings(database_path=Path(directory) / "state.db")
             state = StateStore(settings.database_path)
             client = AsyncMock()
-            client.search.return_value = {"aggregations": {}}
+            client.search.return_value = {"hits": {"total": {"value": 0}}, "aggregations": {}}
             service = DashboardService(client, state, settings)
             self.assertEqual(await service.alerts("*", 30), [])
             self.assertTrue(state.alert_model_initialized())

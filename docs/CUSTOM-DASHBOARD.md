@@ -297,6 +297,64 @@ ausgelöst. Er schaltet den automatischen Versand nicht ein. Schon eine
 Teilablehnung führt zu einem sichtbaren fehlgeschlagenen Test mit Anzahl der
 akzeptierten Empfänger und den jeweiligen Fehlermeldungen.
 
+## Status der automatischen Auswertung
+
+Die Warnungszentrale und die Benachrichtigungseinstellungen zeigen den
+automatischen Versand und das Ergebnis des letzten Prüflaufs getrennt.
+Gespeichert werden Start, Abschluss, Dauer, Domain-/Zeitumfang sowie die
+Anzahl geprüfter Domains, Quellen und ermittelter Ereignisse. Die Zahlen
+berücksichtigen auch die zur Einordnung benötigte Report-Historie und bekannte
+Domains ohne aktuelle Reports; sie entsprechen deshalb nicht zwingend der
+gefilterten Host-Seite. Der automatische Lauf gilt immer für alle Domains;
+ein Domain- oder Zeitfilter in der Oberfläche verändert diesen Prüfumfang nicht.
+
+Ein vollständig erfolgreicher Lauf mit null Ereignissen unterscheidet sich
+von einer fehlgeschlagenen oder unterbrochenen Auswertung. Solange kein
+vollständiges Ergebnis vorliegt, bleiben die Umfangszahlen unbekannt statt
+fälschlich null. Fehler ersetzen den letzten begonnenen Lauf, erhalten aber
+Zeitpunkt und Ergebnis der letzten erfolgreichen Auswertung. Ein Neustart
+markiert noch laufende Prüfungen als unterbrochen; pausierter Versand erzeugt
+keine künstlichen Erfolgseinträge. Beim Upgrade werden keine historischen
+Prüfläufe erfunden. Der erste Status entsteht beim nächsten regulären Lauf.
+Normale Listenaufrufe und die automatische Statusaktualisierung im Browser
+lösen keinen solchen Lauf aus.
+
+Der Auswertungserfolg wird vor dem Versand gespeichert. Eine spätere SMTP-
+oder Graph-Ablehnung bleibt ein Versandfehler und überschreibt diesen Erfolg
+nicht. Unvollständige OpenSearch-Antworten, auch fehlerhafte Folgeseiten, führen
+vor dem ersten Versand zum fehlgeschlagenen Lauf. Öffentliche Fehlertexte sind
+feste Kategorien ohne Endpunkte, Zugangsdaten oder rohe Serverantworten.
+
+`evaluation_runs` speichert die letzten 20 Läufe, zusätzlich gegebenenfalls
+einen älteren letzten Erfolg und noch laufende Prüfungen. Unterschiedliche
+Lauf-IDs verhindern, dass verspätete Abschlüsse neuere Ergebnisse ersetzen.
+`GET /api/alerts/evaluation/status` ist für angemeldete Leser verfügbar;
+die gespeicherte Auswahl der auslösenden E-Mail-Fälle bleibt intern.
+Die Oberfläche aktualisiert den Status alle 30 Sekunden, solange die Seite
+sichtbar ist, und kennzeichnet fehlgeschlagene Aktualisierungen.
+
+## Versanddetails an einer Warnung
+
+Die Alert-Liste und der Einzelabruf enthalten eine zusammengefasste
+Versandhistorie: noch kein Versuch, ausstehend, teilweise akzeptiert,
+vollständig akzeptiert, abschließend fehlgeschlagen oder zurückgehaltener
+Altbestand. Erkennbar sind letzter Versuch, früheste erneute Versuchsmöglichkeit
+und ausgeschöpftes Budget. Diese Ansicht enthält weder Empfängeradressen noch
+Serverantworten. Angaben beziehen sich auf gespeicherte Versuche, nicht auf
+alle Adressen einer später geänderten Konfiguration.
+
+Administratoren können direkt an der Warnung die geschützten Empfängerdetails
+öffnen. `GET /api/alerts/{alert_id}/delivery` liefert höchstens 100 der zuletzt
+bearbeiteten Empfängerzustände samt Gesamtzahl. Aliaslinks und die kanonische
+Warnung zeigen dieselbe Historie; übernommene Gruppenzeilen werden nicht doppelt
+gezählt. Diese Abrufe sind rein lesend und verändern keine Versandzustände.
+
+Ein angezeigter Wiederholungszeitpunkt ist eine Untergrenze. Ein weiterer
+Versuch setzt weiterhin aktiven Versand, eine offene und ausgewählte Warnung
+sowie den Empfänger in der aktuellen Konfiguration voraus. Zurückgehaltene
+Altzustellungen und ausgeschöpfte Versuche werden dadurch nicht reaktiviert.
+Eine manuelle Wiederholung ist in dieser Phase nicht implementiert.
+
 ## Dienst-Erkennung
 
 Die automatische Erkennung bewertet mehrere Signale:

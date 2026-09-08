@@ -433,6 +433,10 @@ select {
   gap: 1.2rem;
 }
 
+.alerts-page {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .card,
 .surface {
   background: var(--surface);

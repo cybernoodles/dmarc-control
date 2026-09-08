@@ -1,4 +1,5 @@
-import type { RecipientDeliverySummary } from "./RecipientDeliveryStatus";
+import type { AlertEvaluationState } from "./AlertEvaluationStatus";
+import type { RecipientDeliveryItem, RecipientDeliverySummary } from "./RecipientDeliveryStatus";
 
 export type Risk = "critical" | "warning" | "healthy";
 export type TrustStatus =
@@ -113,6 +114,27 @@ export interface HostPage {
   scope: { domain: string; days: number; risk: string; search?: string };
 }
 
+export interface AlertDeliverySummary {
+  alert_id: string;
+  mode: "none" | "accepted" | "partial" | "failed" | "pending" | "legacy_hold";
+  accepted: number;
+  temporary_failure: number;
+  permanent_failure: number;
+  exhausted: number;
+  pending: number;
+  total: number;
+  attempts_total: number;
+  last_attempt_at: string | null;
+  next_attempt_at: string | null;
+  legacy: { total: number; sent: number; failed: number; pending: number;
+    attempts_total: number; last_attempt_at: string | null; };
+}
+
+export interface AlertDeliveryDetails extends AlertDeliverySummary {
+  items: RecipientDeliveryItem[];
+  limit: number;
+}
+
 export interface Alert {
   id: string;
   priority: "critical" | "warning" | "info";
@@ -128,6 +150,7 @@ export interface Alert {
   status: AlertStatus;
   status_updated_at: string | null;
   historical?: boolean;
+  delivery?: AlertDeliverySummary;
 }
 
 export interface Forensics {
@@ -436,6 +459,10 @@ export const api = {
     request<MailboxConnectionState>("/api/settings/mailbox/activate", {
       method: "POST",
     }),
+  evaluationStatus: (signal?: AbortSignal) =>
+    request<AlertEvaluationState>("/api/alerts/evaluation/status", { signal }),
+  alertDelivery: (alertId: string, signal?: AbortSignal) =>
+    request<AlertDeliveryDetails>(`/api/alerts/${encodeURIComponent(alertId)}/delivery`, { signal }),
   notificationSettings: () =>
     request<NotificationSettings>("/api/settings/notifications"),
   notificationStatus: () =>

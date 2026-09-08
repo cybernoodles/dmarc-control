@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
@@ -63,6 +64,7 @@ service = DashboardService(client, store, settings)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    store.interrupt_running_evaluations()
     application.state.notification_wakeup = asyncio.Event()
     task = asyncio.create_task(notification_delivery_loop(application))
     try:
@@ -738,14 +740,54 @@ def public_notification_status(current: dict | None = None) -> dict:
     }
 
 
+def public_evaluation_error(exc: Exception) -> str:
+    # OpenSearch/transport exceptions may contain endpoints, credentials or body
+    # fragments. Read users receive only fixed, actionable error categories.
+    if isinstance(exc, OpenSearchError):
+        return "Die Reportdaten konnten nicht vollständig ausgewertet werden. Bitte OpenSearch-Verbindung und Daten prüfen."
+    if isinstance(exc, (NotificationDeliveryError, ConnectionSecretError, HTTPException)):
+        return "Die Benachrichtigungseinstellungen konnten nicht geladen werden."
+    return "Die automatische Alert-Auswertung ist fehlgeschlagen. Details stehen im Serverprotokoll."
+
+
+def public_evaluation_status() -> dict:
+    evaluation = store.evaluation_status()
+    return {
+        **public_notification_status(),
+        "evaluation": {
+            name: {**run, "scope": {key: run["scope"][key] for key in ("domain", "days")}}
+            if run else None for name, run in evaluation.items()
+        },
+    }
+
+
 async def dispatch_notification_cycle() -> None:
     current = store.notification_settings()
     if not current or not current["settings"].get("enabled"):
         return
-    configuration, secret = _resolved_notification_configuration(current)
-    alerts_to_send = await service.alerts(
-        "*",
-        int(configuration.get("lookback_days", 30)),
+    scope = {"domain": "*", "days": int(current["settings"].get("lookback_days", 30)),
+             "cases": list(current["settings"].get("cases", []))}
+    run_id = store.start_evaluation(scope)
+    started = time.monotonic()
+    try:
+        configuration, secret = _resolved_notification_configuration(current)
+        evaluated = await service.alert_evaluation(scope["domain"], scope["days"])
+        alerts_to_send, counts = evaluated["items"], evaluated["counts"]
+    except asyncio.CancelledError:
+        store.finish_evaluation(
+            run_id, status="interrupted", duration_ms=int((time.monotonic() - started) * 1000),
+            error="Die Auswertung wurde vor dem Abschluss unterbrochen.",
+        )
+        raise
+    except Exception as exc:
+        store.finish_evaluation(
+            run_id, status="failure", duration_ms=int((time.monotonic() - started) * 1000),
+            error=public_evaluation_error(exc),
+        )
+        raise
+    store.finish_evaluation(
+        run_id, status="success", duration_ms=int((time.monotonic() - started) * 1000),
+        counts=counts,
     )
     selected_cases = set(configuration["cases"])
     for alert in alerts_to_send:
@@ -1392,6 +1434,11 @@ async def clear_host_classification(source_ip: str):
     }
 
 
+@app.get("/api/alerts/evaluation/status")
+async def alert_evaluation_status():
+    return public_evaluation_status()
+
+
 @app.get("/api/alerts")
 async def alerts(
     domain: str = Query(default="*", max_length=255),
@@ -1403,7 +1450,9 @@ async def alerts(
     items = await service.alerts(domain, days)
     if status != "all":
         items = [item for item in items if item["status"] == status]
-    return {"scope": {"domain": domain, "days": days}, "items": items}
+    deliveries = store.alert_delivery_summaries([item["id"] for item in items])
+    return {"scope": {"domain": domain, "days": days},
+            "items": [{**item, "delivery": deliveries[item["id"]]} for item in items]}
 
 
 @app.patch("/api/alerts/{alert_id}")
@@ -1420,7 +1469,15 @@ async def alert_detail(alert_id: str):
         alert = store.stored_alert(alert_id)
     if alert is None:
         raise HTTPException(status_code=404, detail="Warnung nicht gefunden")
-    return alert
+    return {**alert, "delivery": store.alert_delivery_summaries([alert["id"]])[alert["id"]]}
+
+
+@app.get("/api/alerts/{alert_id}/delivery")
+async def alert_delivery_details(alert_id: str, request: Request):
+    require_admin(request)
+    if store.stored_alert(alert_id) is None:
+        raise HTTPException(status_code=404, detail="Warnung nicht gefunden")
+    return store.alert_delivery_details(alert_id)
 
 
 @app.get("/api/forensics")

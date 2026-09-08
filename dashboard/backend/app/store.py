@@ -8,11 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from .recipient_deliveries import RecipientDeliveryStore
+from .evaluation_runs import EvaluationRunStore
 
 DEFAULT_BRAND_COLOR = "#173f43"
 
 
-class StateStore(RecipientDeliveryStore):
+class StateStore(RecipientDeliveryStore, EvaluationRunStore):
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
         self._lock = threading.Lock()
@@ -186,6 +187,7 @@ class StateStore(RecipientDeliveryStore):
             )
 
             self.initialize_recipient_deliveries(connection)
+            self.initialize_evaluation_runs(connection)
 
     def admin_configured(self) -> bool:
         with self._lock, self._connect() as connection:

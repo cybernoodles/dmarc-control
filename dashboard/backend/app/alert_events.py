@@ -38,12 +38,20 @@ class AlertEngine:
             if (response.get("timed_out") or response.get("terminated_early")
                     or response.get("_shards", {}).get("failed", 0)):
                 raise OpenSearchError("Unvollständige Ereignisauswertung; bitte erneut versuchen")
-            if after is not None and "events" not in response.get("aggregations", {}):
-                raise OpenSearchError("Ereignisaggregation fehlt auf einer Folgeseite")
-            aggregation = response.get("aggregations", {}).get("events", {})
-            buckets = aggregation.get("buckets", [])
-            if not isinstance(buckets, list):
+            aggregations = response.get("aggregations")
+            if aggregations is None or isinstance(aggregations, dict) and "events" not in aggregations:
+                total_hits = response.get("hits", {}).get("total")
+                if isinstance(total_hits, dict):
+                    total_hits = total_hits.get("value")
+                if after is None and not aggregations and type(total_hits) is int and total_hits == 0:
+                    return []
+                raise OpenSearchError("Ereignisaggregation fehlt in der Abfrageantwort")
+            if not isinstance(aggregations, dict):
                 raise OpenSearchError("Ungültige Ereignisaggregation")
+            aggregation = aggregations["events"]
+            if not isinstance(aggregation, dict) or not isinstance(aggregation.get("buckets"), list):
+                raise OpenSearchError("Ungültige Ereignisaggregation")
+            buckets = aggregation["buckets"]
             for bucket in buckets:
                 key = bucket.get("key", {})
                 if not isinstance(key, dict) or set(key) != set(source_names):
@@ -76,7 +84,8 @@ class AlertEngine:
             filters.append(time_filter)
         return {"bool": {"filter": filters}} if filters else {"match_all": {}}
 
-    async def _evaluate(self, domain: str, days: int, now: datetime) -> list[dict[str, Any]]:
+    async def _evaluate(self, domain: str, days: int, now: datetime, *,
+                        evaluation_counts: dict[str, int] | None = None) -> list[dict[str, Any]]:
         start = (now - timedelta(days=max(days - 1, 0))).replace(hour=0, minute=0, second=0, microsecond=0)
         total = {"sum": {"field": "message_count"}}
         mechanisms = {
@@ -202,6 +211,12 @@ class AlertEngine:
                 "trigger": f"Letzter Berichtszeitraum endete vor {age.days} Tagen; übliche Zustellverzögerung berücksichtigt",
                 "report_time": item["last_report"], "messages": 0, "total_messages": 0,
             })
+        if evaluation_counts is not None:
+            # Include evaluated report history even when it creates no warning.
+            domains = {item["key"]["domain"] for item in history_buckets + buckets}
+            domains.update(item["domain"] for item in known)
+            hosts = {item["key"]["ip"] for item in history_buckets + buckets}
+            evaluation_counts.update(domains=len(domains), hosts=len(hosts), events=len(events))
         return events
 
     @staticmethod
@@ -230,12 +245,16 @@ class AlertEngine:
         return aliases
 
     async def alerts(self, domain: str, days: int) -> list[dict[str, Any]]:
+        return (await self.evaluate(domain, days))["items"]
+
+    async def evaluate(self, domain: str, days: int) -> dict[str, Any]:
         async with self._lock:
             now = datetime.now(UTC)
+            counts = {}
             if not self.store.alert_model_initialized():
                 # Match the existing automatic lookback before enabling the new
                 # model. Old baseline findings stay visible without bulk mail.
-                baseline = await self._evaluate("*", 30, now)
+                baseline = await self._evaluate("*", 30, now, evaluation_counts=counts)
                 if not self.store.remember_domain_reports([], "*"):
                     deliveries = self.store.notification_delivery_summary()
                     if self.store.alert_states() or any(deliveries[name] for name in ("sent", "failed", "pending")):
@@ -248,9 +267,9 @@ class AlertEngine:
                     baseline, bootstrap=True, aliases=self._legacy_aliases(legacy, baseline),
                 )
                 if domain == "*" and days == 30:
-                    return self._sort(initial)
-            evaluated = await self._evaluate(domain, days, now)
-            return self._sort(self.store.save_alert_events(evaluated))
+                    return {"items": self._sort(initial), "counts": counts}
+            evaluated = await self._evaluate(domain, days, now, evaluation_counts=counts)
+            return {"items": self._sort(self.store.save_alert_events(evaluated)), "counts": counts}
 
     @staticmethod
     def _sort(events: list[dict]) -> list[dict]:

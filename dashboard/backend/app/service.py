@@ -843,6 +843,9 @@ class DashboardService:
     async def alerts(self, domain: str, days: int) -> list[dict[str, Any]]:
         return await self._alert_engine.alerts(domain, days)
 
+    async def alert_evaluation(self, domain: str, days: int) -> dict[str, Any]:
+        return await self._alert_engine.evaluate(domain, days)
+
     async def _legacy_alerts(self, domain: str, days: int) -> list[dict[str, Any]]:
         """One-time reconstruction of identifiable pre-v2 workflow references."""
         hosts = await self.hosts(domain, days, limit=250)

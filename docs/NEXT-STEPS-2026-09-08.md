@@ -35,9 +35,11 @@ bauen darauf auf.
 
 ## 2. Auswertung und Betrieb sichtbar machen
 
-**Nächster Schritt:** Persistenter Status der Prüfläufe. Die Empfängeransicht
-in den Admin-Einstellungen ist mit F05 vorhanden; direkte Versanddetails
-am Alert und manuelle Wiederholungen sind weiterhin offen.
+**Stand:** Persistenter Prüflaufstatus und Versanddetails direkt an der
+Warnung sind implementiert. Auswertungserfolg, pausierter Versand und
+Empfängerablehnung werden getrennt angezeigt. Manuelle Wiederholungen bleiben
+als separate Erweiterung offen; sie dürfen weder bereits akzeptierte
+Empfänger erneut anschreiben noch unklare Altzustellungen pauschal freigeben.
 
 **Umsetzung:** Letzten begonnenen und letzten vollständig erfolgreichen
 Alert-Prüflauf, Dauer, geprüften Umfang und aktuellen Fehler getrennt vom
@@ -77,6 +79,10 @@ eine klare Bedeutung bestehender und ergänzter JSON-Felder. **Klein–mittel.**
 Kann parallel zu Phase 1 umgesetzt werden.
 
 ## 4. Dienst-Erkennung und manuelle Zuordnung trennen — F07/F08
+
+**Nächster Schritt:** Herkunft der Erkennungsbelege und Zuordnungsmodus im
+Datenmodell festlegen, dann die Erkennung und das Bearbeitungsformular
+gemeinsam korrigieren.
 
 **Umsetzung:** Evidenz mit ihrer tatsächlichen Herkunft aufbewahren, Domain-
 Grenzen prüfen und mehrfach passende Regeln derselben Quelle begrenzen.

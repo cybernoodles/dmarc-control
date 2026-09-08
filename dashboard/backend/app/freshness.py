@@ -57,10 +57,20 @@ async def report_freshness(
                 "Report-Frische konnte nicht vollständig ermittelt werden: "
                 "Zeitüberschreitung oder fehlgeschlagene OpenSearch-Shards"
             )
-        if after is not None and "domains" not in response.get("aggregations", {}):
-            raise OpenSearchError("Report-Frische: Aggregation fehlt auf einer Folgeseite")
-        aggregation = response.get("aggregations", {}).get("domains", {})
-        for bucket in aggregation.get("buckets", []):
+        aggregations = response.get("aggregations")
+        if aggregations is None or isinstance(aggregations, dict) and "domains" not in aggregations:
+            total_hits = response.get("hits", {}).get("total")
+            if isinstance(total_hits, dict):
+                total_hits = total_hits.get("value")
+            if after is None and not aggregations and type(total_hits) is int and total_hits == 0:
+                return []
+            raise OpenSearchError("Report-Frische: Aggregation fehlt in der Abfrageantwort")
+        if not isinstance(aggregations, dict):
+            raise OpenSearchError("Report-Frische: ungültige Aggregation")
+        aggregation = aggregations["domains"]
+        if not isinstance(aggregation, dict) or not isinstance(aggregation.get("buckets"), list):
+            raise OpenSearchError("Report-Frische: ungültige Aggregation")
+        for bucket in aggregation["buckets"]:
             report_domain = bucket["key"]["domain"]
             last_report = bucket.get("last_report", {}).get("value")
             if report_domain in (None, "", "-") or last_report is None:

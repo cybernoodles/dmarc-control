@@ -128,7 +128,7 @@ class ReportFreshnessTests(unittest.IsolatedAsyncioTestCase):
     async def test_empty_history_or_missing_index_does_not_invent_a_domain(self) -> None:
         self.assertEqual(await report_freshness(ReportClient([]), Settings()), [])
         self.assertEqual(
-            await report_freshness(PageClient([{"aggregations": {}}]), Settings()),
+            await report_freshness(PageClient([{"hits": {"total": {"value": 0}}, "aggregations": {}}]), Settings()),
             [],
         )
 

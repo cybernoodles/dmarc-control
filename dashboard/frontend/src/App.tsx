@@ -60,6 +60,8 @@ import {
 import { LanguageProvider, useI18n } from "./i18n";
 import { TrendChart } from "./TrendChart";
 import { RecipientDeliveryStatus } from "./RecipientDeliveryStatus";
+import { AlertEvaluationMonitor } from "./AlertEvaluationMonitor";
+import { AlertDeliveryBadge, AlertDeliveryPanel } from "./AlertDeliveryView";
 
 type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
 type SettingsSection =
@@ -1116,6 +1118,7 @@ function DashboardApp({
         )}
         {view === "alerts" && (
           <AlertsView
+            adminAuthenticated={Boolean(auth?.authenticated)}
             domain={domain}
             days={days}
             refreshKey={refreshKey}
@@ -2167,6 +2170,7 @@ function NotificationSettingsPanel({
         <StatusPill tone={statusTone}>{statusLabel}</StatusPill>
       </div>
 
+      <AlertEvaluationMonitor refreshKey={`${settingsState?.updated_at ?? ""}:${auth.authenticated}`} />
       {!auth.authenticated ? (
         <div className="connection-locked">
           <LockKeyhole aria-hidden="true" />
@@ -4488,12 +4492,14 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function AlertsView({
+  adminAuthenticated,
   domain,
   days,
   refreshKey,
   targetAlertId,
   investigateHost,
 }: {
+  adminAuthenticated: boolean;
   domain: string;
   days: number;
   refreshKey: number;
@@ -4502,6 +4508,8 @@ function AlertsView({
 }) {
   const { language, t, formatNumber, formatDate, reportAge } = useI18n();
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [deliveryAlert, setDeliveryAlert] = useState<Alert | null>(null);
+  useEffect(() => setDeliveryAlert(null), [domain, days, adminAuthenticated]);
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -4634,6 +4642,7 @@ function AlertsView({
             <th>{t("Auslöser")}</th>
             <th>{t("Reportzeit")}</th>
             <th>{t("Status")}</th>
+            <th>{t("Versand")}</th>
             <th />
           </tr>
         </thead>
@@ -4675,6 +4684,13 @@ function AlertsView({
                 <small>{reportAge(alert.report_time)}</small>
               </td>
               <td><AlertStatusPill status={alert.status} /></td>
+              <td>
+                {alert.delivery && <AlertDeliveryBadge summary={alert.delivery} />}
+                {adminAuthenticated && (
+                  <button id={`delivery-${alert.id}`} className="cell-link" type="button"
+                    onClick={() => setDeliveryAlert(alert)}>{t("Versanddetails")}</button>
+                )}
+              </td>
               <td className="numeric">
                 <div className="row-actions">
                   {alert.status === "open" && (
@@ -4727,7 +4743,7 @@ function AlertsView({
     </div>
   );
   return (
-    <div className="page-stack">
+    <div className="page-stack alerts-page">
       <SectionHeader
         title={t("Warnungszentrale")}
         subtitle={t(
@@ -4739,6 +4755,14 @@ function AlertsView({
           </StatusPill>
         }
       />
+      <AlertEvaluationMonitor refreshKey={refreshKey} />
+      {adminAuthenticated && deliveryAlert && (
+        <AlertDeliveryPanel alertId={deliveryAlert.id} title={alertTitle(deliveryAlert)}
+          refreshKey={refreshKey} onClose={() => {
+            setDeliveryAlert(null);
+            document.getElementById(`delivery-${deliveryAlert.id}`)?.focus();
+          }} />
+      )}
       <div className="list-toolbar align-end">
         <label className="compact-select">
           <span>{t("Status")}</span>

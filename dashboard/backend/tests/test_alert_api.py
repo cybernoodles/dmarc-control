@@ -51,7 +51,9 @@ class EventNotificationTests(unittest.IsolatedAsyncioTestCase):
                              "recipients": ["admin@example.invalid"], "language": "de", "dashboard_url": "",
                              "cases": ["host-fail"], "lookback_days": 30}
             state.save_notification_settings(settings=configuration, secret_ciphertext="unused")
-            service = SimpleNamespace(alerts=AsyncMock(return_value=events))
+            service = SimpleNamespace(alert_evaluation=AsyncMock(return_value={
+                "items": events, "counts": {"events": len(events), "domains": 1, "hosts": 1},
+            }))
             with patch.object(main, "store", state), patch.object(main, "service", service), patch.object(main, "_resolved_notification_configuration", return_value=(configuration, {})), patch.object(main, "send_message", return_value=[RecipientDeliveryResult("admin@example.invalid", "accepted")]) as send:
                 await main.dispatch_notification_cycle()
                 await main.dispatch_notification_cycle()

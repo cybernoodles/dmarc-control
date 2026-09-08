@@ -27,6 +27,8 @@ const english: Record<string, string> = {
   "Vor {days} Tagen": "{days} days ago",
   Übersicht: "Overview",
   Warnungen: "Alerts",
+  Versand: "Delivery",
+  Versanddetails: "Delivery details",
   Forensik: "Forensics",
   Einstellungen: "Settings",
   "Mail-Authentifizierungsbetrieb": "Mail authentication operations",

@@ -135,7 +135,9 @@ class RecipientDeliveryTests(unittest.TestCase):
             patch.object(main, "store", self.store),
             patch.object(self.store, "notification_settings", return_value={"settings": self.config}),
             patch.object(main, "_resolved_notification_configuration", return_value=(self.config, {})),
-            patch.object(main.service, "alerts", new=AsyncMock(return_value=[alert])),
+            patch.object(main.service, "alert_evaluation", new=AsyncMock(return_value={
+                "items": [alert], "counts": {"events": 1, "domains": 1, "hosts": 1},
+            })),
             patch.object(main, "send_message", side_effect=send),
         ):
             asyncio.run(main.dispatch_notification_cycle())
