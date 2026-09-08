@@ -751,7 +751,11 @@ async def dispatch_notification_cycle() -> None:
     delivery_target = destination_hash(configuration)
     for alert in alerts_to_send:
         event_type = notification_case(alert)
-        if alert.get("status") != "open" or event_type not in selected_cases:
+        if (
+            alert.get("status") != "open"
+            or event_type not in selected_cases
+            or not alert.get("notification_eligible", True)
+        ):
             continue
         if not store.claim_notification_delivery(
             alert_id=alert["id"],
@@ -1338,10 +1342,14 @@ async def hosts(
         "dkim-not-aligned",
     ] = "all",
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    search: str = Query(default="", max_length=255),
 ):
     return {
         "scope": {"domain": domain, "days": days, "risk": risk},
-        "items": await service.hosts(domain, days, risk=risk, limit=limit),
+        **await service.hosts_page(
+            domain, days, risk=risk, limit=limit, offset=offset, search=search
+        ),
     }
 
 
@@ -1401,6 +1409,18 @@ async def alerts(
 @app.patch("/api/alerts/{alert_id}")
 async def update_alert(alert_id: str, update: AlertStatusUpdate):
     return store.set_alert_status(alert_id, update.status)
+
+
+@app.get("/api/alerts/{alert_id}")
+async def alert_detail(alert_id: str):
+    alert = store.stored_alert(alert_id)
+    if alert is None:
+        # Also supports opening a not-yet-observed current event directly.
+        await service.alerts("*", 30)
+        alert = store.stored_alert(alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Warnung nicht gefunden")
+    return alert
 
 
 @app.get("/api/forensics")

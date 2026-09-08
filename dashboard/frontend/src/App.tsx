@@ -41,6 +41,7 @@ import {
 import {
   Alert,
   AlertStatus,
+  ApiError,
   AppearanceSettings,
   AuthStatus,
   DomainItem,
@@ -3837,53 +3838,97 @@ function HostsView({
   const [hosts, setHosts] = useState<Host[]>([]);
   const [risk, setRisk] = useState("all");
   const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pagination, setPagination] = useState({ scope: "", offset: 0 });
+  const [total, setTotal] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [selectedIp, setSelectedIp] = useState<string | null>(null);
   const [selected, setSelected] = useState<Host | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const pageSize = 100;
+  const scope = JSON.stringify([domain, days, risk, searchQuery]);
+  const offset = pagination.scope === scope ? pagination.offset : 0;
+  const activeIp = targetHostIp ?? selectedIp;
+  const searchPending = search.trim() !== searchQuery;
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError("");
-    const selectedIp = targetHostIp ?? selected?.source_ip;
-    Promise.all([
-      api.hosts(domain, days, risk),
-      selectedIp ? api.host(selectedIp, domain, days) : Promise.resolve(null),
-    ])
-      .then(([items, selectedHost]) => {
-        setHosts(items);
-        if (selectedIp) setSelected(selectedHost);
-      })
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setLoading(false));
-  }, [domain, days, risk, selected?.source_ip, targetHostIp]);
+  const load = useCallback(() => setReloadKey((value) => value + 1), []);
 
   useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+    const timeout = window.setTimeout(() => setSearchQuery(search.trim()), 250);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
 
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return hosts;
-    return hosts.filter((host) =>
-      [
-        host.source_ip,
-        host.reverse_dns,
-        host.base_domain,
-        host.service_detection.service,
-        host.as_name,
-        ...host.header_froms,
-        ...host.envelope_froms,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [hosts, search]);
+  useEffect(() => {
+    setPagination((current) => current.scope === scope ? current : { scope, offset: 0 });
+  }, [scope]);
 
-  if (loading && !hosts.length) {
-    return <LoadingState label={t("Sending Hosts werden geladen")} />;
-  }
-  if (error && !hosts.length) return <ErrorState message={error} retry={load} />;
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    setHosts([]);
+    setTotal(0);
+    api.hosts(domain, days, risk, {
+      limit: pageSize,
+      offset,
+      search: searchQuery,
+      signal: controller.signal,
+    })
+      .then((page) => {
+        if (controller.signal.aborted) return;
+        if (offset > 0 && offset >= page.total) {
+          setPagination({
+            scope,
+            offset: Math.max(0, Math.floor((page.total - 1) / pageSize) * pageSize),
+          });
+          return;
+        }
+        setHosts(page.items);
+        setTotal(page.total);
+      })
+      .catch((reason: Error) => {
+        if (!controller.signal.aborted) setError(reason.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [domain, days, risk, searchQuery, offset, scope, refreshKey, reloadKey]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setSelected(null);
+    setDetailError("");
+    setDetailLoading(Boolean(activeIp));
+    if (activeIp) {
+      api.host(activeIp, domain, days, controller.signal)
+        .then((host) => {
+          if (!controller.signal.aborted) setSelected(host);
+        })
+        .catch((reason: Error) => {
+          if (controller.signal.aborted) return;
+          setDetailError(
+            reason instanceof ApiError && reason.status === 404
+              ? t("Die Quelle {ip} ist für die gewählte Domain und den Zeitraum nicht vorhanden. Passe die Filter an.", { ip: activeIp })
+              : reason.message,
+          );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setDetailLoading(false);
+        });
+    }
+    return () => controller.abort();
+  }, [activeIp, domain, days, refreshKey, reloadKey, t]);
+
+  const closeDetail = () => {
+    setSelectedIp(null);
+    setSelected(null);
+    clearTargetHost();
+  };
+  const listLoading = loading || searchPending;
 
   return (
     <div className="page-stack">
@@ -3894,7 +3939,9 @@ function HostsView({
         )}
         action={
           <StatusPill tone="neutral">
-            {t("{count} Quellen", { count: filtered.length })}
+            {listLoading
+              ? t("Sending Hosts werden geladen")
+              : t("{count} Quellen", { count: formatNumber(total) })}
           </StatusPill>
         }
       />
@@ -3924,8 +3971,10 @@ function HostsView({
 
       {error && <ErrorState message={error} retry={load} />}
 
-      <section className="surface">
-        {filtered.length ? (
+      <section className="surface" aria-busy={listLoading}>
+        {listLoading ? (
+          <LoadingState label={t("Sending Hosts werden geladen")} />
+        ) : error ? null : hosts.length ? (
           <div className="table-wrap">
             <table>
               <thead>
@@ -3946,9 +3995,9 @@ function HostsView({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((host) => (
+                {hosts.map((host) => (
                   <tr
-                    className={selected?.source_ip === host.source_ip ? "selected-row" : ""}
+                    className={activeIp === host.source_ip ? "selected-row" : ""}
                     key={host.source_ip}
                   >
                     <td>
@@ -4031,7 +4080,7 @@ function HostsView({
                         className="button button-ghost"
                         type="button"
                         onClick={() => {
-                          setSelected(host);
+                          setSelectedIp(host.source_ip);
                           if (targetHostIp !== host.source_ip) clearTargetHost();
                         }}
                       >
@@ -4051,13 +4100,57 @@ function HostsView({
         )}
       </section>
 
+      {!listLoading && !error && total > 0 && (
+        <nav className="list-pagination" aria-label={t("Sending-Hosts-Seiten")}>
+          <span aria-live="polite">
+            {t("{start}–{end} von {total} Quellen", {
+              start: formatNumber(offset + 1),
+              end: formatNumber(offset + hosts.length),
+              total: formatNumber(total),
+            })}
+          </span>
+          <div className="row-actions">
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={offset === 0}
+              onClick={() => setPagination({ scope, offset: Math.max(0, offset - pageSize) })}
+            >
+              {t("Vorherige Seite")}
+            </button>
+            <button
+              className="button button-secondary"
+              type="button"
+              disabled={offset + hosts.length >= total}
+              onClick={() => setPagination({ scope, offset: offset + pageSize })}
+            >
+              {t("Nächste Seite")}
+            </button>
+          </div>
+        </nav>
+      )}
+
+      {detailLoading && <LoadingState label={t("Host-Detail wird geladen")} />}
+      {detailError && (
+        <section className="surface">
+          <ErrorState message={detailError} retry={load} />
+          <div className="row-actions">
+            {originAlertId && (
+              <button className="button button-secondary" type="button" onClick={returnToAlert}>
+                {t("Zurück zur Warnung")}
+              </button>
+            )}
+            <button className="button button-ghost" type="button" onClick={closeDetail}>
+              {t("Detailansicht schließen")}
+            </button>
+          </div>
+        </section>
+      )}
       {selected && (
         <HostDetail
+          key={selected.source_ip}
           host={selected}
-          close={() => {
-            setSelected(null);
-            clearTargetHost();
-          }}
+          close={closeDetail}
           saved={load}
           originAlertId={originAlertId}
           returnToAlert={returnToAlert}
@@ -4403,33 +4496,83 @@ function AlertsView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updating, setUpdating] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [targetResult, setTargetResult] = useState<{
+    requestedId: string;
+    alert: Alert;
+  } | null>(null);
+  const [targetLoading, setTargetLoading] = useState(false);
+  const [targetError, setTargetError] = useState("");
+  const [targetReloadKey, setTargetReloadKey] = useState(0);
+  const targetAlert = targetResult && targetResult.requestedId === targetAlertId
+    ? targetResult.alert
+    : null;
+  const focusedTargetId = targetAlert?.id ?? targetAlertId;
+  const outsideAlert = targetAlert && !alerts.some((item) => item.id === targetAlert.id)
+    ? targetAlert
+    : null;
 
-  const load = useCallback(() => {
+  const load = useCallback(() => setReloadKey((value) => value + 1), []);
+
+  useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
     setError("");
-    api
-      .alerts(domain, days, status)
-      .then(setAlerts)
-      .catch((reason: Error) => setError(reason.message))
-      .finally(() => setLoading(false));
-  }, [domain, days, status]);
+    setAlerts([]);
+    api.alerts(domain, days, status, controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) setAlerts(items);
+      })
+      .catch((reason: Error) => {
+        if (!controller.signal.aborted) setError(reason.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [domain, days, status, refreshKey, reloadKey]);
 
   useEffect(() => {
-    load();
-  }, [load, refreshKey]);
+    const controller = new AbortController();
+    setTargetError("");
+    setTargetResult(null);
+    if (!targetAlertId || alerts.some((item) => item.id === targetAlertId)) {
+      setTargetLoading(false);
+      return () => controller.abort();
+    }
+    if (loading) return () => controller.abort();
+    setTargetLoading(true);
+    api.alert(targetAlertId, controller.signal)
+      .then((alert) => {
+        if (!controller.signal.aborted) setTargetResult({ requestedId: targetAlertId, alert });
+      })
+      .catch((reason: Error) => {
+        if (controller.signal.aborted) return;
+        setTargetError(
+          reason instanceof ApiError && reason.status === 404
+            ? t("Die verlinkte Warnung wurde nicht gefunden. Für ältere Links ist möglicherweise kein gespeichertes Ereignis vorhanden.")
+            : reason.message,
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setTargetLoading(false);
+      });
+    return () => controller.abort();
+  }, [alerts, loading, targetAlertId, targetReloadKey, t]);
 
   useEffect(() => {
-    if (!targetAlertId || loading) return;
+    if (!focusedTargetId || loading) return;
     document
-      .getElementById(`alert-${targetAlertId}`)
+      .getElementById(`alert-${focusedTargetId}`)
       ?.scrollIntoView({ block: "center" });
-  }, [alerts, loading, targetAlertId]);
+  }, [alerts, loading, focusedTargetId, outsideAlert]);
 
   const update = async (alertId: string, nextStatus: AlertStatus) => {
     setUpdating(alertId);
     try {
       await api.updateAlert(alertId, nextStatus);
-      await load();
+      load();
+      setTargetReloadKey((value) => value + 1);
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -4441,16 +4584,7 @@ function AlertsView({
     }
   };
 
-  if (loading && !alerts.length) {
-    return <LoadingState label={t("Warnungen werden bewertet")} />;
-  }
-  if (error && !alerts.length) return <ErrorState message={error} retry={load} />;
-
   const openCount = alerts.filter((item) => item.status === "open").length;
-  const targetMissing =
-    !loading &&
-    Boolean(targetAlertId) &&
-    !alerts.some((item) => item.id === targetAlertId);
   const alertTitle = (alert: Alert) => t(alert.title);
   const alertTrigger = (alert: Alert) => {
     if (language === "de") return alert.trigger;
@@ -4480,6 +4614,103 @@ function AlertsView({
     }
     return alert.trigger;
   };
+  const renderAlertTable = (items: Alert[]) => (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>{t("Priorität")}</th>
+            <th>{t("Warnung")}</th>
+            <th>{t("Auslöser")}</th>
+            <th>{t("Reportzeit")}</th>
+            <th>{t("Status")}</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((alert) => (
+            <tr
+              key={alert.id}
+              id={`alert-${alert.id}`}
+              className={classNames(
+                focusedTargetId === alert.id && "selected-row",
+              )}
+            >
+              <td><PriorityPill priority={alert.priority} /></td>
+              <td>
+                <strong>{alertTitle(alert)}</strong>
+                {alert.source_ip && (
+                  <small>
+                    <IpWithFlag
+                      ip={alert.source_ip}
+                      country={alert.country}
+                    />
+                  </small>
+                )}
+                <small>{alert.domain}</small>
+              </td>
+              <td>
+                <span>{alertTrigger(alert)}</span>
+                <small>
+                  {formatNumber(alert.messages)} {t("Nachrichten")}
+                </small>
+              </td>
+              <td>
+                <span>{formatDate(alert.report_time)}</span>
+                <small>{reportAge(alert.report_time)}</small>
+              </td>
+              <td><AlertStatusPill status={alert.status} /></td>
+              <td className="numeric">
+                <div className="row-actions">
+                  {alert.status === "open" && (
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      disabled={updating === alert.id}
+                      onClick={() => update(alert.id, "acknowledged")}
+                    >
+                      {t("Bestätigen")}
+                    </button>
+                  )}
+                  {alert.source_ip && (
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      disabled={updating === alert.id}
+                      onClick={() => investigateHost(alert)}
+                    >
+                      <Server aria-hidden="true" />
+                      {t("Sending Host untersuchen")}
+                    </button>
+                  )}
+                  {alert.status !== "resolved" && (
+                    <button
+                      className="button button-ghost"
+                      type="button"
+                      disabled={updating === alert.id}
+                      onClick={() => update(alert.id, "resolved")}
+                    >
+                      {t("Behoben")}
+                    </button>
+                  )}
+                  {alert.status !== "ignored" && (
+                    <button
+                      className="button button-ghost"
+                      type="button"
+                      disabled={updating === alert.id}
+                      onClick={() => update(alert.id, "ignored")}
+                    >
+                      {t("Ignorieren")}
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
   return (
     <div className="page-stack">
       <SectionHeader
@@ -4506,111 +4737,26 @@ function AlertsView({
         </label>
       </div>
       {error && <ErrorState message={error} retry={load} />}
-      {targetMissing && (
-        <div className="inline-warning">
-          <TriangleAlert aria-hidden="true" />
-          {t(
-            "Die verlinkte Warnung ist im gewählten Zeitraum nicht mehr vorhanden. Passe Zeitraum oder Domainfilter an.",
-          )}
-        </div>
+      {targetLoading && <LoadingState label={t("Verlinkte Warnung wird geladen")} />}
+      {targetError && (
+        <ErrorState message={targetError} retry={() => setTargetReloadKey((value) => value + 1)} />
+      )}
+      {outsideAlert && (
+        <section className="surface linked-alert-context">
+          <SectionHeader
+            title={t("Verlinkte Warnung")}
+            subtitle={outsideAlert.historical
+              ? t("Gespeichertes Ereignis aus der Historie.")
+              : t("Dieses Ereignis liegt außerhalb der aktuellen Filter.")}
+          />
+          {renderAlertTable([outsideAlert])}
+        </section>
       )}
       <section className="surface">
-        {alerts.length ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("Priorität")}</th>
-                  <th>{t("Warnung")}</th>
-                  <th>{t("Auslöser")}</th>
-                  <th>{t("Reportzeit")}</th>
-                  <th>{t("Status")}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {alerts.map((alert) => (
-                  <tr
-                    key={alert.id}
-                    id={`alert-${alert.id}`}
-                    className={classNames(
-                      targetAlertId === alert.id && "selected-row",
-                    )}
-                  >
-                    <td><PriorityPill priority={alert.priority} /></td>
-                    <td>
-                      <strong>{alertTitle(alert)}</strong>
-                      {alert.source_ip && (
-                        <small>
-                          <IpWithFlag
-                            ip={alert.source_ip}
-                            country={alert.country}
-                          />
-                        </small>
-                      )}
-                      <small>{alert.domain}</small>
-                    </td>
-                    <td>
-                      <span>{alertTrigger(alert)}</span>
-                      <small>
-                        {formatNumber(alert.messages)} {t("Nachrichten")}
-                      </small>
-                    </td>
-                    <td>
-                      <span>{formatDate(alert.report_time)}</span>
-                      <small>{reportAge(alert.report_time)}</small>
-                    </td>
-                    <td><AlertStatusPill status={alert.status} /></td>
-                    <td className="numeric">
-                      <div className="row-actions">
-                        {alert.status === "open" && (
-                          <button
-                            className="button button-secondary"
-                            type="button"
-                            disabled={updating === alert.id}
-                            onClick={() => update(alert.id, "acknowledged")}
-                          >
-                            {t("Bestätigen")}
-                          </button>
-                        )}
-                        {alert.source_ip && (
-                          <button
-                            className="button button-secondary"
-                            type="button"
-                            disabled={updating === alert.id}
-                            onClick={() => investigateHost(alert)}
-                          >
-                            <Server aria-hidden="true" />
-                            {t("Sending Host untersuchen")}
-                          </button>
-                        )}
-                        {alert.status !== "resolved" && (
-                          <button
-                            className="button button-ghost"
-                            type="button"
-                            disabled={updating === alert.id}
-                            onClick={() => update(alert.id, "resolved")}
-                          >
-                            {t("Behoben")}
-                          </button>
-                        )}
-                        {alert.status !== "ignored" && (
-                          <button
-                            className="button button-ghost"
-                            type="button"
-                            disabled={updating === alert.id}
-                            onClick={() => update(alert.id, "ignored")}
-                          >
-                            {t("Ignorieren")}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {loading ? (
+          <LoadingState label={t("Warnungen werden bewertet")} />
+        ) : error ? null : alerts.length ? (
+          renderAlertTable(alerts)
         ) : (
           <EmptyState
             title={t("Keine Warnungen in dieser Ansicht")}

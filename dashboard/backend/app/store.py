@@ -46,6 +46,33 @@ class StateStore:
             )
             connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS alert_events (
+                    alert_id TEXT PRIMARY KEY,
+                    payload_json TEXT NOT NULL,
+                    first_observed_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    notification_eligible INTEGER NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_aliases (
+                    legacy_id TEXT PRIMARY KEY,
+                    alert_id TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS domain_report_history (
+                    domain TEXT PRIMARY KEY,
+                    last_report TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS app_settings (
                     setting_key TEXT PRIMARY KEY,
                     setting_value TEXT NOT NULL,
@@ -798,14 +825,20 @@ class StateStore:
             rows = connection.execute(
                 """
                 SELECT status, COUNT(*) AS count
-                FROM notification_deliveries
+                FROM notification_deliveries d
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM alert_aliases a WHERE a.legacy_id = d.alert_id
+                )
                 GROUP BY status
                 """
             ).fetchall()
             latest = connection.execute(
                 """
                 SELECT status, last_attempt_at, sent_at, last_error
-                FROM notification_deliveries
+                FROM notification_deliveries d
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM alert_aliases a WHERE a.legacy_id = d.alert_id
+                )
                 ORDER BY last_attempt_at DESC
                 LIMIT 1
                 """
@@ -831,9 +864,233 @@ class StateStore:
             for row in rows
         }
 
+    def alert_model_initialized(self) -> bool:
+        with self._lock, self._connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM app_settings WHERE setting_key = 'alert_events_v2'"
+            ).fetchone() is not None
+
+    def remember_domain_reports(
+        self,
+        reports: list[dict[str, str]],
+        domain: str = "*",
+    ) -> list[dict[str, str]]:
+        """Retain known report ends when index retention removes their reports."""
+        normalized = []
+        for report in reports:
+            ended = datetime.fromisoformat(report["last_report"])
+            if ended.tzinfo is None:
+                raise ValueError("Report time must include its timezone")
+            normalized.append(
+                (report["domain"], ended.astimezone(UTC).isoformat())
+            )
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.executemany(
+                """
+                INSERT INTO domain_report_history (domain, last_report)
+                VALUES (?, ?)
+                ON CONFLICT(domain) DO UPDATE SET
+                    last_report = excluded.last_report
+                WHERE excluded.last_report > domain_report_history.last_report
+                """,
+                normalized,
+            )
+            query = "SELECT domain, last_report FROM domain_report_history"
+            parameters = ()
+            if domain and domain != "*":
+                query += " WHERE domain = ?"
+                parameters = (domain,)
+            rows = connection.execute(query + " ORDER BY domain", parameters).fetchall()
+        return [dict(row) for row in rows]
+
+    def save_alert_events(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        bootstrap: bool = False,
+        aliases: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Persist evidence snapshots without resetting workflow or delivery state.
+
+        The first complete global scan records a quiet upgrade baseline. Subsequent
+        previously unseen events are eligible for normal notifications. Bootstrap
+        and its marker commit atomically, so a failed scan never suppresses events.
+        """
+        timestamp = datetime.now(UTC).isoformat()
+        saved = []
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if bootstrap and connection.execute(
+                "SELECT 1 FROM app_settings WHERE setting_key = 'alert_events_v2'"
+            ).fetchone():
+                bootstrap = False
+            for event in events:
+                payload = {key: value for key, value in event.items()
+                           if key not in {"status", "status_updated_at", "notification_eligible"}}
+                old = connection.execute(
+                    "SELECT payload_json FROM alert_events WHERE alert_id = ?",
+                    (event["id"],),
+                ).fetchone()
+                if old:
+                    # A later historical backfill may change the inferred host
+                    # history, but never silently change an observed event's type.
+                    original = json.loads(old["payload_json"])
+                    payload["kind"] = original["kind"]
+                    payload["title"] = original["title"]
+                connection.execute(
+                    """
+                    INSERT INTO alert_events VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(alert_id) DO UPDATE SET
+                        payload_json = excluded.payload_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (event["id"], json.dumps(payload), timestamp, timestamp,
+                     0 if bootstrap else 1),
+                )
+            for legacy_id, event_id in (aliases or {}).items():
+                existing = connection.execute(
+                    "SELECT alert_id FROM alert_aliases WHERE legacy_id = ?", (legacy_id,)
+                ).fetchone()
+                if existing and existing["alert_id"] != event_id:
+                    continue
+                if not connection.execute(
+                    "SELECT 1 FROM alert_events WHERE alert_id = ?", (event_id,)
+                ).fetchone():
+                    raise ValueError("A legacy alert alias requires a stored event")
+                if legacy_id == event_id:
+                    continue
+                connection.execute(
+                    "INSERT OR IGNORE INTO alert_aliases VALUES (?, ?)",
+                    (legacy_id, event_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO alert_state (alert_id, status, updated_at)
+                    SELECT ?, status, updated_at FROM alert_state WHERE alert_id = ?
+                    ON CONFLICT(alert_id) DO UPDATE SET
+                        status = excluded.status, updated_at = excluded.updated_at
+                    WHERE excluded.updated_at > alert_state.updated_at
+                    """, (event_id, legacy_id),
+                )
+                self._merge_alias_deliveries(connection, legacy_id, event_id)
+            for event_id in set((aliases or {}).values()):
+                # Resume only a positively identified unfinished delivery.
+                connection.execute(
+                    """
+                    UPDATE alert_events SET notification_eligible = 1
+                    WHERE alert_id = ? AND EXISTS (
+                        SELECT 1 FROM notification_deliveries
+                        WHERE alert_id = ? AND status != 'sent'
+                    )
+                    """, (event_id, event_id),
+                )
+            if bootstrap:
+                connection.execute(
+                    "INSERT INTO app_settings VALUES ('alert_events_v2', '1', ?)",
+                    (timestamp,),
+                )
+            for event in events:
+                saved.append(self._stored_alert(connection, event["id"]))
+        return saved
+
+    @staticmethod
+    def _merge_alias_deliveries(
+        connection: sqlite3.Connection,
+        legacy_id: str,
+        event_id: str,
+    ) -> None:
+        rows = connection.execute(
+            "SELECT * FROM notification_deliveries WHERE alert_id = ?",
+            (legacy_id,),
+        ).fetchall()
+        for legacy in rows:
+            current = connection.execute(
+                """
+                SELECT * FROM notification_deliveries
+                WHERE alert_id = ? AND destination_hash = ?
+                """,
+                (event_id, legacy["destination_hash"]),
+            ).fetchone()
+            selected = legacy
+            if current and (
+                current["status"] == "sent"
+                or (
+                    legacy["status"] != "sent"
+                    and current["last_attempt_at"] > legacy["last_attempt_at"]
+                )
+            ):
+                selected = current
+            attempts = max(legacy["attempts"], current["attempts"] if current else 0)
+            connection.execute(
+                """
+                INSERT INTO notification_deliveries VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(alert_id, destination_hash) DO UPDATE SET
+                    status = excluded.status, attempts = excluded.attempts,
+                    last_attempt_at = excluded.last_attempt_at,
+                    next_attempt_at = excluded.next_attempt_at,
+                    sent_at = excluded.sent_at, last_error = excluded.last_error
+                """,
+                (event_id, selected["destination_hash"], selected["status"], attempts,
+                 selected["last_attempt_at"], selected["next_attempt_at"],
+                 selected["sent_at"], selected["last_error"]),
+            )
+
+    @staticmethod
+    def _stored_alert(connection: sqlite3.Connection, alert_id: str) -> dict[str, Any] | None:
+        row = connection.execute(
+            """
+            SELECT e.payload_json, e.notification_eligible, s.status, s.updated_at
+            FROM alert_events e LEFT JOIN alert_state s ON e.alert_id = s.alert_id
+            WHERE e.alert_id = ?
+            """, (alert_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            **json.loads(row["payload_json"]),
+            "notification_eligible": bool(row["notification_eligible"]),
+            "status": row["status"] or "open",
+            "status_updated_at": row["updated_at"],
+        }
+
+    def stored_alert(self, alert_id: str) -> dict[str, Any] | None:
+        with self._lock, self._connect() as connection:
+            alias = connection.execute(
+                "SELECT alert_id FROM alert_aliases WHERE legacy_id = ?", (alert_id,)
+            ).fetchone()
+            canonical_id = alias["alert_id"] if alias else alert_id
+            result = self._stored_alert(connection, canonical_id)
+            if result:
+                return {**result, "historical": True}
+            # Old versions persisted only hashes/status, never report snapshots.
+            # Retain those links honestly instead of inventing missing evidence.
+            state = connection.execute(
+                "SELECT status, updated_at FROM alert_state WHERE alert_id = ?", (alert_id,)
+            ).fetchone()
+            delivery = connection.execute(
+                "SELECT 1 FROM notification_deliveries WHERE alert_id = ? LIMIT 1", (alert_id,)
+            ).fetchone()
+            if state or delivery:
+                return {
+                    "id": alert_id, "title": "Frühere Warnung", "priority": "info",
+                    "domain": "*", "source_ip": None, "country": None,
+                    "kind": "legacy", "report_time": None, "messages": 0,
+                    "trigger": "Die frühere Version speicherte keinen Ereignisinhalt. Der Bearbeitungsstatus bleibt erhalten; Details stehen gegebenenfalls in der ursprünglichen E-Mail.",
+                    "status": state["status"] if state else "open",
+                    "status_updated_at": state["updated_at"] if state else None,
+                    "historical": True, "notification_eligible": False,
+                }
+            return None
+
     def set_alert_status(self, alert_id: str, status: str) -> dict[str, str]:
         updated_at = datetime.now(UTC).isoformat()
         with self._lock, self._connect() as connection:
+            alias = connection.execute(
+                "SELECT alert_id FROM alert_aliases WHERE legacy_id = ?", (alert_id,)
+            ).fetchone()
+            if alias:
+                alert_id = alias["alert_id"]
             connection.execute(
                 """
                 INSERT INTO alert_state (alert_id, status, updated_at)

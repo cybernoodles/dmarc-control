@@ -51,9 +51,10 @@ folgende Felder nicht geladen oder ausgeliefert:
 
 ## Eigene Persistenz
 
-Statusänderungen an Warnungen, Benachrichtigungseinstellungen und
--zustellungen, manuell bestätigte Sending Hosts, der globale UI-Farbstandard
-sowie versionierte Mailbox-Verbindungen werden in
+Statusänderungen und gespeicherte Ereignisinhalte von Warnungen, Zuordnungen
+älterer Warnungs-IDs, bekannte Domains mit ihrem letzten Reportende,
+Benachrichtigungseinstellungen und -zustellungen, manuell bestätigte Sending
+Hosts, der globale UI-Farbstandard sowie versionierte Mailbox-Verbindungen werden in
 `data/dashboard/dashboard.db` gespeichert. Diese SQLite-Datei ist vollständig
 von den OpenSearch- und optionalen Grafana-Daten getrennt.
 
@@ -96,15 +97,72 @@ erneut als unvollständig markiert. Das vorhandene Admin-Passwort muss bestätig
 werden, bevor der Read-Benutzer ergänzt wird. Das Admin-Passwort selbst bleibt
 dabei unverändert.
 
-Die Warnungs-IDs werden deterministisch aus Auslöser, Domain, Host und Reporttag
-gebildet. Damit werden wiederholte Anzeigen desselben Ereignisses dedupliziert,
-ohne ein neues Ereignis an einem späteren Reporttag zu unterdrücken.
+## Ereignisse und Datenfrische
 
-Die Datenfrische und die Warnung für ausbleibende Reports verwenden das Ende
-des jüngsten DMARC-Berichtszeitraums (`date_end`). Der Beginn (`date_begin`)
-würde bei üblichen Tagesreports rund 24 Stunden zu früh warnen. Dieser Wert
-beschreibt den Berichtszeitraum und nicht den technischen Eingangszeitpunkt der
-E-Mail.
+Host-bezogene Warnungen werden pro Header-From-Domain, Source-IP und UTC-Tag
+des Berichtsanfangs (`date_begin`) aus den Ergebnissen dieses Tages gebildet.
+Die ID entsteht deterministisch aus Modellversion, Ereignisfamilie, Domain,
+Source-IP und diesem Evidenztag. Beispielsweise gehören `new-host-fail`,
+`host-degradation` und `host-fail` zur gemeinsamen Familie `dmarc-fail`.
+Anzeigezeitraum, Host-Listenposition und später eingehende erfolgreiche
+Reports ändern die Identität eines früheren Fail-Ereignisses nicht. Dieselbe
+IP kann für verschiedene Domains unterschiedliche Ereignisse besitzen.
+
+Die Bewertung neuer und verschlechterter Quellen berücksichtigt ihre
+Vorgeschichte bis zum jeweiligen Evidenztag. Beim ersten Speichern vergebene
+Ereignisart und Titel bleiben erhalten, auch wenn nachträglich ältere Reports
+die rekonstruierte Vorgeschichte verändern. Ergänzende Reports desselben Tages
+können Mengen und Evidenz im gespeicherten Ereignis aktualisieren;
+Bearbeitungsstatus und Versandzustand bleiben separat erhalten.
+
+Die aktuelle Warnungsliste bewertet den gewählten Zeitraum. Bereits gespeicherte
+Ereignisse lassen sich zusätzlich über `GET /api/alerts/{id}` abrufen, auch
+wenn sie aus dieser Liste herausgefallen sind. Dafür werden Ereignisinhalte in
+`alert_events`, Bearbeitungszustände in `alert_state` und kompatible alte IDs in
+`alert_aliases` gespeichert. Dies ist ein Einzelabruf gespeicherter Ereignisse;
+eine vollständige Historienansicht ist damit nicht verbunden.
+
+Datenfrische wird unabhängig vom Anzeigezeitraum pro Domain über die gesamte
+noch verfügbare Reporthistorie bestimmt. Grundlage ist das Ende des jüngsten
+DMARC-Berichtszeitraums (`date_end`), nicht der technische E-Mail-Eingang. Der
+Beginn (`date_begin`) würde bei üblichen Tagesreports rund 24 Stunden zu früh
+warnen. Frische Reports einer Domain verdecken keinen Ausfall einer anderen.
+
+`domain_report_history` hält für jede bereits beobachtete Domain das jüngste
+bekannte Reportende dauerhaft fest. Dadurch bleibt ein Ausfall erkennbar,
+wenn die Indexaufbewahrung inzwischen auch den letzten Report entfernt hat.
+Eine Frischewarnung bezieht sich auf Domain und letztes bekanntes Reportende;
+sie verschwindet nicht allein durch die Wahl eines kürzeren Anzeigezeitraums.
+Unvollständige Abfragen, etwa mit fehlgeschlagenen Shards oder ungültigen
+Seitencursorn, gelten als Auswertungsfehler.
+
+Alle so bekannten Domains bleiben überwacht. Eine Oberfläche zum Stilllegen
+einzelner Domains oder zum Erfassen erwarteter, bisher nie beobachteter Domains
+ist noch nicht vorhanden. Historische Domains, deren Reports bereits vor der
+ersten Erfassung vollständig gelöscht waren, lassen sich aus diesen Daten
+nicht nachträglich entdecken.
+
+## Sending-Host-Inventar
+
+Die Host-Abfrage liest alle passenden IP-Gruppen über fortgesetzte
+OpenSearch-Aggregationen. Risiko- und Textfilter werden vor der Ausgabe einer
+Seite auf den vollständigen Bestand angewendet. Die Suche berücksichtigt IP,
+PTR, Basisdomain, erkannten beziehungsweise manuell gesetzten Dienst,
+ASN-Namen sowie Header-From- und Envelope-From-Domains.
+
+`GET /api/hosts` akzeptiert `domain`, `days`, `risk`, `search`, `limit` und
+`offset`. Die Antwort enthält `items`, die Anzahl aller passenden Quellen
+`total`, `limit`, `offset` und `scope`. Standardmäßig werden 100 Quellen pro
+Seite ausgegeben; die API erlaubt bis zu 500. Die Oberfläche zeigt den
+sichtbaren Bereich und die Gesamtzahl und startet nach Filteränderungen auf
+der ersten Seite. Die Suchanfrage wird nach einer kurzen Eingabepause
+serverseitig ausgeführt. Die Alert-Auswertung verwendet ihre eigene
+vollständige Ereignisabfrage und hängt von keiner Host-Seite ab.
+
+Host-Liste und ausgewähltes Detail werden unabhängig geladen. Fehlt eine IP
+im gewählten Domain-/Zeitfenster, zeigt das Detail einen entsprechenden
+Hinweis; die neue Host-Liste bleibt nutzbar. Überholte Listen- und
+Detailanfragen dürfen aktuelle Ergebnisse nicht überschreiben.
 
 ## Alert-Triage und Host-Untersuchung
 
@@ -123,6 +181,14 @@ Deep Links verwenden folgende stabile Query-Parameter:
 - `?view=hosts&host={source_ip}&from_alert={alert_id}` für dessen
   Sending-Host-Untersuchung
 
+Fehlt eine verlinkte Warnung in der aktuellen Liste, lädt die Oberfläche ihren
+gespeicherten Inhalt und zeigt ihn in einem gesonderten historischen Kontext.
+Ein auflösbarer alter Link verwendet dabei die kanonische Ereignis-ID. Domain
+und Zeitraum werden derzeit noch nicht in diesen URLs gespeichert; nach dem
+Neuladen gelten die Standardfilter. Ein historischer Alert kann daher
+abrufbar sein, während seine Host-Untersuchung zunächst eine Anpassung des
+Zeitraums benötigt.
+
 In der Oberfläche heißt der weiterhin kompatible interne Host-Status
 `ignored` auf Deutsch **Automatische Zuordnung verworfen** und auf Englisch
 **Automatic classification rejected**. Er ist damit eindeutig vom
@@ -136,6 +202,40 @@ Warnungen der letzten 30 Tage. Nur die im GUI ausgewählten Ereignistypen werden
 versendet. Eine Zustellung wird anhand von Warnungs-ID, Versandweg, Absender und
 Empfängerliste persistent dedupliziert. Vorübergehende Fehler werden höchstens
 dreimal mit ansteigendem Abstand erneut versucht.
+
+Beim ersten Einsatz des Ereignismodells erfolgt einmalig eine vollständige
+Auswertung aller Domains für die letzten 30 Tage. Dieser initiale Bestand ist
+in der Oberfläche sichtbar, löst aber keine neuen automatischen Zustellungen
+aus. Initiale Ereignisse und Initialisierungsmarkierung werden gemeinsam
+gespeichert; eine fehlgeschlagene oder unvollständige Auswertung schließt die
+Initialisierung nicht ab. Danach erstmals beobachtete Ereignisse können nach
+den konfigurierten Regeln versendet werden. Ein später eintreffender Report
+desselben initialen Ereignistages hebt dessen Versandunterdrückung nicht auf.
+
+Alte Warnungs-IDs werden nur dann einem aktuellen Ereignis zugeordnet, wenn
+die rekonstruierte Zuordnung eindeutig ist. Dabei bleiben Bearbeitungsstatus,
+bereits erfolgreiche Zustellungen und vorhandene Wiederholungszustände
+erhalten. Bereits begonnene, eindeutig zugeordnete und noch nicht
+abgeschlossene Legacy-Zustellungen können ihren bestehenden Retry-Verlauf
+fortsetzen. Mehrdeutige Zusammenfassungen mehrerer Domains oder Tage werden
+nicht willkürlich einem einzelnen neuen Ereignis zugeordnet.
+
+Ohne sichere Einzelzuordnung bleibt ein alter Bearbeitungsstatus am alten
+Link erhalten; das entsprechende neue Tagesereignis beginnt mit `open`.
+Auch dann verhindert die Initialisierung eine erneute automatische Versendung
+des initialen Bestands. Eine pauschale Übernahme aller alten Status auf neue
+Ereignisse wäre fachlich unsicher: Alte IDs bezogen sich auf den jeweils
+letzten Reporttag eines Hosts und einen variablen Anzeigezeitraum, ohne die
+damalige Evidenz zu speichern. Spätere erfolgreiche Reports oder nachgelieferte
+Fail-Reports lassen den ursprünglichen Ereignisbezug nicht zuverlässig
+rekonstruieren.
+
+Frühere Versionen speicherten für alte Warnungen lediglich Status und
+Versanddaten, keinen vollständigen Ereignisinhalt. Ein nicht zuordenbarer alter
+Link kann deshalb nur den noch vorhandenen Bearbeitungsstatus und einen
+Hinweis auf fehlende Details anzeigen. Weitere Evidenz kann in der
+ursprünglichen E-Mail stehen. Existieren weder gespeicherter Inhalt noch
+Status oder Versanddaten, liefert der Einzelabruf einen 404.
 
 SMTP unterstützt STARTTLS, implizites TLS und ein bewusst gewähltes internes
 Relay. Microsoft Graph verwendet den app-only-Endpunkt
@@ -205,16 +305,19 @@ möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 | `POST /api/internal/parser/status` | Laufzeitstatus des einzelnen Parsers melden |
 | `GET /api/domains` | verfügbare Header-From-Domains |
 | `GET /api/overview` | Kennzahlen, Trend, Fehlerquellen, Reports und Policies |
-| `GET /api/hosts` | vollständiges Sending-Host-Inventar |
+| `GET /api/hosts` | vollständiges Sending-Host-Inventar mit serverseitiger Suche, `limit`/`offset` und `total` |
 | `GET /api/hosts/{ip}` | einzelne Host-Detailansicht |
 | `PUT /api/hosts/{ip}/classification` | manuelle Dienst- und Klassifizierungszuordnung |
 | `DELETE /api/hosts/{ip}/classification` | manuelle Zuordnung entfernen und Automatik wiederherstellen |
-| `GET /api/alerts` | abgeleitete und deduplizierte Warnungen |
+| `GET /api/alerts` | Warnungsereignisse pro Domain und Evidenztag für den gewählten Zeitraum |
+| `GET /api/alerts/{id}` | gespeichertes Ereignis beziehungsweise erhaltenen Legacy-Status unabhängig vom Listenfilter lesen |
 | `PATCH /api/alerts/{id}` | Warnungsstatus ändern |
 | `GET /api/forensics` | minimierte Forensik-Aggregationen |
 
-Alle Filter werden serverseitig als strukturierte OpenSearch-Abfragen erzeugt.
-Die API akzeptiert keine frei eingebbare Query-DSL.
+Domain- und Zeitfilter werden serverseitig als strukturierte
+OpenSearch-Abfragen erzeugt. Risikobewertung und Host-Textsuche erfolgen auf
+dem vollständig gelesenen Ergebnis, bevor eine Seite ausgegeben wird. Die API
+akzeptiert keine frei eingebbare Query-DSL.
 
 ## Deployment mit Dockge
 

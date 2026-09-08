@@ -103,6 +103,14 @@ export interface Host {
   } | null;
 }
 
+export interface HostPage {
+  items: Host[];
+  total: number;
+  limit: number;
+  offset: number;
+  scope: { domain: string; days: number; risk: string; search?: string };
+}
+
 export interface Alert {
   id: string;
   priority: "critical" | "warning" | "info";
@@ -116,6 +124,7 @@ export interface Alert {
   kind: string;
   status: AlertStatus;
   status_updated_at: string | null;
+  historical?: boolean;
 }
 
 export interface Forensics {
@@ -332,6 +341,13 @@ function responseErrorMessage(payload: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(
   path: string,
   options?: RequestInit,
@@ -350,7 +366,7 @@ async function request<T>(
     if (response.status === 401 && message === "Read login required") {
       window.dispatchEvent(new Event("dmarc-read-session-expired"));
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
   return response.json() as Promise<T>;
 }
@@ -445,18 +461,35 @@ export const api = {
     ),
   overview: (domain: string, days: number) =>
     request<Overview>(`/api/overview?${query({ domain, days })}`),
-  hosts: (domain: string, days: number, risk = "all") =>
-    request<{ items: Host[] }>(
-      `/api/hosts?${query({ domain, days, risk })}`,
-    ).then((response) => response.items),
-  host: (sourceIp: string, domain: string, days: number) =>
+  hosts: (
+    domain: string,
+    days: number,
+    risk = "all",
+    options: { limit?: number; offset?: number; search?: string; signal?: AbortSignal } = {},
+  ) =>
+    request<HostPage>(
+      `/api/hosts?${query({
+        domain,
+        days,
+        risk,
+        limit: options.limit ?? 100,
+        offset: options.offset ?? 0,
+        search: options.search ?? "",
+      })}`,
+      { signal: options.signal },
+    ),
+  host: (sourceIp: string, domain: string, days: number, signal?: AbortSignal) =>
     request<Host>(
       `/api/hosts/${encodeURIComponent(sourceIp)}?${query({ domain, days })}`,
+      { signal },
     ),
-  alerts: (domain: string, days: number, status = "all") =>
+  alerts: (domain: string, days: number, status = "all", signal?: AbortSignal) =>
     request<{ items: Alert[] }>(
       `/api/alerts?${query({ domain, days, status })}`,
+      { signal },
     ).then((response) => response.items),
+  alert: (alertId: string, signal?: AbortSignal) =>
+    request<Alert>(`/api/alerts/${encodeURIComponent(alertId)}`, { signal }),
   updateAlert: (alertId: string, status: AlertStatus) =>
     request(`/api/alerts/${encodeURIComponent(alertId)}`, {
       method: "PATCH",

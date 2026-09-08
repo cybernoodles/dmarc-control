@@ -430,6 +430,13 @@ const english: Record<string, string> = {
     "Technical sources, detected services and authentication results",
   "{count} Quellen": "{count} sources",
   "Sending Hosts durchsuchen": "Search sending hosts",
+  "Sending-Hosts-Seiten": "Sending host pages",
+  "{start}–{end} von {total} Quellen": "{start}–{end} of {total} sources",
+  "Vorherige Seite": "Previous page",
+  "Nächste Seite": "Next page",
+  "Host-Detail wird geladen": "Loading host details",
+  "Die Quelle {ip} ist für die gewählte Domain und den Zeitraum nicht vorhanden. Passe die Filter an.":
+    "Source {ip} is not available for the selected domain and time range. Adjust the filters.",
   "IP, PTR, Domain oder Dienst suchen": "Search by IP, PTR, domain or service",
   Risiko: "Risk",
   "Alle Ergebnisse": "All results",
@@ -503,6 +510,14 @@ const english: Record<string, string> = {
   Speichern: "Save",
   "Statusänderung fehlgeschlagen": "Unable to update status",
   "Warnungen werden bewertet": "Evaluating alerts",
+  "Verlinkte Warnung wird geladen": "Loading linked alert",
+  "Verlinkte Warnung": "Linked alert",
+  "Gespeichertes Ereignis aus der Historie.":
+    "Stored historical event.",
+  "Dieses Ereignis liegt außerhalb der aktuellen Filter.":
+    "This event is outside the current filters.",
+  "Die verlinkte Warnung wurde nicht gefunden. Für ältere Links ist möglicherweise kein gespeichertes Ereignis vorhanden.":
+    "The linked alert was not found. Older links may not have a stored event.",
   Warnungszentrale: "Alert center",
   "Deduplizierte Ereignisse mit nachvollziehbarem Auslöser":
     "Deduplicated events with a traceable trigger",

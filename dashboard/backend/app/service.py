@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Iterable
 
 from .config import Settings
-from .opensearch import OpenSearchClient
+from .opensearch import OpenSearchClient, OpenSearchError
 from .store import StateStore
 
 
@@ -262,6 +262,10 @@ class DashboardService:
         self.client = client
         self.store = store
         self.settings = settings
+        # Import after this module's helpers are defined; the event engine shares
+        # their source normalization without using the paginated UI host list.
+        from .alert_events import AlertEngine
+        self._alert_engine = AlertEngine(self)
 
     async def domains(self) -> list[dict[str, Any]]:
         body = {
@@ -502,9 +506,15 @@ class DashboardService:
         days: int,
         *,
         risk: str = "all",
-        limit: int = 100,
+        limit: int | None = 100,
         source_ip: str | None = None,
+        search: str = "",
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
+        if limit is not None and limit < 1:
+            raise ValueError("limit must be positive or None")
+        if offset < 0:
+            raise ValueError("offset must not be negative")
         global_filters = _filters(
             field="date_begin",
             days=None,
@@ -512,7 +522,18 @@ class DashboardService:
             domain=domain,
             source_ip=source_ip,
         )
-        current_filter = _range("date_begin", days)
+        query_time = datetime.now(UTC)
+        current_start = (query_time - timedelta(days=max(days - 1, 0))).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        current_filter = {
+            "range": {
+                "date_begin": {
+                    "gte": current_start.isoformat(),
+                    "lte": query_time.isoformat(),
+                }
+            }
+        }
         sum_messages = {"sum": {"field": "message_count"}}
         global_query: dict[str, Any] = (
             {"bool": {"filter": global_filters}}
@@ -524,10 +545,15 @@ class DashboardService:
             "query": global_query,
             "aggs": {
                 "hosts": {
-                    "terms": {
-                        "field": "source_ip_address.keyword",
-                        "size": min(max(limit * 3, 100), 1000),
-                        "order": {"current>messages": "desc"},
+                    "composite": {
+                        "size": 500,
+                        "sources": [
+                            {
+                                "source_ip": {
+                                    "terms": {"field": "source_ip_address.keyword"}
+                                }
+                            }
+                        ],
                     },
                     "aggs": {
                         "first_seen": {"min": {"field": "date_begin"}},
@@ -535,7 +561,7 @@ class DashboardService:
                             "filter": {
                                 "range": {
                                     "date_begin": {
-                                        "lt": f"now-{max(days - 1, 0)}d/d"
+                                        "lt": current_start.isoformat()
                                     }
                                 }
                             },
@@ -631,17 +657,14 @@ class DashboardService:
                 }
             },
         }
-        response = await self.client.search(
-            self.settings.aggregate_index, body, allow_missing=True
-        )
+        buckets = await self._host_buckets(body)
         overrides = self.store.host_overrides()
         items = []
-        new_cutoff = datetime.now(UTC) - timedelta(
+        new_cutoff = query_time - timedelta(
             days=self.settings.new_host_window_days
         )
-        for bucket in (
-            response.get("aggregations", {}).get("hosts", {}).get("buckets", [])
-        ):
+        for bucket in buckets:
+            host_ip = bucket["key"]["source_ip"]
             current = bucket.get("current", {})
             previous = bucket.get("previous", {})
             total = _sum(current)
@@ -676,7 +699,7 @@ class DashboardService:
                 str(latest.get("source_as_name") or ""),
             ]
             detection = _score_service(latest, identity_evidence)
-            override = overrides.get(bucket["key"])
+            override = overrides.get(host_ip)
             if override:
                 detection["automatic_service"] = detection["service"]
                 if override.get("service_name"):
@@ -697,7 +720,7 @@ class DashboardService:
                 is_new = datetime.fromisoformat(first_seen) >= new_cutoff
             items.append(
                 {
-                    "source_ip": bucket["key"],
+                    "source_ip": host_ip,
                     "reverse_dns": latest.get("source_reverse_dns"),
                     "base_domain": latest.get("source_base_domain"),
                     "country": latest.get("source_country"),
@@ -729,11 +752,99 @@ class DashboardService:
                     "override": override,
                 }
             )
-            if len(items) >= limit:
-                break
-        return items
+        needle = search.strip().lower()
+        if needle:
+            items = [
+                item
+                for item in items
+                if needle in " ".join(
+                    str(value or "")
+                    for value in [
+                        item["source_ip"],
+                        item["reverse_dns"],
+                        item["base_domain"],
+                        item["service_detection"]["service"],
+                        item["as_name"],
+                        *item["header_froms"],
+                        *item["envelope_froms"],
+                    ]
+                ).lower()
+            ]
+        items.sort(key=lambda item: (-item["messages"], item["source_ip"]))
+        return items[offset:] if limit is None else items[offset : offset + limit]
+
+    async def _host_buckets(self, body: dict[str, Any]) -> list[dict[str, Any]]:
+        """Read every IP bucket; never turn a partial search into a healthy view."""
+        buckets: list[dict[str, Any]] = []
+        previous_cursor: str | None = None
+        previous_ip: str | None = None
+        composite = body["aggs"]["hosts"]["composite"]
+        while True:
+            response = await self.client.search(
+                self.settings.aggregate_index, body, allow_missing=True
+            )
+            if (
+                response.get("timed_out")
+                or response.get("terminated_early")
+                or response.get("_shards", {}).get("failed", 0)
+            ):
+                raise OpenSearchError("Sending-Host-Abfrage lieferte unvollständige Daten")
+            aggregation = response.get("aggregations", {}).get("hosts")
+            if aggregation is None:
+                if previous_cursor is not None:
+                    raise OpenSearchError("Sending-Host-Abfrage lieferte keine Folgeseite")
+                return []
+            page = aggregation.get("buckets", [])
+            for bucket in page:
+                key = bucket.get("key")
+                host_ip = key.get("source_ip") if isinstance(key, dict) else None
+                if not isinstance(host_ip, str) or (
+                    previous_ip is not None and host_ip <= previous_ip
+                ):
+                    raise OpenSearchError("Sending-Host-Abfrage lieferte ungültige Seiten")
+                previous_ip = host_ip
+            buckets.extend(page)
+            after_key = aggregation.get("after_key")
+            if not after_key:
+                return buckets
+            cursor = after_key.get("source_ip") if isinstance(after_key, dict) else None
+            if not page or not isinstance(cursor, str) or (
+                previous_cursor is not None and cursor <= previous_cursor
+            ):
+                raise OpenSearchError(
+                    "Sending-Host-Abfrage konnte nicht vollständig gelesen werden"
+                )
+            previous_cursor = cursor
+            composite["after"] = after_key
+
+    async def hosts_page(
+        self,
+        domain: str,
+        days: int,
+        *,
+        risk: str = "all",
+        limit: int = 100,
+        source_ip: str | None = None,
+        search: str = "",
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        if limit < 1 or offset < 0:
+            raise ValueError("limit must be positive and offset must not be negative")
+        items = await self.hosts(
+            domain, days, risk=risk, limit=None, source_ip=source_ip, search=search
+        )
+        return {
+            "items": items[offset : offset + limit],
+            "total": len(items),
+            "limit": limit,
+            "offset": offset,
+        }
 
     async def alerts(self, domain: str, days: int) -> list[dict[str, Any]]:
+        return await self._alert_engine.alerts(domain, days)
+
+    async def _legacy_alerts(self, domain: str, days: int) -> list[dict[str, Any]]:
+        """One-time reconstruction of identifiable pre-v2 workflow references."""
         hosts = await self.hosts(domain, days, limit=250)
         overview = await self.overview(domain, days)
         states = self.store.alert_states()
