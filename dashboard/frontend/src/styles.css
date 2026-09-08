@@ -1434,8 +1434,144 @@ td > strong {
 }
 
 .settings-connection-slot,
+.settings-domains-slot,
 .settings-notification-slot {
   grid-column: 2 / -1;
+}
+
+.settings-domains-slot,
+.domain-monitoring-settings,
+.domain-registry,
+.domain-monitoring-card {
+  min-width: 0;
+}
+
+.domain-monitoring-settings,
+.domain-registry,
+.domain-monitoring-list,
+.domain-add-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.domain-monitoring-note {
+  color: var(--ink-muted);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.domain-add-form {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  padding: 1rem;
+}
+
+.domain-add-form h3,
+.domain-registry-heading h3,
+.domain-monitoring-card h4 {
+  font-size: 0.9rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.domain-add-fields {
+  align-items: end;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, 0.4fr) auto;
+}
+
+.domain-add-fields label,
+.domain-monitoring-row-form label {
+  display: grid;
+  font-size: 0.75rem;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.domain-add-fields input,
+.domain-monitoring-row-form input {
+  min-width: 0;
+  width: 100%;
+}
+
+.domain-monitoring-card {
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.domain-registry-heading,
+.domain-monitoring-card-heading,
+.domain-monitoring-row-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.domain-monitoring-dates {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.domain-monitoring-dates dt {
+  color: var(--ink-muted);
+  font-size: 0.71rem;
+  margin-bottom: 0.3rem;
+}
+
+.domain-monitoring-dates dd {
+  font-size: 0.77rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.domain-monitoring-row-form {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.domain-monitoring-row-form label { max-width: 10rem; }
+.domain-monitoring-row-actions { justify-content: flex-start; }
+.domain-monitoring-settings .button { white-space: normal; }
+.domain-monitoring-settings .inline-message {
+  border-radius: 0.5rem;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 0.65rem 0.75rem;
+}
+.domain-monitoring-settings .inline-message.critical {
+  background: var(--danger-soft);
+  color: var(--ink);
+  border-left: 3px solid var(--danger);
+}
+.domain-monitoring-settings .inline-message.success {
+  background: var(--success-soft);
+  color: var(--ink);
+  border-left: 3px solid var(--success);
+}
+
+@media (max-width: 680px) {
+  .domain-add-fields,
+  .domain-monitoring-dates { grid-template-columns: minmax(0, 1fr); }
+  .domain-monitoring-row-form { align-items: stretch; flex-direction: column; }
+  .domain-monitoring-row-form label { max-width: none; }
+  .domain-monitoring-card,
+  .domain-add-form { padding: 0.8rem; }
 }
 
 .brand-settings,
@@ -2299,6 +2435,7 @@ footer a:hover {
 
   .settings-setup-hint,
   .settings-connection-slot,
+  .settings-domains-slot,
   .settings-notification-slot,
   .brand-settings,
   .brand-preview-section,

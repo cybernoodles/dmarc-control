@@ -70,9 +70,11 @@ import { UnsavedChangesProvider, useUnsavedChanges } from "./UnsavedChanges";
 import { useInvestigationNavigation } from "./useInvestigationNavigation";
 import { validDomain, type View } from "./investigationLocation";
 import { useAlertUpdates } from "./useAlertUpdates";
+import { DomainMonitoringSettings } from "./DomainMonitoringSettings";
 type SettingsSection =
   | "appearance"
   | "notifications"
+  | "domains"
   | "connection"
   | "administration";
 
@@ -896,14 +898,16 @@ function DashboardApp({
     return updated;
   };
 
-  const loadDomains = useCallback(() => {
-    setDomainError("");
-    api.domains().then(setDomains).catch((error: Error) => setDomainError(error.message));
-  }, []);
-
+  const [domainRevision, setDomainRevision] = useState(0);
+  const loadDomains = useCallback(() => setDomainRevision((value) => value + 1), []);
   useEffect(() => {
-    loadDomains();
-  }, [loadDomains, refreshKey]);
+    const controller = new AbortController();
+    setDomainError("");
+    api.domains(controller.signal)
+      .then((items) => { if (!controller.signal.aborted) setDomains(items); })
+      .catch((error: Error) => { if (!controller.signal.aborted) setDomainError(error.message); });
+    return () => controller.abort();
+  }, [domainRevision, refreshKey]);
 
   const navigate = (nextView: View) => go({
     view: nextView, domain, days,
@@ -1115,6 +1119,7 @@ function DashboardApp({
             saveCustomColor={saveCustomColor}
             resetLocalBrand={resetLocalBrand}
             updateGlobalAppearance={updateGlobalAppearance}
+            onDomainsChanged={loadDomains}
           />
         )}
       </main>
@@ -2615,6 +2620,7 @@ function SettingsView({
   saveCustomColor,
   resetLocalBrand,
   updateGlobalAppearance,
+  onDomainsChanged,
 }: {
   color: string;
   customColor: string | null;
@@ -2623,6 +2629,7 @@ function SettingsView({
   appearanceError: string;
   auth: AuthStatus;
   setAuth: (status: AuthStatus) => void;
+  onDomainsChanged: () => void;
   updateColor: (color: string) => void;
   saveCustomColor: () => void;
   resetLocalBrand: () => void;
@@ -2877,7 +2884,7 @@ function SettingsView({
       <SectionHeader
         title={t("Einstellungen")}
         subtitle={t(
-          "Darstellung, Benachrichtigungen, Postfachanbindung und geschützte Administration",
+          "Darstellung, Domains, Benachrichtigungen, Postfachanbindung und geschützte Administration",
         )}
         action={
           <StatusPill tone={sectionStatus.tone}>
@@ -2923,6 +2930,13 @@ function SettingsView({
               <strong>{t("Benachrichtigungen")}</strong>
               <small>{t("E-Mail-Alerting und Versandwege")}</small>
             </span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+          <button type="button" className={classNames(settingsSection === "domains" && "active")}
+            aria-current={settingsSection === "domains" ? "page" : undefined}
+            onClick={() => setSettingsSection("domains")}>
+            <Globe2 aria-hidden="true" />
+            <span><strong>{t("Domains")}</strong><small>{t("Report-Eingang und Wartefristen")}</small></span>
             <ChevronRight aria-hidden="true" />
           </button>
           <button
@@ -3006,6 +3020,11 @@ function SettingsView({
           hidden={settingsSection !== "notifications"}
         >
           <NotificationSettingsPanel auth={auth} setAuth={setAuth} />
+        </div>
+
+        <div className="settings-domains-slot" hidden={settingsSection !== "domains"}>
+          <DomainMonitoringSettings active={settingsSection === "domains"} auth={auth} setAuth={setAuth}
+            onChanged={onDomainsChanged} onAdminLogin={() => setSettingsSection("administration")} />
         </div>
 
         <div
@@ -4455,6 +4474,18 @@ function AlertsView({
   const openCount = !loading && !error ? statusCounts?.open : undefined;
   const alertTitle = (alert: Alert) => t(alert.title);
   const alertTrigger = (alert: Alert) => {
+    if (alert.kind === "stale-reports") {
+      if (alert.freshness_reason === "never_observed") {
+        return t("Seit dem Überwachungsbeginn am {date} ist kein erster Report eingegangen; die Wartefrist von {days} Tagen ist abgelaufen.", {
+          date: formatDate(alert.monitoring_started_at, true), days: alert.grace_days ?? "–",
+        });
+      }
+      if (alert.freshness_reason === "reactivated") {
+        return t("Seit der Reaktivierung am {date} liegt kein aktueller Report vor; die neue Wartefrist von {days} Tagen ist abgelaufen.", {
+          date: formatDate(alert.monitoring_started_at, true), days: alert.grace_days ?? "–",
+        });
+      }
+    }
     if (language === "de") return alert.trigger;
     if (alert.kind === "new-source-ip") {
       const date = alert.trigger.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "–";
@@ -4468,6 +4499,9 @@ function AlertsView({
       return `${mechanisms.join(", ")} · ${t("DMARC bestanden")}`;
     }
     if (alert.kind === "stale-reports") {
+      if (!alert.report_time || !Number.isFinite(new Date(alert.report_time).getTime())) {
+        return t("Es fehlen aktuelle DMARC-Reports; die Wartefrist ist abgelaufen.");
+      }
       const days = Math.max(
         0,
         Math.floor(

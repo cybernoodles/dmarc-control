@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .host_classification import classify_host
+from .domain_monitoring import canonical_domain, domain_freshness_event, legacy_domain_monitoring
 from .service_detection import score_service
 from .freshness import report_freshness
 from .opensearch import OpenSearchError
@@ -208,21 +209,24 @@ class AlertEngine:
 
         fresh = await report_freshness(self.client, self.settings, domain)
         known = self.store.remember_domain_reports(fresh, domain)
+        monitored = self.store.list_domain_monitoring(self.settings.stale_report_days, domain)
         for item in known:
-            age = now - datetime.fromisoformat(item["last_report"])
-            if age <= timedelta(days=self.settings.stale_report_days):
-                continue
-            events.append({
-                "id": self.service._alert_id("v2", "stale-reports", item["domain"], "all", item["last_report"][:10]),
-                "priority": "warning", "kind": "stale-reports", "title": "DMARC-Reports bleiben aus",
-                "source_ip": None, "country": None, "domain": item["domain"],
-                "trigger": f"Letzter Berichtszeitraum endete vor {age.days} Tagen; übliche Zustellverzögerung berücksichtigt",
-                "report_time": item["last_report"], "messages": 0, "total_messages": 0,
-            })
+            try:
+                canonical_domain(item["domain"])
+            except ValueError:
+                monitored.append(legacy_domain_monitoring(item, self.settings.stale_report_days))
+        for item in monitored:
+            event = domain_freshness_event(item, now)
+            if event is not None:
+                events.append(event)
         if evaluation_counts is not None:
             # Include evaluated report history even when it creates no warning.
-            domains = {item["key"]["domain"] for item in history_buckets + buckets}
-            domains.update(item["domain"] for item in known)
+            domains = set()
+            for value in [item["key"]["domain"] for item in history_buckets + buckets] + [item["domain"] for item in monitored]:
+                try:
+                    domains.add(canonical_domain(value))
+                except ValueError:
+                    domains.add(value)
             hosts = {item["key"]["ip"] for item in history_buckets + buckets}
             evaluation_counts.update(domains=len(domains), hosts=len(hosts), events=len(events))
         return events

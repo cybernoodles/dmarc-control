@@ -454,6 +454,47 @@ es werden der vorhandene TypeScript-Compiler und Nodes Testwerkzeuge benutzt.
 Die Browserabnahme umfasst zusätzlich Fokus, verzögerte Antwortreihenfolgen,
 parallele Statusänderungen, mobile Darstellung und alle drei Dialogaktionen.
 
+## Domainverwaltung und ausbleibende Reports
+
+Unter **Einstellungen → Domains** verwalten angemeldete Administratoren die
+Reportüberwachung. Das Inventar enthält auch bekannte Domains außerhalb der
+Indexaufbewahrung und ausdrücklich erwartete Domains ohne ersten Report.
+
+- **Aktiv:** Reports wurden beobachtet. Die Wartefrist zählt ab dem Ende des
+  jüngsten Berichtszeitraums; ältere bereits bekannte Domains übernehmen
+  unverändert den bisherigen Standard `STALE_REPORT_DAYS`.
+- **Erwartet:** Manuell hinzugefügt, noch kein Report beobachtet. Der Server
+  speichert den Beginn und eine Wartefrist von 1 bis 365 Tagen. Erst nach
+  Ablauf entsteht „Erster DMARC-Report fehlt“. Mit dem ersten beobachteten
+  Report wechselt die Domain automatisch zu aktiv.
+- **Stillgelegt:** Ausbleibende Reports erzeugen keine aktuelle Frischewarnung.
+  Reports, Warnungshistorie, Bearbeitungsstatus und Versandnachweise bleiben
+  erhalten. Echte DMARC-Fehler werden weiterhin ausgewertet.
+
+**Reaktivieren** beginnt eine neue, in der Oberfläche sichtbare Wartefrist.
+Ein alter Report löst daher nicht sofort wieder eine Ausfallwarnung aus. Die
+neue Erwartung erhält einen eigenen Ereignisbezug; frühere erledigte Warnungen
+und Versandnachweise werden nicht zurückgesetzt. Eine bloße Änderung der
+Wartefrist erhält ihren Beginn; sie kann die Warnschwelle vorziehen oder
+verschieben. Unverändertes Speichern startet keine Frist neu.
+
+Domainnamen werden in der Verwaltung ohne Beachtung der Großschreibung und
+eines abschließenden Punkts verglichen; internationale Namen verwenden IDNA.
+Beobachtete Schreibweisen bleiben für exakte Reportsuche und historische
+Links erhalten. Mehrere Schreibweisen derselben Domain teilen sich die
+Überwachung und den jüngsten Report. Die neue Registry ist eine zusätzliche
+SQLite-Tabelle; vorhandene Reports und Ereignisse werden nicht umbenannt.
+
+Frischewarnungen verwenden weiterhin den Benachrichtigungsfall `stale-reports`.
+Der ergänzte Grund unterscheidet einen fehlenden ersten Report, eine noch
+nicht erfüllte Reaktivierung und einen späteren Reportausfall. Beginn,
+Wartefrist und Warnschwelle sind in den E-Mail-Details und im JSON-Anhang
+enthalten. Die üblichen Alerting-Schalter und Versandregeln gelten weiter.
+Ein regelmäßiger Versandlauf berücksichtigt Änderungen spätestens beim
+nächsten Intervall; das Öffnen der Warnungsliste wertet den aktuellen Stand
+direkt aus. Die Verwaltung des gespeicherten Bestands bleibt auch bei einer
+OpenSearch-Störung möglich.
+
 ## API
 
 | Endpunkt | Zweck |
@@ -469,6 +510,9 @@ parallele Statusänderungen, mobile Darstellung und alle drei Dialogaktionen.
 | `PUT /api/auth/read-credentials` | Read-Benutzername und -Passwort als Admin ändern |
 | `GET /api/settings/appearance` | globalen UI-Farbstandard lesen |
 | `PUT /api/settings/appearance` | globalen UI-Farbstandard als Admin ändern |
+| `GET /api/settings/domains` | gespeicherte Domainüberwachung einschließlich Fristen als Admin lesen |
+| `POST /api/settings/domains` | erwartete Domain mit `domain` und `grace_days` als Admin hinzufügen |
+| `PATCH /api/settings/domains` | Status und/oder Wartefrist einer Domain als Admin ändern; `grace_days: null` übernimmt den globalen Standard |
 | `GET /api/settings/notifications/status` | Read-sicheren Konfigurations- und Aktivstatus des E-Mail-Alertings lesen |
 | `GET /api/settings/mailbox` | Entwurf, aktive Revision und Parserstatus lesen |
 | `PUT /api/settings/mailbox` | neuen Verbindungsentwurf als Admin speichern |
@@ -479,7 +523,7 @@ parallele Statusänderungen, mobile Darstellung und alle drei Dialogaktionen.
 | `POST /api/settings/notifications/test` | explizite strukturierte Test-E-Mail versenden |
 | `GET /api/internal/parser/config` | aktive Konfiguration für den Supervisor |
 | `POST /api/internal/parser/status` | Laufzeitstatus des einzelnen Parsers melden |
-| `GET /api/domains` | verfügbare Header-From-Domains |
+| `GET /api/domains` | vollständige beobachtete sowie erwartete und historische Domains mit Überwachungsstatus |
 | `GET /api/overview` | Kennzahlen, Trend, Fehlerquellen, Reports und Policies |
 | `GET /api/hosts` | vollständiges Sending-Host-Inventar mit serverseitiger Suche, `limit`/`offset` und `total` |
 | `GET /api/hosts/{ip}` | einzelne Host-Detailansicht |

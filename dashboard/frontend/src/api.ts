@@ -17,6 +17,35 @@ export interface DomainItem {
   domain: string;
   messages: number;
   last_seen: string | null;
+  monitoring_state?: DomainMonitoringState;
+}
+
+export type DomainMonitoringState = "active" | "expected" | "retired";
+export type FreshnessReason = "never_observed" | "report_gap" | "reactivated";
+
+export interface DomainMonitoringItem {
+  domain: string;
+  query_domain: string;
+  aliases: string[];
+  state: DomainMonitoringState;
+  last_report: string | null;
+  monitoring_started_at: string | null;
+  grace_days: number;
+  configured_grace_days: number | null;
+  deadline: string | null;
+  observed: boolean;
+  freshness_reason?: FreshnessReason | null;
+}
+
+export interface DomainMonitoringSettings {
+  domains: DomainMonitoringItem[];
+  default_grace_days: number;
+}
+
+export interface DomainMonitoringPatch {
+  domain: string;
+  state?: DomainMonitoringState;
+  grace_days?: number | null;
 }
 
 export interface Overview {
@@ -192,6 +221,9 @@ export interface Alert {
   domain: string;
   trigger: string;
   report_time: string | null;
+  freshness_reason?: FreshnessReason;
+  monitoring_started_at?: string | null;
+  grace_days?: number;
   messages: number;
   total_messages?: number;
   kind: string;
@@ -543,10 +575,21 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ profile, color }),
     }),
-  domains: () =>
-    request<{ items: DomainItem[] }>("/api/domains").then(
+  domains: (signal?: AbortSignal) =>
+    request<{ items: DomainItem[] }>("/api/domains", { signal }).then(
       (response) => response.items,
     ),
+  domainMonitoring: (signal?: AbortSignal) =>
+    request<DomainMonitoringSettings>("/api/settings/domains", { signal }),
+  addMonitoredDomain: (domain: string, graceDays: number) =>
+    request<DomainMonitoringItem>("/api/settings/domains", {
+      method: "POST",
+      body: JSON.stringify({ domain, grace_days: graceDays }),
+    }),
+  updateMonitoredDomain: (update: DomainMonitoringPatch) =>
+    request<DomainMonitoringItem>("/api/settings/domains", {
+      method: "PATCH", body: JSON.stringify(update),
+    }),
   overview: (domain: string, days: number, signal?: AbortSignal) =>
     request<Overview>(`/api/overview?${query({ domain, days })}`, { signal }),
   hosts: (

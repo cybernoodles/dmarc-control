@@ -14,13 +14,15 @@ async def report_freshness(
     client: OpenSearchClient,
     settings: Settings,
     domain: str = "*",
-) -> list[dict[str, str]]:
+    *,
+    include_inventory: bool = False,
+) -> list[dict[str, Any]]:
     """Return the latest report-period end for every observed domain.
 
     Frische ist unabhängig vom Anzeigezeitraum. Die vollständige Historie
     bleibt deshalb auch bei langen Ausfällen die Grundlage dieser Abfrage.
     """
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     after: dict[str, Any] | None = None
     seen_cursors: set[str] = set()
     seen_domains: set[str] = set()
@@ -47,6 +49,11 @@ async def report_freshness(
                 }
             },
         }
+        if include_inventory:
+            body["aggs"]["domains"]["aggs"].update({
+                "messages": {"sum": {"field": "message_count"}},
+                "last_seen": {"max": {"field": "date_begin"}},
+            })
         response = await client.search(
             settings.aggregate_index, body, allow_missing=True
         )
@@ -78,14 +85,20 @@ async def report_freshness(
             if report_domain in seen_domains:
                 raise OpenSearchError("Report-Frische: Domain auf mehreren Seiten enthalten")
             seen_domains.add(report_domain)
-            items.append(
-                {
-                    "domain": str(report_domain),
-                    "last_report": datetime.fromtimestamp(
-                        float(last_report) / 1000, tz=UTC
-                    ).isoformat(),
-                }
-            )
+            item = {
+                "domain": str(report_domain),
+                "last_report": datetime.fromtimestamp(
+                    float(last_report) / 1000, tz=UTC
+                ).isoformat(),
+            }
+            if include_inventory:
+                last_seen = bucket.get("last_seen", {}).get("value")
+                item.update({
+                    "messages": int(round(float(bucket.get("messages", {}).get("value") or 0))),
+                    "last_seen": (datetime.fromtimestamp(float(last_seen) / 1000, tz=UTC).isoformat()
+                                  if last_seen is not None else None),
+                })
+            items.append(item)
 
         next_after = aggregation.get("after_key")
         if next_after is None:

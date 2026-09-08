@@ -245,6 +245,38 @@ def _case_title(event_type: str, language: str) -> str:
     return titles.get(language, titles["de"]).get(event_type, event_type)
 
 
+def _alert_title(alert: dict[str, Any], language: str) -> str:
+    if alert.get("event_type") == "stale-reports":
+        if alert.get("freshness_reason") == "never_observed":
+            return "First DMARC report is missing" if language == "en" else "Erster DMARC-Report fehlt"
+        if alert.get("freshness_reason") == "reactivated":
+            return ("No new DMARC report after reactivation" if language == "en"
+                    else "Kein neuer DMARC-Report nach Reaktivierung")
+    return _case_title(alert["event_type"], language)
+
+
+def _alert_trigger(alert: dict[str, Any], language: str) -> str:
+    if language == "en" and alert.get("event_type") == "stale-reports":
+        if alert.get("freshness_reason") == "never_observed":
+            return "No first report has been observed since monitoring began; the waiting period has expired."
+        if alert.get("freshness_reason") == "reactivated":
+            return "No report period has ended since reactivation; the new waiting period has expired."
+    return str(alert.get("trigger") or "")
+
+
+def _freshness_rows(alert: dict[str, Any], language: str) -> list[tuple[str, Any]]:
+    if alert.get("event_type") != "stale-reports" or not alert.get("grace_days"):
+        return []
+    english = language == "en"
+    rows = []
+    if alert.get("monitoring_started_at"):
+        rows.append(("Monitoring began" if english else "Beginn der Überwachung", alert["monitoring_started_at"]))
+    rows.append(("Waiting period (days)" if english else "Wartefrist (Tage)", alert["grace_days"]))
+    if alert.get("deadline"):
+        rows.append(("Warning after" if english else "Warnung nach", alert["deadline"]))
+    return rows
+
+
 def test_alert() -> dict[str, Any]:
     now = datetime.now(UTC).isoformat()
     return {
@@ -307,6 +339,11 @@ def _payload(
             "domain": alert.get("domain"),
             "trigger": alert.get("trigger"),
             "report_time": alert.get("report_time"),
+            "freshness_reason": alert.get("freshness_reason"),
+            "monitoring_started_at": alert.get("monitoring_started_at"),
+            "monitoring_episode_id": alert.get("monitoring_episode_id"),
+            "grace_days": alert.get("grace_days"),
+            "deadline": alert.get("deadline"),
             "affected_messages": alert.get("messages", 0),
             "total_messages": total_messages,
         },
@@ -380,8 +417,9 @@ def _plain_text(
     source = payload["source"]
     classification = payload["classification"]
     authentication = payload["authentication"]
+    language = "en" if labels["alert"] == "DMARC alert" else "de"
     rows = [
-        _case_title(alert["event_type"], "en" if labels["alert"] == "DMARC alert" else "de"),
+        _alert_title(alert, language),
         "",
     ]
     if test:
@@ -394,8 +432,9 @@ def _plain_text(
             f"{labels['country']}: {source['country'] or labels['not_available']}",
             f"{labels['service']}: {classification['service'] or labels['not_available']}",
             *[f"{label}: {content}" for label, content in _classification_rows(classification, labels)],
-            f"{labels['trigger']}: {alert['trigger']}",
-            f"{labels['report_time']}: {alert['report_time']}",
+            f"{labels['trigger']}: {_alert_trigger(alert, language)}",
+            f"{labels['report_time']}: {alert['report_time'] or labels['not_available']}",
+            *[f"{label}: {content}" for label, content in _freshness_rows(alert, language)],
             f"{labels['messages']}: {alert['affected_messages']}",
             f"{labels['total_messages']}: {alert['total_messages']}",
             (
@@ -469,6 +508,11 @@ def _html_body(
         f'<td style="padding:9px 0;border-top:1px solid #e7eded">{value(content)}</td></tr>'
         for label, content in _classification_rows(classification, labels)
     )
+    freshness_rows = "".join(
+        f'<tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(label)}</td>'
+        f'<td style="padding:9px 0;border-top:1px solid #e7eded">{value(content)}</td></tr>'
+        for label, content in _freshness_rows(alert, language)
+    )
     evidence = classification["evidence"]
     evidence_html = (
         "".join(f"<li>{value(item)}</li>" for item in evidence)
@@ -508,7 +552,7 @@ def _html_body(
   <div style="max-width:720px;margin:0 auto;padding:28px 16px">
     <div style="background:#101b1d;color:#fff;border-radius:12px 12px 0 0;padding:20px 24px">
       <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.72">DMARC Control</div>
-      <h1 style="font-size:22px;line-height:1.3;margin:8px 0 0">{value(_case_title(alert["event_type"], language))}</h1>
+      <h1 style="font-size:22px;line-height:1.3;margin:8px 0 0">{value(_alert_title(alert, language))}</h1>
     </div>
     <div style="background:#fff;border:1px solid #d9e2e2;border-top:0;border-radius:0 0 12px 12px;padding:24px">
       {test_intro}
@@ -521,8 +565,9 @@ def _html_body(
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["country"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(source["country"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["service"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(classification["service"])}</td></tr>
         {classification_rows}
-        <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["trigger"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["trigger"])}</td></tr>
+        <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["trigger"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(_alert_trigger(alert, language))}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["report_time"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["report_time"])}</td></tr>
+        {freshness_rows}
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["messages"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["affected_messages"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["total_messages"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["total_messages"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["dmarc"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(dmarc_value)}</td></tr>
@@ -554,7 +599,7 @@ def build_message(
     subject_prefix = labels["test"] if test else labels["alert"]
     subject = _header_value(
         f"[{subject_prefix}][{_priority_label(priority, language)}] "
-        f"{_case_title(event_type, language)} · {alert.get('domain') or '-'}",
+        f"{_alert_title(payload['alert'], language)} · {alert.get('domain') or '-'}",
         500,
     )
 

@@ -9,11 +9,12 @@ from typing import Any
 
 from .recipient_deliveries import RecipientDeliveryStore
 from .evaluation_runs import EvaluationRunStore
+from .domain_monitoring import DomainMonitoringStore
 
 DEFAULT_BRAND_COLOR = "#173f43"
 
 
-class StateStore(RecipientDeliveryStore, EvaluationRunStore):
+class StateStore(RecipientDeliveryStore, EvaluationRunStore, DomainMonitoringStore):
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
         self._lock = threading.Lock()
@@ -95,6 +96,7 @@ class StateStore(RecipientDeliveryStore, EvaluationRunStore):
                 )
                 """
             )
+            self.initialize_domain_monitoring(connection)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS app_settings (
@@ -924,6 +926,9 @@ class StateStore(RecipientDeliveryStore, EvaluationRunStore):
                 """,
                 normalized,
             )
+            self._sync_domain_monitoring(connection, [
+                {"domain": name, "last_report": ended} for name, ended in normalized
+            ])
             query = "SELECT domain, last_report FROM domain_report_history"
             parameters = ()
             if domain and domain != "*":
@@ -966,6 +971,16 @@ class StateStore(RecipientDeliveryStore, EvaluationRunStore):
                     original = json.loads(old["payload_json"])
                     payload["kind"] = original["kind"]
                     payload["title"] = original["title"]
+                # An explicitly added/resumed monitoring episode is new user
+                # intent, even when its first due event coincides with bootstrap.
+                explicit_expectation = (
+                    bootstrap and event.get("kind") == "stale-reports"
+                    and event.get("monitoring_episode_id")
+                    and connection.execute(
+                        "SELECT 1 FROM domain_monitoring WHERE domain = ? AND episode_id = ?",
+                        (event.get("monitoring_domain"), event["monitoring_episode_id"]),
+                    ).fetchone() is not None
+                )
                 connection.execute(
                     """
                     INSERT INTO alert_events VALUES (?, ?, ?, ?, ?)
@@ -974,7 +989,7 @@ class StateStore(RecipientDeliveryStore, EvaluationRunStore):
                         updated_at = excluded.updated_at
                     """,
                     (event["id"], json.dumps(payload), timestamp, timestamp,
-                     0 if bootstrap else 1),
+                     0 if bootstrap and not explicit_expectation else 1),
                 )
             for legacy_id, event_id in (aliases or {}).items():
                 existing = connection.execute(

@@ -137,11 +137,13 @@ erneut zu entwickelnden Funktionen.
 
 ## 6. Erwartete und stillgelegte Domains verwalten
 
-**Als Nächstes:** Zuerst Zustände und Übergänge für beobachtete, erwartete und
-stillgelegte Domains festlegen. Danach die persistente Domainverwaltung und
-die geschützte Bedienung ergänzen; zuletzt Wartefristen und Frischewarnungen
-mit Migration des vorhandenen Bestands prüfen. Manuelle Versandwiederholungen
-bleiben ein separates Paket nach den bereits dokumentierten Empfängerregeln.
+**Stand:** Implementiert. Die geschützte Domainverwaltung enthält aktive,
+erwartete und stillgelegte Domains einschließlich sichtbarem Beginn,
+Wartefrist und Warnschwelle. Erwartete Domains wechseln mit dem ersten Report
+automatisch zu aktiv. Reaktivierung beginnt eine neue Erwartung; reine
+Friständerungen erhalten deren Beginn. Historische Reports, Ereignisse,
+Bearbeitungs- und Versandzustände bleiben bestehen. Die Domainauswahl liest
+das vollständige Inventar und enthält auch erwartete und historische Domains.
 
 **Umsetzung:** Überwachungsstatus pro Domain ausdrücklich verwalten:
 beobachtet und aktiv, erwartet aber noch nie beobachtet, sowie stillgelegt.
@@ -159,7 +161,41 @@ bei der Migration weiterhin als aktiv behandelt. Änderungen am
 
 **Abhängigkeit / Aufwand:** Persistente bekannte Domains aus F04; explizite
 Admin-Einstellungen, Migration und verständliche Statusanzeige. **Mittel–größer.**
-Bis dahin bleiben alle bereits beobachteten Domains überwacht.
+Bestehende beobachtete Domains bleiben ohne Fristneustart aktiv.
+
+## 7. Gezielte manuelle Versandwiederholung vorbereiten
+
+**Als Nächstes:** Die vorhandenen Versanddetails um einen gezielten
+Admin-Vorgang ergänzen. Zuerst zulässige Empfängerzustände und eine Vorschau
+der tatsächlich erneut angeschriebenen Empfänger definieren; danach die
+atomare Freigabe und Bedienung implementieren.
+
+**Umsetzung:** Nur eindeutig nicht akzeptierte Empfänger eines bestehenden
+Ereignisses freigeben. Bereits vom Versandserver akzeptierte Empfänger und
+ungeklärte Altzustellungen ausschließen. Dauerhafte Ablehnungen erst nach
+sichtbarer Prüfung des Fehlers bewusst freigeben. Ereignis, Empfänger,
+Zeitpunkt und Ergebnis der Freigabe protokollieren. Pausiertes Alerting und
+stillgelegte Domain-Frischewarnungen weiterhin respektieren.
+
+**Abnahme:** Zwei parallele Freigaben erzeugen nur einen neuen Versuch.
+Ein Neustart zwischen Freigabe und Versand verliert keinen Zustand. Erfolgreich
+akzeptierte Empfänger werden nie mit angeschrieben; unbekannte Altzustellungen
+lassen sich nicht durch eine Sammelaktion umgehen. Vorschau und tatsächliche
+Empfängermenge stimmen überein. Tests verwenden ausschließlich gemockte
+Transporte.
+
+**Abhängigkeit / Aufwand:** Empfängerzustände aus Phase 1 und Versanddetails
+aus Phase 2; der aktuelle Domainzustand muss vor dem Versuch erneut geprüft
+werden. **Mittel.**
+
+## 8. Bedienung und Auswertungsleistung anhand des Betriebs prüfen
+
+**Vorschlag nach Phase 7:** Wiederkehrende Untersuchungswege mit großen
+Host- und Domainbeständen prüfen und die bereits gespeicherten Laufzeiten
+auswerten. Such- und Filtermöglichkeiten in der Domainverwaltung erst dann
+ergänzen, wenn die Größe des Inventars sie erfordert. OpenSearch-Optimierungen
+an gemessenen langsamen Abfragen ausrichten; Vollständigkeit der Auswertung
+und erhaltene historische Links bleiben Abnahmekriterien.
 
 ## Gemeinsame Freigabekriterien
 

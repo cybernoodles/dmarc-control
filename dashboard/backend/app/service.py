@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .config import Settings
+from .freshness import report_freshness
 from .host_classification import classify_host
 from .service_detection import score_service
 from .opensearch import OpenSearchClient, OpenSearchError
@@ -112,36 +113,23 @@ class DashboardService:
         self._alert_engine = AlertEngine(self)
 
     async def domains(self) -> list[dict[str, Any]]:
-        body = {
-            "size": 0,
-            "query": {"match_all": {}},
-            "aggs": {
-                "domains": {
-                    "terms": {
-                        "field": "header_from.keyword",
-                        "size": 250,
-                        "order": {"messages": "desc"},
-                    },
-                    "aggs": {
-                        "messages": {"sum": {"field": "message_count"}},
-                        "last_seen": {"max": {"field": "date_begin"}},
-                    },
-                }
-            },
-        }
-        response = await self.client.search(
-            self.settings.aggregate_index, body, allow_missing=True
+        observed = await report_freshness(
+            self.client, self.settings, include_inventory=True,
         )
-        return [
-            {
-                "domain": bucket["key"],
-                "messages": _sum(bucket),
-                "last_seen": _iso_from_epoch(_value(bucket, "last_seen")),
-            }
-            for bucket in response.get("aggregations", {})
-            .get("domains", {})
-            .get("buckets", [])
-        ]
+        # Persist discovery only after all pages succeed. Keep exact spellings
+        # for existing OpenSearch filters and historical investigation links.
+        self.store.remember_domain_reports(observed)
+        items = {item["domain"]: {
+            "domain": item["domain"], "messages": item["messages"],
+            "last_seen": item["last_seen"],
+        } for item in observed}
+        for entry in self.store.list_domain_monitoring(self.settings.stale_report_days):
+            for query_domain in entry["aliases"] or [entry["query_domain"]]:
+                item = items.setdefault(query_domain, {
+                    "domain": query_domain, "messages": 0, "last_seen": None,
+                })
+                item["monitoring_state"] = entry["state"]
+        return sorted(items.values(), key=lambda item: (-item["messages"], item["domain"]))
 
     async def overview(self, domain: str, days: int) -> dict[str, Any]:
         query_filters = _filters(

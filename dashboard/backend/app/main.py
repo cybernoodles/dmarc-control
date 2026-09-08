@@ -118,6 +118,29 @@ class AppearanceUpdate(BaseModel):
     )
 
 
+class DomainMonitoringCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    domain: str = Field(min_length=1, max_length=255)
+    grace_days: int = Field(ge=1, le=365, strict=True)
+
+
+class DomainMonitoringUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    domain: str = Field(min_length=1, max_length=255)
+    state: Literal["active", "expected", "retired"] | None = None
+    grace_days: int | None = Field(default=None, ge=1, le=365, strict=True)
+
+    @model_validator(mode="after")
+    def validate_patch(self):
+        if "state" in self.model_fields_set and self.state is None:
+            raise ValueError("state darf nicht null sein")
+        if not self.model_fields_set.intersection({"state", "grace_days"}):
+            raise ValueError("Überwachungsstatus oder Wartefrist erforderlich")
+        return self
+
+
 class PasswordRequest(BaseModel):
     password: str = Field(
         min_length=PASSWORD_MIN_LENGTH,
@@ -814,6 +837,13 @@ async def dispatch_notification_cycle() -> None:
             or not alert.get("notification_eligible", True)
         ):
             continue
+        if event_type == "stale-reports" and not store.domain_freshness_allows(
+            alert, settings.stale_report_days,
+        ):
+            # A domain may have been retired or reactivated while the read-only
+            # evaluation was running. Recheck its current expectation before
+            # claiming any recipients for an obsolete freshness result.
+            continue
         claims = store.claim_notification_recipients(
             alert_id=alert["id"], configuration=configuration,
         )
@@ -965,6 +995,43 @@ async def health():
 @app.get("/api/domains")
 async def domains():
     return {"items": await service.domains()}
+
+
+@app.get("/api/settings/domains")
+async def domain_monitoring(request: Request):
+    require_admin(request)
+    # Administration remains available during an OpenSearch outage. Discovery
+    # is updated by the domain selector and complete alert evaluations.
+    return {
+        "domains": store.list_domain_monitoring(settings.stale_report_days),
+        "default_grace_days": settings.stale_report_days,
+    }
+
+
+@app.post("/api/settings/domains", status_code=201)
+async def create_domain_monitoring(update: DomainMonitoringCreate, request: Request):
+    require_admin(request)
+    try:
+        return store.add_domain_monitoring(
+            update.domain, update.grace_days,
+            default_grace_days=settings.stale_report_days,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/settings/domains")
+async def update_domain_monitoring(update: DomainMonitoringUpdate, request: Request):
+    require_admin(request)
+    changes = update.model_dump(exclude_unset=True, exclude={"domain"})
+    try:
+        return store.update_domain_monitoring(
+            update.domain, **changes, default_grace_days=settings.stale_report_days,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Domain ist nicht registriert") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/auth/status")
