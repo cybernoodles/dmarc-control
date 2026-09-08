@@ -433,7 +433,8 @@ select {
   gap: 1.2rem;
 }
 
-.alerts-page {
+.alerts-page,
+.hosts-page {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -1021,6 +1022,7 @@ td > strong {
 
 .classification-form label {
   flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .classification-form .notes-field {
@@ -1029,6 +1031,114 @@ td > strong {
 
 .classification-note {
   margin-top: 0.65rem;
+}
+
+.classification-explanation {
+  color: var(--ink-muted);
+  flex: 1 1 100%;
+  font-size: 0.73rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.classification-actions {
+  align-items: center;
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.classification-actions .button {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.classification-form input[readonly] {
+  color: var(--ink-muted);
+  background: var(--surface);
+}
+
+.classification-draft-note {
+  flex: 1 1 100%;
+}
+
+.host-detection {
+  display: grid;
+  gap: 0.8rem;
+  margin: 1rem 0;
+  min-width: 0;
+}
+
+.host-effective-service,
+.host-automatic-summary {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  justify-content: space-between;
+}
+
+.host-effective-service h3,
+.host-automatic-detection h4 {
+  font-size: 0.83rem;
+  margin: 0 0 0.4rem;
+}
+
+.host-effective-service strong {
+  font-size: 0.94rem;
+  overflow-wrap: anywhere;
+}
+
+.host-automatic-detection {
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  min-width: 0;
+  padding: 0.85rem;
+}
+
+.host-automatic-summary {
+  justify-content: flex-start;
+  font-size: 0.8rem;
+}
+
+.host-automatic-summary span,
+.host-automatic-detection p,
+.host-evidence-details {
+  color: var(--ink-muted);
+  font-size: 0.73rem;
+  line-height: 1.5;
+}
+
+.host-automatic-detection p {
+  margin: 0.55rem 0;
+}
+
+.host-evidence-details {
+  margin-top: 0.8rem;
+}
+
+.host-evidence-details summary {
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.host-evidence-details ul {
+  display: grid;
+  gap: 0.6rem;
+  list-style: none;
+  margin: 0.7rem 0 0;
+  padding: 0;
+}
+
+.host-evidence-details li {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 0.15rem;
+  overflow-wrap: anywhere;
+  padding-top: 0.5rem;
 }
 
 .form-message {

@@ -114,7 +114,12 @@ def _labels(language: str) -> dict[str, str]:
             "domain": "Domain",
             "source": "Source IP",
             "country": "Country",
-            "service": "Detected service",
+            "service": "Assigned service",
+            "mode": "Assignment",
+            "automatic_service": "Automatic alternative",
+            "automatic": "Automatic",
+            "manual": "Manual",
+            "legacy_preserved": "Existing assignment retained",
             "trigger": "Trigger",
             "report_time": "Report time",
             "messages": "Affected messages",
@@ -144,7 +149,12 @@ def _labels(language: str) -> dict[str, str]:
         "domain": "Domain",
         "source": "Source-IP",
         "country": "Land",
-        "service": "Erkannter Dienst",
+        "service": "Zugeordneter Dienst",
+        "mode": "Zuordnung",
+        "automatic_service": "Automatische Alternative",
+        "automatic": "Automatisch",
+        "manual": "Manuell",
+        "legacy_preserved": "Bestehende Zuordnung übernommen",
         "trigger": "Auslöser",
         "report_time": "Reportzeit",
         "messages": "Betroffene Nachrichten",
@@ -284,6 +294,9 @@ def _payload(
             "service": alert.get("service"),
             "confidence": alert.get("service_confidence"),
             "evidence": alert.get("service_evidence") or [],
+            "mode": alert.get("classification_mode"),
+            "automatic_detection": alert.get("automatic_detection"),
+            "evidence_details": alert.get("service_evidence_details") or [],
         },
         "identities": {
             "header_from": alert.get("header_froms") or [],
@@ -317,6 +330,17 @@ def _payload(
     }
 
 
+def _classification_rows(classification: dict[str, Any], labels: dict[str, str]) -> list[tuple[str, str]]:
+    mode = classification.get("mode")
+    if mode not in {"automatic", "manual", "legacy_preserved"}:
+        return []
+    rows = [(labels["mode"], labels[mode])]
+    automatic = classification.get("automatic_detection")
+    if mode != "automatic" and automatic:
+        rows.append((labels["automatic_service"], str(automatic["service"])))
+    return rows
+
+
 def _plain_text(
     payload: dict[str, Any],
     labels: dict[str, str],
@@ -340,6 +364,7 @@ def _plain_text(
             f"{labels['source']}: {source['ip'] or labels['not_available']}",
             f"{labels['country']}: {source['country'] or labels['not_available']}",
             f"{labels['service']}: {classification['service'] or labels['not_available']}",
+            *[f"{label}: {content}" for label, content in _classification_rows(classification, labels)],
             f"{labels['trigger']}: {alert['trigger']}",
             f"{labels['report_time']}: {alert['report_time']}",
             f"{labels['messages']}: {alert['affected_messages']}",
@@ -410,6 +435,11 @@ def _html_body(
         f"{authentication['dkim_alignment']['aligned']} aligned · "
         f"{authentication['dkim_alignment']['not_aligned']} not aligned"
     )
+    classification_rows = "".join(
+        f'<tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(label)}</td>'
+        f'<td style="padding:9px 0;border-top:1px solid #e7eded">{value(content)}</td></tr>'
+        for label, content in _classification_rows(classification, labels)
+    )
     evidence = classification["evidence"]
     evidence_html = (
         "".join(f"<li>{value(item)}</li>" for item in evidence)
@@ -461,6 +491,7 @@ def _html_body(
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["source"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(source["ip"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["country"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(source["country"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["service"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(classification["service"])}</td></tr>
+        {classification_rows}
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["trigger"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["trigger"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["report_time"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["report_time"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["messages"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["affected_messages"])}</td></tr>

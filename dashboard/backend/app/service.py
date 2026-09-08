@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import ipaddress
-import re
 from datetime import UTC, datetime, timedelta
-from typing import Any, Iterable
+from typing import Any
 
 from .config import Settings
+from .host_classification import classify_host
+from .service_detection import score_service
 from .opensearch import OpenSearchClient, OpenSearchError
 from .store import StateStore
 
@@ -94,162 +94,6 @@ def _weighted_terms(aggregation: dict[str, Any]) -> list[dict[str, Any]]:
         {"name": bucket["key"], "messages": _sum(bucket)}
         for bucket in aggregation.get("buckets", [])
     ]
-
-
-def _score_service(source: dict[str, Any], evidence: Iterable[str]) -> dict[str, Any]:
-    candidates: dict[str, dict[str, Any]] = {}
-
-    def add(
-        service: str,
-        weight: float,
-        signal: str,
-        *,
-        profile: str = "mail_service",
-    ) -> None:
-        item = candidates.setdefault(
-            service,
-            {"score": 0.0, "evidence": [], "profile": profile},
-        )
-        item["score"] += weight
-        if signal not in item["evidence"]:
-            item["evidence"].append(signal)
-
-    explicit_name = str(source.get("source_name") or "").strip()
-    source_type = str(source.get("source_type") or "").strip().lower()
-    trusted_source_types = {"saas", "email service", "esp", "mail provider"}
-    trusted_source = source_type in trusted_source_types
-    if (
-        explicit_name
-        and explicit_name.lower() not in {"unknown", "none"}
-        and trusted_source
-    ):
-        add(explicit_name, 0.72, f"parsedmarc: {explicit_name}")
-
-    haystack = " ".join(
-        str(value or "").lower()
-        for value in [
-            source.get("source_reverse_dns"),
-            source.get("source_base_domain"),
-            source.get("source_as_name"),
-            source.get("source_as_domain"),
-            *evidence,
-        ]
-    )
-
-    signatures = {
-        "SMTP2GO": [
-            ("smtp2go.com", 0.62, "PTR/Domain: smtp2go.com"),
-            ("smtpservice.net", 0.38, "DKIM: smtpservice.net"),
-            ("deft.com", 0.18, "ASN: DEFT.COM"),
-        ],
-        "Microsoft 365": [
-            ("protection.outlook.com", 0.62, "Mail-Domain: protection.outlook.com"),
-            ("outbound.protection.outlook.com", 0.62, "PTR: Microsoft EOP"),
-            ("onmicrosoft.com", 0.32, "Identität: onmicrosoft.com"),
-            ("microsoft", 0.28, "ASN: Microsoft"),
-            ("outlook.com", 0.24, "Mail-Domain: outlook.com"),
-        ],
-        "Google Workspace": [
-            ("google.com", 0.28, "Domain/ASN: Google"),
-            ("googlemail.com", 0.5, "PTR: googlemail.com"),
-            ("_spf.google.com", 0.5, "SPF: Google"),
-        ],
-        "Amazon SES": [
-            ("amazonses.com", 0.66, "Mail-Domain: amazonses.com"),
-            ("amazonaws.com", 0.32, "PTR/ASN: AWS"),
-        ],
-        "Mailchimp": [
-            ("mailchimp.com", 0.66, "Mail-Domain: mailchimp.com"),
-            ("mandrillapp.com", 0.6, "Mail-Domain: mandrillapp.com"),
-        ],
-    }
-    for service, signals in signatures.items():
-        for needle, weight, label in signals:
-            if needle in haystack:
-                add(service, weight, label)
-
-    ptr = str(source.get("source_reverse_dns") or "").strip().lower().rstrip(".")
-    ptr_tokens = set(re.findall(r"[a-z0-9]+", ptr))
-    dynamic_markers = {
-        "bbcs",
-        "broadband",
-        "cable",
-        "dhcp",
-        "dial",
-        "dialup",
-        "dsl",
-        "dyn",
-        "dynamic",
-        "pool",
-        "ppp",
-        "pppoe",
-        "residential",
-    }
-    static_markers = {"static", "fixed", "dedicated"}
-    address_in_ptr = False
-    public_ipv4 = False
-    try:
-        address = ipaddress.ip_address(str(source.get("source_ip_address") or ""))
-        public_ipv4 = address.version == 4 and address.is_global
-        if public_ipv4 and ptr:
-            octets = str(address).split(".")
-            reverse_octets = list(reversed(octets))
-            address_patterns = {
-                ".".join(octets),
-                "-".join(octets),
-                ".".join(reverse_octets),
-                "-".join(reverse_octets),
-            }
-            address_in_ptr = any(pattern in ptr for pattern in address_patterns)
-    except ValueError:
-        pass
-
-    dynamic_marker = bool(ptr_tokens & dynamic_markers)
-    explicitly_static = bool(ptr_tokens & static_markers)
-    if (
-        public_ipv4
-        and address_in_ptr
-        and dynamic_marker
-        and not explicitly_static
-        and not trusted_source
-    ):
-        add(
-            "Dynamischer IP-Bereich",
-            0.54,
-            "PTR: umgekehrte Quell-IP eingebettet",
-            profile="dynamic_ip",
-        )
-        add(
-            "Dynamischer IP-Bereich",
-            0.34,
-            "PTR: dynamisches Anschlussmuster",
-            profile="dynamic_ip",
-        )
-
-    if not candidates:
-        return {
-            "service": "Unbekannt",
-            "confidence": 0,
-            "confidence_label": "Keine Zuordnung",
-            "evidence": [],
-            "profile": "unknown",
-        }
-
-    service, result = max(candidates.items(), key=lambda item: item[1]["score"])
-    confidence = min(round(result["score"], 2), 0.99)
-    if confidence >= 0.8:
-        label = "Hoch"
-    elif confidence >= 0.55:
-        label = "Mittel"
-    else:
-        label = "Niedrig"
-    return {
-        "service": service,
-        "confidence": confidence,
-        "confidence_label": label,
-        "evidence": result["evidence"],
-        "profile": result["profile"],
-    }
 
 
 class DashboardService:
@@ -692,27 +536,14 @@ class DashboardService:
                 continue
 
             latest = _latest_source(current)
-            identity_evidence = [
-                *_top_keys(current, "spf_domains"),
-                *_top_keys(current, "dkim_domains"),
-                *_top_keys(current, "dkim_selectors"),
-                str(latest.get("source_as_name") or ""),
-            ]
-            detection = _score_service(latest, identity_evidence)
+            automatic = score_service(
+                latest,
+                spf_domains=_top_keys(current, "spf_domains"),
+                dkim_domains=_top_keys(current, "dkim_domains"),
+                dkim_selectors=_top_keys(current, "dkim_selectors"),
+            )
             override = overrides.get(host_ip)
-            if override:
-                detection["automatic_service"] = detection["service"]
-                if override.get("service_name"):
-                    detection["service"] = override["service_name"]
-                detection["manual_override"] = True
-                trust_status = override["trust_status"]
-            else:
-                detection["manual_override"] = False
-                trust_status = (
-                    "automatic"
-                    if detection["confidence"] >= 0.55
-                    else "unconfirmed"
-                )
+            detection, trust_status = classify_host(automatic, override)
 
             first_seen = _iso_from_epoch(_value(bucket, "first_seen"))
             is_new = False

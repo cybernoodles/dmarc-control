@@ -60,6 +60,42 @@ export interface Overview {
   }>;
 }
 
+export type ClassificationMode = "automatic" | "manual" | "legacy_preserved";
+
+export interface DetectionEvidence {
+  origin: string;
+  value: string;
+  rule_id: string;
+  independence_group: string;
+  auth_result?: string;
+}
+
+export interface AutomaticDetection {
+  service: string;
+  confidence: number;
+  confidence_label: string;
+  evidence: string[];
+  evidence_details?: DetectionEvidence[];
+  profile: "dynamic_ip" | "mail_service" | "unknown";
+}
+
+export interface HostClassification {
+  source_ip: string;
+  classification_mode: ClassificationMode;
+  manual_service_name: string | null;
+  service_name: string | null;
+  trust_status: TrustStatus;
+  notes: string | null;
+  updated_at: string;
+}
+
+export interface HostClassificationPatch {
+  classification_mode?: "automatic" | "manual";
+  manual_service_name?: string | null;
+  trust_status?: TrustStatus;
+  notes?: string | null;
+}
+
 export interface Host {
   source_ip: string;
   reverse_dns: string | null;
@@ -92,17 +128,22 @@ export interface Host {
   service_detection: {
     service: string;
     automatic_service?: string;
-    confidence: number;
+    confidence: number | null;
     confidence_label: string;
     evidence: string[];
     manual_override: boolean;
     profile: "dynamic_ip" | "mail_service" | "unknown";
+    classification_mode?: ClassificationMode;
+    manual_service_name?: string | null;
+    automatic_detection?: AutomaticDetection;
   };
   override: {
     service_name: string | null;
     trust_status: TrustStatus;
     notes: string | null;
     updated_at: string;
+    classification_mode?: ClassificationMode;
+    manual_service_name?: string | null;
   } | null;
 }
 
@@ -528,14 +569,10 @@ export const api = {
     }),
   updateHost: (
     sourceIp: string,
-    update: {
-      service_name: string | null;
-      trust_status: TrustStatus;
-      notes: string | null;
-    },
+    update: HostClassificationPatch,
   ) =>
-    request(`/api/hosts/${encodeURIComponent(sourceIp)}/classification`, {
-      method: "PUT",
+    request<HostClassification>(`/api/hosts/${encodeURIComponent(sourceIp)}/classification`, {
+      method: "PATCH",
       body: JSON.stringify(update),
     }),
   clearHostClassification: (sourceIp: string) =>

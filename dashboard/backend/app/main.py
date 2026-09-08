@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .auth import (
     PASSWORD_MAX_LENGTH,
@@ -92,6 +92,22 @@ class HostClassificationUpdate(BaseModel):
     service_name: str | None = Field(default=None, max_length=120)
     trust_status: Literal["unconfirmed", "automatic", "confirmed", "ignored"]
     notes: str | None = Field(default=None, max_length=500)
+
+
+class HostClassificationPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    classification_mode: Literal["automatic", "manual"] | None = None
+    manual_service_name: str | None = Field(default=None, max_length=120)
+    trust_status: Literal["unconfirmed", "automatic", "confirmed", "ignored"] | None = None
+    notes: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def reject_null_mode_and_trust(self):
+        for field in ("classification_mode", "trust_status"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} darf nicht null sein")
+        return self
 
 
 class AppearanceUpdate(BaseModel):
@@ -1423,6 +1439,19 @@ async def update_host_classification(
         trust_status=update.trust_status,
         notes=update.notes,
     )
+
+
+@app.patch("/api/hosts/{source_ip}/classification")
+async def patch_host_classification(
+    source_ip: str,
+    update: HostClassificationPatch,
+):
+    try:
+        return store.patch_host_classification(
+            source_ip, update.model_dump(exclude_unset=True)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.delete("/api/hosts/{source_ip}/classification")

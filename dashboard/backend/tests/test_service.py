@@ -7,7 +7,8 @@ from typing import Any
 from unittest.mock import patch
 
 from app.config import Settings
-from app.service import DashboardService, _score_service
+from app.service import DashboardService
+from app.service_detection import score_service
 from app.store import StateStore
 
 
@@ -32,26 +33,27 @@ class FakeClient:
 
 class ServiceDetectionTests(unittest.TestCase):
     def test_smtp2go_uses_multiple_signals(self) -> None:
-        result = _score_service(
+        result = score_service(
             {
                 "source_reverse_dns": "e3i387.smtp2go.com",
                 "source_base_domain": "smtp2go.com",
                 "source_as_name": "DEFT.COM",
             },
-            ["smtpservice.net", "s1073568"],
+            spf_domains=["smtpservice.net"],
+            dkim_selectors=["s1073568"],
         )
 
         self.assertEqual(result["service"], "SMTP2GO")
         self.assertEqual(result["profile"], "mail_service")
-        self.assertGreaterEqual(result["confidence"], 0.8)
+        self.assertLess(result["confidence"], 0.8)
         self.assertGreaterEqual(len(result["evidence"]), 2)
 
     def test_dynamic_public_ip_uses_multiple_ptr_patterns(self) -> None:
-        with patch("app.service.ipaddress.ip_address") as parse_address:
+        with patch("app.service_detection.ipaddress.ip_address") as parse_address:
             parse_address.return_value.version = 4
             parse_address.return_value.is_global = True
             parse_address.return_value.__str__.return_value = "203.0.113.42"
-            result = _score_service(
+            result = score_service(
                 {
                     "source_ip_address": "203.0.113.42",
                     "source_reverse_dns": (
@@ -59,20 +61,20 @@ class ServiceDetectionTests(unittest.TestCase):
                     ),
                     "source_base_domain": "example.net",
                 },
-                ["example.org"],
+                spf_domains=["example.org"],
             )
 
         self.assertEqual(result["service"], "Dynamischer IP-Bereich")
         self.assertEqual(result["profile"], "dynamic_ip")
-        self.assertGreaterEqual(result["confidence"], 0.8)
+        self.assertLessEqual(result["confidence"], 0.54)
         self.assertEqual(len(result["evidence"]), 2)
 
     def test_explicit_static_ptr_is_not_classified_as_dynamic(self) -> None:
-        with patch("app.service.ipaddress.ip_address") as parse_address:
+        with patch("app.service_detection.ipaddress.ip_address") as parse_address:
             parse_address.return_value.version = 4
             parse_address.return_value.is_global = True
             parse_address.return_value.__str__.return_value = "198.51.100.17"
-            result = _score_service(
+            result = score_service(
                 {
                     "source_ip_address": "198.51.100.17",
                     "source_reverse_dns": (
@@ -80,21 +82,21 @@ class ServiceDetectionTests(unittest.TestCase):
                     ),
                     "source_base_domain": "example.net",
                 },
-                [],
+                spf_domains=[],
             )
 
         self.assertEqual(result["service"], "Unbekannt")
         self.assertEqual(result["profile"], "unknown")
 
     def test_unknown_host_is_not_invented(self) -> None:
-        result = _score_service(
+        result = score_service(
             {
                 "source_reverse_dns": "customer.example.net",
                 "source_as_name": "Example Transit",
                 "source_name": "Example ISP",
                 "source_type": "ISP",
             },
-            [],
+            spf_domains=[],
         )
 
         self.assertEqual(result["service"], "Unbekannt")

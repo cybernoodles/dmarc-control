@@ -16,6 +16,58 @@ export type Translate = (
 const LANGUAGE_STORAGE_KEY = "dmarc-control-language";
 
 const english: Record<string, string> = {
+  "Host-Zuordnung bearbeiten": "Edit host classification",
+  "Änderungen gespeichert.": "Changes saved.",
+  "Diensterkennung": "Service detection",
+  "Automatisch ermitteln": "Detect automatically",
+  "Manuellen Dienst verwenden": "Use a manual service",
+  "Bisherige Zuordnung übernommen": "Previous classification preserved",
+  "Manueller Dienstname": "Manual service name",
+  "Automatisch aus Erkennung ableiten": "Derive automatically from detection",
+  "Die bisherige Zuordnung bleibt erhalten. Ob der Dienstname früher bewusst festgelegt wurde, ist nicht sicher bekannt. Notizen können unabhängig geändert werden; für eine neue Entscheidung wähle automatische oder manuelle Erkennung.":
+    "The previous classification is preserved. It is uncertain whether the service name was intentionally chosen before. Notes can be changed independently; choose automatic or manual detection to make a new decision.",
+  "Notizen und Zuordnungsstatus legen keinen Dienstnamen fest. Die automatische Erkennung kann sich mit neuen Reports ändern.":
+    "Notes and classification status do not set a service name. Automatic detection may change as new reports arrive.",
+  "Automatik wiederherstellen behält gespeicherte Notizen und leitet den Zuordnungsstatus wieder automatisch ab.":
+    "Restoring automatic detection keeps saved notes and derives the classification status automatically again.",
+  "Ungespeicherte Änderungen vorhanden.": "There are unsaved changes.",
+  "Verwendete Dienstzuordnung": "Current service classification",
+  "Automatisch ermittelt": "Detected automatically",
+  "Manuell": "Manual",
+  "Übernommen": "Preserved",
+  "Automatische Erkennung": "Automatic detection",
+  "Automatische Alternative": "Automatic alternative",
+  "Die Konfidenz gehört ausschließlich zur automatischen Erkennung. Sie ist eine regelbasierte Einschätzung, keine statistisch gemessene Wahrscheinlichkeit. Mehrere Angaben aus derselben Quelle gelten nicht als unabhängige Bestätigung.":
+    "Confidence applies only to automatic detection. It is a rule-based assessment, not a statistically measured probability. Multiple observations from the same source do not count as independent confirmation.",
+  "Herkunft der Erkennungssignale": "Detection signal sources",
+  "Ein SPF- oder DKIM-Domainname allein bestätigt keine erfolgreiche Authentifizierung. Ein Prüfergebnis wird nur angezeigt, wenn es im Report vorliegt.":
+    "An SPF or DKIM domain name alone does not confirm successful authentication. A result is shown only when the report provides one.",
+  "Für diesen Eintrag liegt keine getrennte automatische Erkennung vor.":
+    "Separate automatic detection is unavailable for this record.",
+  "Reverse DNS (PTR)": "Reverse DNS (PTR)",
+  "PTR-Basisdomain": "PTR base domain",
+  "ASN-Name": "ASN name",
+  "ASN-Domain": "ASN domain",
+  "Quellenname": "Source name",
+  "SPF-Domain (ohne Einzelergebnis)": "SPF domain (no individual result)",
+  "DKIM-Domain (ohne Einzelergebnis)": "DKIM domain (no individual result)",
+  "SPF-Prüfung": "SPF check",
+  "DKIM-Prüfung": "DKIM check",
+  "Netzwerkidentität": "Network identity",
+  "Autonomes System (ASN)": "Autonomous system (ASN)",
+  "Bestanden": "Passed",
+  "Nicht bestanden": "Failed",
+  "Keine Prüfung": "No check",
+  "Vorübergehender Prüffehler": "Temporary check error",
+  "Dauerhafter Prüffehler": "Permanent check error",
+  "Ergebnis unbekannt": "Unknown result",
+  "Prüfergebnis": "Check result",
+  "Signalgruppe": "Signal group",
+  "Erkennungsregel": "Detection rule",
+  "Mehrdeutige Anbieter-Herkunft": "Ambiguous provider attribution",
+  "Widersprüchliche Anbieterhinweise": "Conflicting provider signals",
+  "Bestandene Prüfungen weisen auf verschiedene Anbieter hin. Das ist keine zusätzliche Bestätigung.":
+    "Passed checks point to different providers. This is not additional confirmation.",
   "Herkunftsland {country}": "Country of origin {country}",
   "Herkunftsland unbekannt": "Country of origin unknown",
   "Daten werden geladen": "Loading data",
@@ -717,6 +769,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         .replace("Mail-Domain:", "Mail domain:")
         .replace("Identität:", "Identity:")
         .replace("PTR/Domain:", "PTR/domain:")
+        .replace("Mehrdeutige Provider-Herkunft: bestandene Authentifizierungen für", "Ambiguous provider attribution: passed authentication for")
         .replace("Domain/ASN:", "Domain/ASN:");
     };
 

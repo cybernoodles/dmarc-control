@@ -36,6 +36,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -62,6 +63,8 @@ import { TrendChart } from "./TrendChart";
 import { RecipientDeliveryStatus } from "./RecipientDeliveryStatus";
 import { AlertEvaluationMonitor } from "./AlertEvaluationMonitor";
 import { AlertDeliveryBadge, AlertDeliveryPanel } from "./AlertDeliveryView";
+import { HostClassificationForm, classificationMode } from "./HostClassificationForm";
+import { HostServiceDetection } from "./HostServiceDetection";
 
 type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
 type SettingsSection =
@@ -3858,6 +3861,7 @@ function HostsView({
   const [reloadKey, setReloadKey] = useState(0);
   const [selectedIp, setSelectedIp] = useState<string | null>(null);
   const [selected, setSelected] = useState<Host | null>(null);
+  const selectedContext = useRef("");
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -3914,7 +3918,9 @@ function HostsView({
 
   useEffect(() => {
     const controller = new AbortController();
-    setSelected(null);
+    const context = JSON.stringify([activeIp, domain, days]);
+    if (selectedContext.current !== context) setSelected(null);
+    selectedContext.current = context;
     setDetailError("");
     setDetailLoading(Boolean(activeIp));
     if (activeIp) {
@@ -3924,6 +3930,7 @@ function HostsView({
         })
         .catch((reason: Error) => {
           if (controller.signal.aborted) return;
+          if (reason instanceof ApiError && reason.status === 404) setSelected(null);
           setDetailError(
             reason instanceof ApiError && reason.status === 404
               ? t("Die Quelle {ip} ist für die gewählte Domain und den Zeitraum nicht vorhanden. Passe die Filter an.", { ip: activeIp })
@@ -3945,7 +3952,7 @@ function HostsView({
   const listLoading = loading || searchPending;
 
   return (
-    <div className="page-stack">
+    <div className="page-stack hosts-page">
       <SectionHeader
         title="Sending Hosts"
         subtitle={t(
@@ -4028,15 +4035,15 @@ function HostsView({
                     </td>
                     <td>
                       <strong>
-                        {translateBackendLabel(host.service_detection.service)}
+                        {classificationMode(host) === "automatic"
+                          ? translateBackendLabel(host.service_detection.service)
+                          : host.service_detection.service}
                       </strong>
                       <small>
-                        {t("Konfidenz")}{" "}
-                        {translateBackendLabel(
-                          host.service_detection.confidence_label,
-                        )}{" "}
-                        ·{" "}
-                        {Math.round(host.service_detection.confidence * 100)} %
+                        {classificationMode(host) === "automatic" ? <>
+                          {t("Konfidenz")} {translateBackendLabel(host.service_detection.confidence_label)}
+                          {host.service_detection.confidence != null && ` · ${Math.round(host.service_detection.confidence * 100)} %`}
+                        </> : t(classificationMode(host) === "manual" ? "Manuell" : "Übernommen")}
                       </small>
                       {host.service_detection.profile === "dynamic_ip" && (
                         <small className="dynamic-source-label">
@@ -4221,80 +4228,6 @@ function HostDetail({
   returnToAlert: () => void;
 }) {
   const { t, formatNumber, formatDate, translateBackendLabel } = useI18n();
-  const [serviceName, setServiceName] = useState(host.service_detection.service);
-  const [trustStatus, setTrustStatus] = useState<TrustStatus>(host.trust_status);
-  const [notes, setNotes] = useState(host.override?.notes ?? "");
-  const [hasOverride, setHasOverride] = useState(Boolean(host.override));
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    setServiceName(host.service_detection.service);
-    setTrustStatus(host.trust_status);
-    setNotes(host.override?.notes ?? "");
-    setHasOverride(Boolean(host.override));
-  }, [host]);
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    setMessage("");
-    try {
-      await api.updateHost(host.source_ip, {
-        service_name: serviceName.trim() || null,
-        trust_status: trustStatus,
-        notes: notes.trim() || null,
-      });
-      setHasOverride(true);
-      setMessage(t("Zuordnung gespeichert."));
-      saved();
-    } catch (reason) {
-      setMessage(
-        reason instanceof Error ? reason.message : t("Speichern fehlgeschlagen"),
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const restoreAutomaticClassification = async () => {
-    setSaving(true);
-    setMessage("");
-    try {
-      await api.clearHostClassification(host.source_ip);
-      setServiceName(
-        host.service_detection.automatic_service ??
-          host.service_detection.service,
-      );
-      setTrustStatus(
-        host.service_detection.confidence >= 0.55
-          ? "automatic"
-          : "unconfirmed",
-      );
-      setNotes("");
-      setHasOverride(false);
-      setMessage(t("Automatische Zuordnung wiederhergestellt."));
-      saved();
-    } catch (reason) {
-      setMessage(
-        reason instanceof Error
-          ? reason.message
-          : t("Speichern fehlgeschlagen"),
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const evidence = [
-    ...(host.service_detection.evidence ?? []),
-    host.reverse_dns ? `PTR: ${host.reverse_dns}` : t("PTR: nicht vorhanden"),
-    host.asn
-      ? `ASN ${host.asn}: ${host.as_name ?? t("Unbekannt")}`
-      : "",
-  ]
-    .filter(Boolean)
-    .map((item) => translateBackendLabel(item));
   const isDynamicIp = host.service_detection.profile === "dynamic_ip";
 
   return (
@@ -4397,79 +4330,8 @@ function HostDetail({
         </div>
       )}
 
-      <div className="evidence-block">
-        <div>
-          <h3>{t("Dienst-Erkennung")}</h3>
-          <p>
-            {t(
-              "Mehrere Signale werden kombiniert. PTR ist nur ein Indiz und niemals die alleinige Entscheidungsgrundlage.",
-            )}
-          </p>
-        </div>
-        <div className="evidence-list">
-          {evidence.map((item) => (
-            <span className="evidence-chip" key={item}>
-              <Check aria-hidden="true" />
-              {item}
-            </span>
-          ))}
-          {!evidence.length && (
-            <span className="muted">{t("Keine belastbare Evidenz.")}</span>
-          )}
-        </div>
-      </div>
-
-      <form className="classification-form" onSubmit={submit}>
-        <label>
-          <span>{t("Dienst")}</span>
-          <input
-            value={serviceName}
-            maxLength={120}
-            onChange={(event) => setServiceName(event.target.value)}
-          />
-        </label>
-        <label>
-          <span>{t("Zuordnungsstatus")}</span>
-          <select
-            value={trustStatus}
-            onChange={(event) => setTrustStatus(event.target.value as TrustStatus)}
-          >
-            <option value="automatic" disabled>
-              {t("Automatisch zugeordnet · Systemstatus")}
-            </option>
-            <option value="unconfirmed">{t("Prüfung ausstehend")}</option>
-            <option value="confirmed">{t("Zuordnung bestätigt")}</option>
-            <option value="ignored">
-              {t("Automatische Zuordnung verworfen")}
-            </option>
-          </select>
-        </label>
-        <label className="notes-field">
-          <span>{t("Notiz")}</span>
-          <input
-            value={notes}
-            maxLength={500}
-            placeholder={t("Optionaler administrativer Kontext")}
-            onChange={(event) => setNotes(event.target.value)}
-          />
-        </label>
-        <button className="button button-primary" type="submit" disabled={saving}>
-          {saving ? <RefreshCw className="spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
-          {t("Speichern")}
-        </button>
-        {hasOverride && (
-          <button
-            className="button button-secondary"
-            type="button"
-            disabled={saving}
-            onClick={restoreAutomaticClassification}
-          >
-            <RefreshCw aria-hidden="true" />
-            {t("Automatische Zuordnung wiederherstellen")}
-          </button>
-        )}
-        {message && <span className="form-message">{message}</span>}
-      </form>
+      <HostServiceDetection host={host} />
+      <HostClassificationForm host={host} saved={saved} />
       <div className="settings-note classification-note">
         <Info aria-hidden="true" />
         <span>

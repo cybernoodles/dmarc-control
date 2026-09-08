@@ -43,10 +43,31 @@ class StateStore(RecipientDeliveryStore, EvaluationRunStore):
                     service_name TEXT,
                     trust_status TEXT NOT NULL,
                     notes TEXT,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    classification_mode TEXT NOT NULL DEFAULT 'legacy_preserved'
+                        CHECK (classification_mode IN ('automatic', 'manual', 'legacy_preserved'))
                 )
                 """
             )
+            host_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(host_overrides)")
+            }
+            if "classification_mode" not in host_columns:
+                # Existing names/notes do not establish the user's original
+                # intent. Preserve every old field and timestamp unchanged.
+                connection.execute("""
+                    ALTER TABLE host_overrides
+                    ADD COLUMN classification_mode TEXT NOT NULL DEFAULT 'legacy_preserved'
+                        CHECK (classification_mode IN ('automatic', 'manual', 'legacy_preserved'))
+                """)
+            # A rolled-back release can write a name without updating the new
+            # mode column. Preserve that legacy assignment on the next upgrade;
+            # current automatic writes always clear service_name themselves.
+            connection.execute("""
+                UPDATE host_overrides SET classification_mode = 'legacy_preserved'
+                WHERE classification_mode = 'automatic'
+                  AND TRIM(COALESCE(service_name, '')) <> ''
+            """)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS alert_events (
@@ -1114,19 +1135,103 @@ class StateStore(RecipientDeliveryStore, EvaluationRunStore):
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT source_ip, service_name, trust_status, notes, updated_at
+                SELECT source_ip, service_name, trust_status, notes, updated_at,
+                       classification_mode
                 FROM host_overrides
                 """
             ).fetchall()
         return {
-            row["source_ip"]: {
-                "service_name": row["service_name"],
-                "trust_status": row["trust_status"],
-                "notes": row["notes"],
-                "updated_at": row["updated_at"],
-            }
+            row["source_ip"]: self._host_classification(row)
             for row in rows
         }
+
+    @staticmethod
+    def _host_classification(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+        return {
+            "source_ip": row["source_ip"],
+            "classification_mode": row["classification_mode"],
+            "service_name": row["service_name"],
+            "manual_service_name": row["service_name"],
+            "trust_status": row["trust_status"],
+            "notes": row["notes"],
+            "updated_at": row["updated_at"],
+        }
+
+    def patch_host_classification(
+        self, source_ip: str, changes: dict[str, Any],
+    ) -> dict[str, Any]:
+        allowed = {"classification_mode", "manual_service_name", "trust_status", "notes"}
+        if set(changes) - allowed:
+            raise ValueError("Unsupported classification field")
+        if "classification_mode" in changes and (
+            not isinstance(changes["classification_mode"], str)
+            or changes["classification_mode"] not in {"automatic", "manual"}
+        ):
+            raise ValueError("Unsupported classification mode")
+        if "trust_status" in changes and (
+            not isinstance(changes["trust_status"], str)
+            or changes["trust_status"] not in {"automatic", "unconfirmed", "confirmed", "ignored"}
+        ):
+            raise ValueError("Unsupported trust status")
+
+        updates = dict(changes)
+        for field, label, limit in (
+            ("manual_service_name", "Manual service name", 120),
+            ("notes", "Notes", 500),
+        ):
+            if field not in updates or updates[field] is None:
+                continue
+            value = updates[field]
+            if not isinstance(value, str):
+                raise ValueError(f"{label} must be text or null")
+            if len(value) > limit:
+                raise ValueError(f"{label} must not exceed {limit} characters")
+            updates[field] = value.strip() or None
+
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM host_overrides WHERE source_ip = ?", (source_ip,)
+            ).fetchone()
+            if not updates:
+                if row is None:
+                    raise ValueError("No classification changes were provided")
+                return self._host_classification(row)
+            current = dict(row) if row is not None else {
+                "source_ip": source_ip, "classification_mode": "automatic",
+                "service_name": None, "trust_status": "automatic", "notes": None,
+            }
+            for field in ("classification_mode", "trust_status", "notes"):
+                if field in updates:
+                    current[field] = updates[field]
+            if "manual_service_name" in updates:
+                current["service_name"] = updates["manual_service_name"]
+
+            if current["classification_mode"] == "automatic":
+                if updates.get("manual_service_name"):
+                    raise ValueError("Choose manual classification before setting a service name")
+                current["service_name"] = None
+                if updates.get("classification_mode") == "automatic" and "trust_status" not in updates:
+                    current["trust_status"] = "automatic"
+            elif current["classification_mode"] == "manual" and not (
+                current["service_name"] and current["service_name"].strip()
+            ):
+                raise ValueError("Manual service name is required")
+
+            current["updated_at"] = datetime.now(UTC).isoformat()
+            connection.execute("""
+                INSERT INTO host_overrides (
+                    source_ip, service_name, trust_status, notes, updated_at, classification_mode
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_ip) DO UPDATE SET
+                    service_name = excluded.service_name,
+                    trust_status = excluded.trust_status,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at,
+                    classification_mode = excluded.classification_mode
+            """, (source_ip, current["service_name"], current["trust_status"],
+                  current["notes"], current["updated_at"], current["classification_mode"]))
+        return self._host_classification(current)
 
     def set_host_override(
         self,
@@ -1141,20 +1246,23 @@ class StateStore(RecipientDeliveryStore, EvaluationRunStore):
             connection.execute(
                 """
                 INSERT INTO host_overrides (
-                    source_ip, service_name, trust_status, notes, updated_at
+                    source_ip, service_name, trust_status, notes, updated_at, classification_mode
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 'legacy_preserved')
                 ON CONFLICT(source_ip) DO UPDATE SET
                     service_name = excluded.service_name,
                     trust_status = excluded.trust_status,
                     notes = excluded.notes,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    classification_mode = 'legacy_preserved'
                 """,
                 (source_ip, service_name, trust_status, notes, updated_at),
             )
         return {
             "source_ip": source_ip,
             "service_name": service_name,
+            "manual_service_name": service_name,
+            "classification_mode": "legacy_preserved",
             "trust_status": trust_status,
             "notes": notes,
             "updated_at": updated_at,

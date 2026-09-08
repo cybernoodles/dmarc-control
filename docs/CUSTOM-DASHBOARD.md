@@ -357,23 +357,52 @@ Eine manuelle Wiederholung ist in dieser Phase nicht implementiert.
 
 ## Dienst-Erkennung
 
-Die automatische Erkennung bewertet mehrere Signale:
+Die automatische Erkennung bewahrt zu jedem Beleg Herkunft, beobachteten
+Wert, Regel und Unabhängigkeitsgruppe. Providerdomains müssen exakt oder als
+echte Subdomain passen. Ein angehängtes `.attacker.example` ist kein Treffer.
+PTR, davon abgeleitete Basisdomain und bekannte parsedmarc-Dienstnamen zählen
+zusammen höchstens einmal; ASN-Name und ASN-Domain bilden eine weitere Gruppe.
+Allgemeine Cloud-/Netzbetreiberdomains stützen nur bereits erkannte Dienste.
+DKIM-Selectoren allein weisen keinen Provider nach.
 
-- parsedmarc-Quelltyp und Dienstname
-- PTR und Basisdomain
-- ASN-Name und ASN-Domain
-- SPF-Domains
-- DKIM-Signing-Domains und Selector
+Aggregierte SPF-/DKIM-Domains sind Beobachtungen ohne Erfolgsnachweis. Ein
+`pass` zählt stärker, wenn Domain und Ergebnis im selben ursprünglichen
+Authentifizierungsergebnis stehen. Hohe Konfidenz benötigt mindestens zwei
+unabhängige Gruppen und mindestens einen bestandenen Authentifizierungsbeleg
+für den Maildienst. Ein einzelner PTR ergibt nur eine niedrige Konfidenz.
+Der Prozentwert ist eine Regelbewertung, keine statistisch kalibrierte
+Wahrscheinlichkeit. Dienstzuordnung und Konfidenz bestätigen weder
+DMARC-Alignment noch eine Berechtigung des Senders für die überwachte Domain.
 
-PTR wird nie allein als vertrauenswürdige Dienstidentität behandelt. Das
-Ergebnis enthält eine Konfidenz und kann administrativ bestätigt oder
-überschrieben werden.
+Zuordnung, Vertrauensstatus und Notiz sind getrennt:
+
+- `automatic`: Neue Evidenz aktualisiert die Erkennung. Eine reine Notizänderung
+  schreibt keinen Dienst fest.
+- `manual`: Der bewusst gewählte Name bleibt erhalten. Er besitzt keine
+  automatische Konfidenz; die automatische Alternative samt Belegen wird
+  separat angezeigt.
+- `legacy_preserved`: Bestehende Zuordnungen werden unverändert übernommen,
+  weil ihre frühere Absicht nicht sicher rekonstruierbar ist. Nutzer können
+  sie ausdrücklich bestätigen oder zur Automatik zurückkehren.
+
+„Automatik wiederherstellen“ entfernt den festgelegten Dienst und setzt den
+Vertrauensstatus auf automatische Bewertung; die Notiz bleibt erhalten.
+Explizit gleichzeitig übermittelte Vertrauensentscheidungen bleiben wirksam.
+Echte DMARC-Fehler, Ereignis-IDs, Bearbeitungs- und Versandzustände sind davon
+unabhängig. Die Migration ergänzt nur den Zuordnungsmodus und bewahrt alle
+bisherigen Werte und Änderungszeitpunkte. Ältere Dashboard-Versionen können die
+zusätzliche Spalte ignorieren, stellen aber keine expliziten Modi dar; ihre
+alten Formulare können weiterhin einen gerade erkannten Dienst festschreiben.
+Falls eine Altversion einen Namen in einen bisher automatischen Datensatz
+schreibt, wird dieser beim erneuten Upgrade konservativ als übernommene
+Zuordnung erhalten.
 
 Öffentliche IPv4-Adressen werden zusätzlich als dynamischer Anschlussbereich
 markiert, wenn der PTR sowohl die Quell-IP (auch in umgekehrter
 Oktettreihenfolge) als auch ein typisches Zugangsnetz-Muster enthält. Explizite
-Static-Marker und bereits belastbar erkannte Maildienste verhindern diese
-Zuordnung. Ein dynamischer Bereich zusammen mit einem echten DMARC-Fail wird
+Static-Marker und bereits erkannte Maildienste verhindern diese
+Zuordnung. Zwei Muster im selben PTR bleiben eine Quelle und ergeben nur
+niedrige Konfidenz. Ein dynamischer Bereich zusammen mit einem echten DMARC-Fail wird
 als starkes Indiz für Spoofing oder Spam hervorgehoben, bleibt aber wegen
 möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 
@@ -406,8 +435,9 @@ möglicher Fehlkonfigurationen bewusst keine definitive Scam-Feststellung.
 | `GET /api/overview` | Kennzahlen, Trend, Fehlerquellen, Reports und Policies |
 | `GET /api/hosts` | vollständiges Sending-Host-Inventar mit serverseitiger Suche, `limit`/`offset` und `total` |
 | `GET /api/hosts/{ip}` | einzelne Host-Detailansicht |
-| `PUT /api/hosts/{ip}/classification` | manuelle Dienst- und Klassifizierungszuordnung |
-| `DELETE /api/hosts/{ip}/classification` | manuelle Zuordnung entfernen und Automatik wiederherstellen |
+| `PATCH /api/hosts/{ip}/classification` | ausschließlich übergebene Felder ändern: Modus, manueller Dienst, Vertrauensstatus, Notiz |
+| `PUT /api/hosts/{ip}/classification` | bisheriger vollständiger Aufruf; als übernommene Zuordnung gespeichert |
+| `DELETE /api/hosts/{ip}/classification` | bisherigen Datensatz vollständig einschließlich Notiz entfernen; UI verwendet stattdessen PATCH |
 | `GET /api/alerts` | Warnungsereignisse pro Domain und Evidenztag für den gewählten Zeitraum |
 | `GET /api/alerts/{id}` | gespeichertes Ereignis beziehungsweise erhaltenen Legacy-Status unabhängig vom Listenfilter lesen |
 | `PATCH /api/alerts/{id}` | Warnungsstatus ändern |

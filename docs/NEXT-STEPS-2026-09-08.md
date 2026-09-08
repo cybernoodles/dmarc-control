@@ -80,9 +80,11 @@ Kann parallel zu Phase 1 umgesetzt werden.
 
 ## 4. Dienst-Erkennung und manuelle Zuordnung trennen — F07/F08
 
-**Nächster Schritt:** Herkunft der Erkennungsbelege und Zuordnungsmodus im
-Datenmodell festlegen, dann die Erkennung und das Bearbeitungsformular
-gemeinsam korrigieren.
+**Stand:** Implementiert. Herkunft und unabhängige Gruppen der Belege werden
+explizit ausgewiesen. Domain-Grenzen und tatsächliche Authentifizierungsergebnisse
+werden geprüft. Automatik, manuelle Festlegung und übernommene Altzuordnung
+sind getrennt; Notizen ändern den Modus nicht. Änderungen während eines
+laufenden Speicherns bleiben im Formular erhalten.
 
 **Umsetzung:** Evidenz mit ihrer tatsächlichen Herkunft aufbewahren, Domain-
 Grenzen prüfen und mehrfach passende Regeln derselben Quelle begrenzen.
@@ -101,6 +103,11 @@ Overrides werden ohne sichere Kenntnis ihrer Absicht nicht pauschal entfernt.
 festlegen, danach Formular und Evidenzanzeige anpassen. **Mittel.**
 
 ## 5. Untersuchungswege vervollständigen — F09/F10 und UI
+
+**Als Nächstes:** Zuerst Domain-/Zeitraumkontext in Links und Regressionen für
+Antwortreihenfolgen, danach Fokusführung, Offenzähler und Schutz beim
+Verlassen geänderter Formulare. Der Schutz neuer Eingaben während einer
+laufenden Speicherung ist bereits Bestandteil von Phase 4.
 
 **Umsetzung:** Die ergänzten Abbruchprüfungen und getrennten Host-Loader als
 Regression absichern. Domain und Zeitraum validiert in Browser- und

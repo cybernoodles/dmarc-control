@@ -4,9 +4,11 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from .host_classification import classify_host
+from .service_detection import score_service
 from .freshness import report_freshness
 from .opensearch import OpenSearchError
-from .service import AGGREGATE_SOURCE_FIELDS, _iso_from_epoch, _latest_source, _score_service, _sum, _top_keys
+from .service import AGGREGATE_SOURCE_FIELDS, _iso_from_epoch, _latest_source, _sum, _top_keys
 
 
 class AlertEngine:
@@ -149,17 +151,23 @@ class AlertEngine:
                 continue
             elapsed_days = (datetime.fromisoformat(report_time).date() - datetime.fromisoformat(first_seen).date()).days
             source = _latest_source(bucket)
-            evidence = [*_top_keys(bucket, "spf_domains"), *_top_keys(bucket, "dkim_domains"), *_top_keys(bucket, "dkim_selectors")]
-            detection = _score_service(source, evidence)
-            override = overrides.get(source_ip)
-            if override and override.get("service_name"):
-                detection["service"] = override["service_name"]
+            automatic = score_service(
+                source,
+                spf_domains=_top_keys(bucket, "spf_domains"),
+                dkim_domains=_top_keys(bucket, "dkim_domains"),
+                dkim_selectors=_top_keys(bucket, "dkim_selectors"),
+            )
+            detection, _ = classify_host(automatic, overrides.get(source_ip))
             context = {
                 "source_ip": source_ip, "domain": event_domain, "country": source.get("source_country"),
                 "report_time": report_time, "source_profile": detection.get("profile"),
                 "reverse_dns": source.get("source_reverse_dns"), "asn": source.get("source_asn"),
                 "as_name": source.get("source_as_name"), "service": detection.get("service"),
                 "service_confidence": detection.get("confidence"), "service_evidence": detection.get("evidence", []),
+                "classification_mode": detection["classification_mode"],
+                "manual_service_name": detection["manual_service_name"],
+                "automatic_detection": detection["automatic_detection"],
+                "service_evidence_details": detection.get("evidence_details", []),
                 "header_froms": [event_domain], "total_messages": messages,
                 **{name: _top_keys(bucket, name, 10) for name in identity_fields}, **counts,
             }
