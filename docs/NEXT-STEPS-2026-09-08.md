@@ -2,14 +2,13 @@
 
 Arbeitsvorschlag für die verbleibenden Auditpunkte F05–F10 und die Bedienung.
 Grundlage ist das in [CUSTOM-DASHBOARD.md](CUSTOM-DASHBOARD.md) beschriebene
-Ereignismodell F01–F04. Dieses Dokument beschreibt Reihenfolge und Abnahme,
-keinen produktiven Rolloutstatus. Verbindliche Umsetzungstickets gehören
-weiterhin in den [Issue-Tracker](BACKLOG.md).
+Ereignismodell F01–F04. Dieses Dokument beschreibt Reihenfolge und Abnahme.
+Verbindliche Umsetzungstickets gehören weiterhin in den
+[Issue-Tracker](BACKLOG.md).
 
 Aufwand relativ: **klein** = begrenzte Änderung ohne Datenmigration,
 **mittel** = abgestimmte API-/UI-Änderung mit mehreren Grenzfällen,
-**größer** = zusätzliche persistente Zustände und Migration. Die Schätzung
-enthält keine Terminzusage.
+**größer** = zusätzliche persistente Zustände und Migration.
 
 ## 1. SMTP-Teilzustellungen korrekt verfolgen — F05
 

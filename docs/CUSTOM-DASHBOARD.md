@@ -54,8 +54,8 @@ folgende Felder nicht geladen oder ausgeliefert:
 Statusänderungen und gespeicherte Ereignisinhalte von Warnungen, Zuordnungen
 älterer Warnungs-IDs, bekannte Domains mit ihrem letzten Reportende,
 Benachrichtigungseinstellungen und -zustellungen, manuell bestätigte Sending
-Hosts, der globale UI-Farbstandard sowie versionierte Mailbox-Verbindungen werden in
-`data/dashboard/dashboard.db` gespeichert. Diese SQLite-Datei ist vollständig
+Hosts, der globale UI-Farbstandard sowie versionierte Mailbox-Verbindungen
+werden in `data/dashboard/dashboard.db` gespeichert. Diese SQLite-Datei ist vollständig
 von den OpenSearch- und optionalen Grafana-Daten getrennt.
 
 Mailbox- und Benachrichtigungs-Secrets werden mit getrennten
@@ -183,7 +183,7 @@ Deep Links verwenden folgende stabile Query-Parameter:
 
 Fehlt eine verlinkte Warnung in der aktuellen Liste, lädt die Oberfläche ihren
 gespeicherten Inhalt und zeigt ihn in einem gesonderten historischen Kontext.
-Ein auflösbarer alter Link verwendet dabei die kanonische Ereignis-ID. Domain
+Ein eindeutig zugeordneter alter Link verwendet die kanonische Ereignis-ID. Domain
 und Zeitraum werden derzeit noch nicht in diesen URLs gespeichert; nach dem
 Neuladen gelten die Standardfilter. Ein historischer Alert kann daher
 abrufbar sein, während seine Host-Untersuchung zunächst eine Anpassung des
@@ -209,8 +209,9 @@ in der Oberfläche sichtbar, löst aber keine neuen automatischen Zustellungen
 aus. Initiale Ereignisse und Initialisierungsmarkierung werden gemeinsam
 gespeichert; eine fehlgeschlagene oder unvollständige Auswertung schließt die
 Initialisierung nicht ab. Danach erstmals beobachtete Ereignisse können nach
-den konfigurierten Regeln versendet werden. Ein später eintreffender Report
-desselben initialen Ereignistages hebt dessen Versandunterdrückung nicht auf.
+den konfigurierten Regeln versendet werden. Später ergänzte Reports mit
+demselben initial erfassten Ereignisschlüssel heben dessen
+Versandunterdrückung nicht auf.
 
 Alte Warnungs-IDs werden nur dann einem aktuellen Ereignis zugeordnet, wenn
 die rekonstruierte Zuordnung eindeutig ist. Dabei bleiben Bearbeitungsstatus,
