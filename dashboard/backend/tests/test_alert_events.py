@@ -32,6 +32,8 @@ def report(
     source_ip: str = "192.0.2.1",
     messages: int = 1,
     passed: bool = True,
+    spf_aligned: bool | None = None,
+    dkim_aligned: bool | None = None,
 ) -> dict[str, Any]:
     begin = (NOW - timedelta(days=days_ago)).replace(hour=0)
     return {
@@ -43,8 +45,8 @@ def report(
         "source_country": "CH",
         "message_count": messages,
         "passed_dmarc": passed,
-        "spf_aligned": passed,
-        "dkim_aligned": passed,
+        "spf_aligned": passed if spf_aligned is None else spf_aligned,
+        "dkim_aligned": passed if dkim_aligned is None else dkim_aligned,
     }
 
 
@@ -65,7 +67,13 @@ class ReportClient:
         if "match_all" in query:
             return True
         if "bool" in query:
-            return all(ReportClient._matches(row, part) for part in query["bool"]["filter"])
+            boolean = query["bool"]
+            if not all(ReportClient._matches(row, part) for part in boolean.get("filter", [])):
+                return False
+            should = boolean.get("should", [])
+            return not should or sum(
+                ReportClient._matches(row, part) for part in should
+            ) >= boolean.get("minimum_should_match", 1)
         if "term" in query:
             return all(row.get(field.removesuffix(".keyword")) == value for field, value in query["term"].items())
         if "range" in query:
@@ -130,9 +138,14 @@ class ReportClient:
                 bucket["last_report"] = {"value": max(row["date_end"].timestamp() * 1000 for row in rows)}
             elif daily:
                 latest = max(rows, key=lambda row: row["date_begin"])
+                alignment_query = aggregation["aggs"]["alignment_affected"]["filter"]
                 bucket.update({
                     "messages": {"value": sum(row["message_count"] for row in rows)},
                     **self._metrics(rows),
+                    "alignment_affected": {"messages": {"value": sum(
+                        row["message_count"] for row in rows
+                        if self._matches(row, alignment_query)
+                    )}},
                     "latest": {"hits": {"hits": [{"_source": latest}]}},
                     "envelope_froms": {"buckets": [{"key": latest["envelope_from"]}]},
                 })
@@ -267,6 +280,80 @@ class AlertEventTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(historical["domain"], "a.example")
         self.assertEqual(historical["messages"], 4)
         self.assertEqual(historical["report_time"], original["report_time"])
+
+    async def test_alignment_counts_union_of_affected_messages_and_separate_total(self) -> None:
+        for aligned, spf_only, dkim_only, both in (
+            (999, 1, 0, 0),
+            (90, 3, 5, 2),
+            (0, 2, 0, 0),
+        ):
+            with self.subTest(aligned=aligned, spf_only=spf_only, dkim_only=dkim_only, both=both):
+                rows = [report(60)]
+                for count, spf, dkim in (
+                    (aligned, True, True),
+                    (spf_only, False, True),
+                    (dkim_only, True, False),
+                    (both, False, False),
+                ):
+                    if count:
+                        rows.append(report(1, messages=count, spf_aligned=spf, dkim_aligned=dkim))
+                engine, _ = self.engine(rows)
+                events = await engine._evaluate("*", 30, NOW)
+                self.assertEqual(len(events), 1)
+                event = events[0]
+                self.assertEqual(event["kind"], "compensated-alignment")
+                self.assertEqual(event["messages"], spf_only + dkim_only + both)
+                self.assertEqual(event["total_messages"], aligned + spf_only + dkim_only + both)
+                self.assertEqual(event["spf_not_aligned"], spf_only + both)
+                self.assertEqual(event["dkim_not_aligned"], dkim_only + both)
+
+    async def test_all_aligned_messages_do_not_create_alignment_event(self) -> None:
+        engine, _ = self.engine([report(60), report(1, messages=1000)])
+        self.assertEqual(await engine._evaluate("*", 30, NOW), [])
+
+    async def test_failed_and_new_source_events_also_expose_daily_total(self) -> None:
+        engine, _ = self.engine([
+            report(60), report(1, messages=7), report(1, messages=3, passed=False),
+            report(1, source_ip="192.0.2.2", messages=20),
+        ])
+        events = await engine._evaluate("*", 30, NOW)
+        fail = next(event for event in events if event["priority"] == "critical")
+        new_source = next(event for event in events if event["kind"] == "new-source-ip")
+        self.assertEqual((fail["messages"], fail["total_messages"]), (3, 10))
+        self.assertEqual((new_source["messages"], new_source["total_messages"]), (20, 20))
+
+    async def test_alignment_count_correction_preserves_existing_event_id_and_status(self) -> None:
+        engine, _ = self.engine([
+            report(60), report(1, messages=999), report(1, spf_aligned=False),
+        ])
+        corrected = (await engine._evaluate("*", 30, NOW))[0]
+        old_snapshot = {key: value for key, value in corrected.items() if key != "total_messages"}
+        old_snapshot["messages"] = 1000
+        self.store.save_alert_events([old_snapshot], bootstrap=True)
+        self.store.set_alert_status(old_snapshot["id"], "resolved")
+        current = (await engine.alerts("*", 30))[0]
+        self.assertEqual(current["id"], old_snapshot["id"])
+        self.assertEqual(current["status"], "resolved")
+        self.assertFalse(current["notification_eligible"])
+        self.assertEqual((current["messages"], current["total_messages"]), (1, 1000))
+
+    async def test_legacy_alignment_status_migration_compares_original_total(self) -> None:
+        engine, _ = self.engine([
+            report(60), report(1, messages=999), report(1, spf_aligned=False),
+        ])
+        legacy = {
+            "id": "legacy-alignment", "source_ip": "192.0.2.1",
+            "domain": "a.example", "header_froms": ["a.example"],
+            "priority": "info", "kind": "compensated-alignment", "messages": 1000,
+        }
+        engine.service._legacy_alerts = AsyncMock(return_value=[legacy])
+        self.store.set_alert_status(legacy["id"], "ignored")
+        current = (await engine.alerts("*", 30))[0]
+        self.assertEqual(current["status"], "ignored")
+        self.assertEqual(current["messages"], 1)
+        self.assertEqual(current["total_messages"], 1000)
+        self.assertEqual(self.store.stored_alert(legacy["id"])["id"], current["id"])
+        self.assertEqual(AlertEngine._legacy_aliases([{**legacy, "messages": 1001}], [current]), {})
 
     async def test_incomplete_later_page_never_commits_upgrade_baseline(self) -> None:
         failures = [

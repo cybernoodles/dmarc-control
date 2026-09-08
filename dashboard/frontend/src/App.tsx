@@ -59,6 +59,7 @@ import {
 } from "./api";
 import { LanguageProvider, useI18n } from "./i18n";
 import { TrendChart } from "./TrendChart";
+import { RecipientDeliveryStatus } from "./RecipientDeliveryStatus";
 
 type View = "overview" | "hosts" | "alerts" | "forensics" | "settings";
 type SettingsSection =
@@ -2570,12 +2571,12 @@ function NotificationSettingsPanel({
 
           <div className="notification-delivery-summary">
             <div>
-              <span>{t("Erfolgreich zugestellt")}</span>
+              <span>{t("Frühere Gruppenversände: als erfolgreich gespeichert")}</span>
               <strong>{settingsState?.delivery.sent ?? 0}</strong>
             </div>
             <div>
-              <span>{t("Fehlgeschlagen")}</span>
-              <strong>{settingsState?.delivery.failed ?? 0}</strong>
+              <span>{t("Frühere Gruppenversände: fehlgeschlagen oder ungeklärt")}</span>
+              <strong>{(settingsState?.delivery.failed ?? 0) + (settingsState?.delivery.pending ?? 0)}</strong>
             </div>
             <div>
               <span>{t("Letzter Test")}</span>
@@ -2595,6 +2596,15 @@ function NotificationSettingsPanel({
               )}
             </span>
           </div>
+
+          {settingsState && (settingsState.delivery.sent + settingsState.delivery.failed + settingsState.delivery.pending > 0) && (
+            <p className="settings-note">
+              {t("Frühere Gruppenversände bleiben erhalten. Da Ergebnisse je Empfänger fehlen, werden diese Warnungen nicht automatisch erneut versendet; auch frühere fehlgeschlagene oder ungeklärte Versuche bleiben angehalten.")}
+            </p>
+          )}
+          {settingsState?.delivery.recipient_delivery && (
+            <RecipientDeliveryStatus summary={settingsState.delivery.recipient_delivery} />
+          )}
 
           {settingsState?.delivery.latest?.last_error && (
             <div className="inline-warning">
@@ -4651,8 +4661,13 @@ function AlertsView({
               </td>
               <td>
                 <span>{alertTrigger(alert)}</span>
-                <small>
-                  {formatNumber(alert.messages)} {t("Nachrichten")}
+                <small className="alert-message-count">
+                  {alert.source_ip && alert.total_messages !== undefined
+                    ? t("{affected} von {total} Nachrichten betroffen", {
+                        affected: formatNumber(alert.messages),
+                        total: formatNumber(alert.total_messages),
+                      })
+                    : `${formatNumber(alert.messages)} ${t("Nachrichten")}`}
                 </small>
               </td>
               <td>
@@ -4783,7 +4798,7 @@ function AlertsView({
             <strong>{t("Konfigurationshinweis")}</strong>
             <span>
               {t(
-                "Ein Mechanismus ist nicht aligned, DMARC besteht aber weiterhin.",
+                "Ein Mechanismus ist nicht aligned, DMARC besteht aber weiterhin. Jede betroffene Nachricht zählt einmal; die Gesamtzahl umfasst diese Domain, Source-IP und diesen Reporttag.",
               )}
             </span>
           </div>

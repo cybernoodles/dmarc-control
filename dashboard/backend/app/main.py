@@ -41,8 +41,8 @@ from .notifications import (
     NOTIFICATION_CASES,
     NotificationDeliveryError,
     build_message,
-    destination_hash,
     notification_case,
+    require_all_accepted,
     send_message,
     test_alert,
 )
@@ -748,7 +748,6 @@ async def dispatch_notification_cycle() -> None:
         int(configuration.get("lookback_days", 30)),
     )
     selected_cases = set(configuration["cases"])
-    delivery_target = destination_hash(configuration)
     for alert in alerts_to_send:
         event_type = notification_case(alert)
         if (
@@ -757,36 +756,36 @@ async def dispatch_notification_cycle() -> None:
             or not alert.get("notification_eligible", True)
         ):
             continue
-        if not store.claim_notification_delivery(
-            alert_id=alert["id"],
-            destination_hash=delivery_target,
-        ):
+        claims = store.claim_notification_recipients(
+            alert_id=alert["id"], configuration=configuration,
+        )
+        if not claims:
             continue
+        attempt_configuration = {
+            **configuration, "recipients": [claim["recipient"] for claim in claims],
+        }
         try:
-            message = build_message(alert, configuration)
-            await asyncio.to_thread(
-                send_message,
-                message,
-                configuration,
-                secret,
+            message = build_message(alert, attempt_configuration)
+            results = await asyncio.to_thread(
+                send_message, message, attempt_configuration, secret,
             )
+            outcomes = {result.recipient.casefold(): result for result in results}
         except Exception as exc:
-            store.finish_notification_delivery(
-                alert_id=alert["id"],
-                destination_hash=delivery_target,
-                success=False,
-                error=(
-                    str(exc)
-                    if isinstance(exc, NotificationDeliveryError)
-                    else "Notification message could not be generated"
-                ),
-            )
+            error = (str(exc) if isinstance(exc, NotificationDeliveryError)
+                     else "Notification message could not be generated or submitted")
+            for claim in claims:
+                store.finish_notification_recipient(
+                    claim=claim, status="temporary_failure", error=error,
+                )
         else:
-            store.finish_notification_delivery(
-                alert_id=alert["id"],
-                destination_hash=delivery_target,
-                success=True,
-            )
+            for claim in claims:
+                result = outcomes.get(claim["recipient"].casefold())
+                store.finish_notification_recipient(
+                    claim=claim,
+                    status=result.status if result else "temporary_failure",
+                    error=result.error if result else "Transport returned no recipient outcome",
+                    smtp_code=result.smtp_code if result else None,
+                )
 
 
 async def notification_delivery_loop(application: FastAPI) -> None:
@@ -1262,14 +1261,15 @@ async def test_notification_settings(request: Request):
             configuration,
             test=True,
         )
-        await asyncio.to_thread(
+        results = await asyncio.to_thread(
             send_message,
             message,
             configuration,
             secret,
         )
+        require_all_accepted(results)
         status = "success"
-        result_message = "Test email was delivered to the configured transport"
+        result_message = "Test email was accepted by the sending server for all recipients"
     except NotificationDeliveryError as exc:
         status = "failure"
         result_message = str(exc)

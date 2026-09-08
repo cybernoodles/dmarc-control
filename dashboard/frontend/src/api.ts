@@ -1,3 +1,5 @@
+import type { RecipientDeliverySummary } from "./RecipientDeliveryStatus";
+
 export type Risk = "critical" | "warning" | "healthy";
 export type TrustStatus =
   | "unconfirmed"
@@ -121,6 +123,7 @@ export interface Alert {
   trigger: string;
   report_time: string | null;
   messages: number;
+  total_messages?: number;
   kind: string;
   status: AlertStatus;
   status_updated_at: string | null;
@@ -267,6 +270,7 @@ export interface NotificationSettings {
   tested_at: string | null;
   updated_at: string | null;
   delivery: {
+    recipient_delivery?: RecipientDeliverySummary;
     sent: number;
     failed: number;
     pending: number;

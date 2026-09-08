@@ -126,7 +126,9 @@ const english: Record<string, string> = {
     "Save changes before sending a test.",
   "Test-E-Mail wird versendet …": "Sending test email …",
   "Test-E-Mail senden": "Send test email",
-  "Erfolgreich zugestellt": "Successfully delivered",
+  "Frühere Gruppenversände: als erfolgreich gespeichert": "Earlier group sends: recorded as successful",
+  "Frühere Gruppenversände: fehlgeschlagen oder ungeklärt": "Earlier group sends: failed or uncertain",
+  "Frühere Gruppenversände bleiben erhalten. Da Ergebnisse je Empfänger fehlen, werden diese Warnungen nicht automatisch erneut versendet; auch frühere fehlgeschlagene oder ungeklärte Versuche bleiben angehalten.": "Earlier group sends are retained. As recipient outcomes are unavailable, these alerts will not be sent again automatically; earlier failed or uncertain attempts also remain on hold.",
   Fehlgeschlagen: "Failed",
   "Letzter Test": "Latest test",
   "Jede E-Mail enthält HTML, Klartext, stabile X-DMARC-Control-Header und einen versionierten JSON-Anhang für Mailregeln oder SIEM-Workflows.":
@@ -522,6 +524,8 @@ const english: Record<string, string> = {
   "Deduplizierte Ereignisse mit nachvollziehbarem Auslöser":
     "Deduplicated events with a traceable trigger",
   "{count} offen": "{count} open",
+  "{affected} von {total} Nachrichten betroffen":
+    "{affected} of {total} messages affected",
   "Alle Status": "All statuses",
   Offen: "Open",
   Behoben: "Resolved",
@@ -543,6 +547,8 @@ const english: Record<string, string> = {
   Konfigurationshinweis: "Configuration advisory",
   "Ein Mechanismus ist nicht aligned, DMARC besteht aber weiterhin.":
     "One mechanism is not aligned, but DMARC still passes.",
+  "Ein Mechanismus ist nicht aligned, DMARC besteht aber weiterhin. Jede betroffene Nachricht zählt einmal; die Gesamtzahl umfasst diese Domain, Source-IP und diesen Reporttag.":
+    "One mechanism is not aligned, but DMARC still passes. Each affected message is counted once; the total covers this domain, source IP and report day.",
   "Report-Verzögerung": "Report delay",
   "Ausbleibende Reports werden erst nach der üblichen Verzögerung gewarnt.":
     "Missing reports trigger an alert only after the usual delay.",

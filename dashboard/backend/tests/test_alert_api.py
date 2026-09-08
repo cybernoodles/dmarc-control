@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from app import main
-from app.notifications import test_alert
+from app.notifications import RecipientDeliveryResult, test_alert
 from app.store import StateStore
 
 
@@ -52,11 +52,11 @@ class EventNotificationTests(unittest.IsolatedAsyncioTestCase):
                              "cases": ["host-fail"], "lookback_days": 30}
             state.save_notification_settings(settings=configuration, secret_ciphertext="unused")
             service = SimpleNamespace(alerts=AsyncMock(return_value=events))
-            with patch.object(main, "store", state), patch.object(main, "service", service), patch.object(main, "_resolved_notification_configuration", return_value=(configuration, {})), patch.object(main, "send_message") as send:
+            with patch.object(main, "store", state), patch.object(main, "service", service), patch.object(main, "_resolved_notification_configuration", return_value=(configuration, {})), patch.object(main, "send_message", return_value=[RecipientDeliveryResult("admin@example.invalid", "accepted")]) as send:
                 await main.dispatch_notification_cycle()
                 await main.dispatch_notification_cycle()
             self.assertEqual(send.call_count, 1)
-            self.assertEqual(state.notification_delivery_summary()["sent"], 1)
+            self.assertEqual(state.recipient_delivery_summary()["accepted"], 1)
             self.assertEqual(send.call_args.args[0]["X-DMARC-Control-Alert-ID"], "new-report-day")
 
 

@@ -1,0 +1,75 @@
+.recipient-delivery {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  min-width: 0;
+  padding-top: 1.25rem;
+}
+
+.recipient-delivery-heading h4 {
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.recipient-delivery-heading p,
+.recipient-delivery-range,
+.recipient-delivery-empty {
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 0.35rem 0 0;
+}
+
+.recipient-delivery-counts {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  margin: 0;
+}
+
+.recipient-delivery-counts > div {
+  background: var(--surface-soft);
+  border-radius: 0.6rem;
+  padding: 0.8rem;
+}
+
+.recipient-delivery-counts dt {
+  color: var(--ink-muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.recipient-delivery-counts dd {
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  margin: 0.4rem 0 0;
+}
+
+.recipient-delivery-table {
+  overflow-x: auto;
+  position: relative;
+}
+
+.recipient-delivery-table:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.recipient-delivery-table table {
+  margin: 0;
+  min-width: 60rem;
+}
+
+.recipient-delivery-address,
+.recipient-delivery-response {
+  max-width: 18rem;
+  overflow-wrap: anywhere;
+}
+
+.recipient-delivery-times span,
+.recipient-delivery-response span {
+  display: block;
+  line-height: 1.5;
+}

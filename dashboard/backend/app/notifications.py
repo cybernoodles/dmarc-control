@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import html
 import json
 import smtplib
 import ssl
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.message import EmailMessage
 from email.policy import SMTP
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote, urlencode
 
 import httpx
@@ -30,6 +32,32 @@ NOTIFICATION_CASES = {
 
 class NotificationDeliveryError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class RecipientDeliveryResult:
+    recipient: str
+    status: Literal["accepted", "temporary_failure", "permanent_failure"]
+    error: str | None = None
+    smtp_code: int | None = None
+
+
+def require_all_accepted(results: list[RecipientDeliveryResult]) -> None:
+    """Make partial transport acceptance visible to an explicit test sender."""
+    failed = [result for result in results if result.status != "accepted"]
+    if results and not failed:
+        return
+    if not results:
+        raise NotificationDeliveryError("No recipient delivery results were returned")
+    detail = "; ".join(
+        f"{result.recipient}: {result.error or result.status}" for result in failed
+    )
+    raise NotificationDeliveryError(
+        _safe_error(
+            f"{len(results) - len(failed)} of {len(results)} recipients accepted; {detail}",
+            (),
+        )
+    )
 
 
 def notification_case(alert: dict[str, Any]) -> str:
@@ -90,6 +118,7 @@ def _labels(language: str) -> dict[str, str]:
             "trigger": "Trigger",
             "report_time": "Report time",
             "messages": "Affected messages",
+            "total_messages": "Total messages",
             "dmarc": "DMARC result",
             "spf": "SPF alignment",
             "dkim": "DKIM alignment",
@@ -119,6 +148,7 @@ def _labels(language: str) -> dict[str, str]:
         "trigger": "Auslöser",
         "report_time": "Reportzeit",
         "messages": "Betroffene Nachrichten",
+        "total_messages": "Nachrichten insgesamt",
         "dmarc": "DMARC-Ergebnis",
         "spf": "SPF-Alignment",
         "dkim": "DKIM-Alignment",
@@ -189,6 +219,7 @@ def test_alert() -> dict[str, Any]:
         "trigger": "Explicit administrator test",
         "report_time": now,
         "messages": 1,
+        "total_messages": 1,
         "kind": "test",
         "status": "open",
         "status_updated_at": None,
@@ -218,6 +249,13 @@ def _payload(
     test: bool,
 ) -> dict[str, Any]:
     event_type = "test" if test else notification_case(alert)
+    total_messages = alert.get("total_messages")
+    if total_messages is None:
+        # Older snapshots contain authentication totals but no explicit volume.
+        total_messages = max(
+            int(alert.get("messages") or 0),
+            int(alert.get("dmarc_pass") or 0) + int(alert.get("dmarc_fail") or 0),
+        )
     return {
         "schema": SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -232,6 +270,7 @@ def _payload(
             "trigger": alert.get("trigger"),
             "report_time": alert.get("report_time"),
             "affected_messages": alert.get("messages", 0),
+            "total_messages": total_messages,
         },
         "source": {
             "ip": alert.get("source_ip"),
@@ -304,6 +343,7 @@ def _plain_text(
             f"{labels['trigger']}: {alert['trigger']}",
             f"{labels['report_time']}: {alert['report_time']}",
             f"{labels['messages']}: {alert['affected_messages']}",
+            f"{labels['total_messages']}: {alert['total_messages']}",
             (
                 f"{labels['dmarc']}: "
                 f"{authentication['dmarc']['passed']} pass / "
@@ -424,6 +464,7 @@ def _html_body(
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["trigger"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["trigger"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["report_time"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["report_time"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["messages"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["affected_messages"])}</td></tr>
+        <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["total_messages"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(alert["total_messages"])}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["dmarc"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(dmarc_value)}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["spf"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(spf_value)}</td></tr>
         <tr><td style="padding:9px 0;color:#687a7d;border-top:1px solid #e7eded">{value(labels["dkim"])}</td><td style="padding:9px 0;border-top:1px solid #e7eded">{value(dkim_value)}</td></tr>
@@ -491,23 +532,98 @@ def build_message(
 
 
 def _safe_error(value: str, secrets: tuple[str, ...]) -> str:
-    message = " ".join(value.replace("\r", " ").replace("\n", " ").split())
+    message = value
     for secret in secrets:
         if secret:
             message = message.replace(secret, "[redacted]")
+    message = " ".join(message.replace("\r", " ").replace("\n", " ").split())
     return message[:500]
+
+
+def _smtp_rejection(
+    recipient: str,
+    code: int,
+    detail: Any,
+    secrets: tuple[str, ...],
+) -> RecipientDeliveryResult:
+    if isinstance(detail, bytes):
+        detail = detail.decode("utf-8", errors="replace")
+    return RecipientDeliveryResult(
+        recipient=recipient,
+        status="permanent_failure" if 500 <= code < 600 else "temporary_failure",
+        error=_safe_error(f"SMTP {code}: {detail}", secrets),
+        smtp_code=code,
+    )
+
+
+def _smtp_recipient_results(
+    recipients: list[str],
+    refused: dict,
+    secrets: tuple[str, ...],
+    *,
+    all_refused: bool = False,
+) -> list[RecipientDeliveryResult]:
+    refusals = {str(recipient).casefold(): detail for recipient, detail in refused.items()}
+    results = []
+    for recipient in recipients:
+        refusal = refusals.get(recipient.casefold())
+        if refusal is not None:
+            code, detail = refusal
+            results.append(_smtp_rejection(recipient, int(code), detail, secrets))
+        elif all_refused:
+            results.append(RecipientDeliveryResult(
+                recipient, "temporary_failure",
+                "SMTP rejected all recipients without an individual response",
+            ))
+        else:
+            results.append(RecipientDeliveryResult(recipient, "accepted"))
+    return results
+
+
+def _recipient_failures(
+    recipients: list[str],
+    message: str,
+    secrets: tuple[str, ...],
+    *,
+    permanent: bool = False,
+) -> list[RecipientDeliveryResult]:
+    error = _safe_error(message, secrets)
+    return [
+        RecipientDeliveryResult(
+            recipient, "permanent_failure" if permanent else "temporary_failure", error
+        )
+        for recipient in recipients
+    ]
+
+
+def _preserve_rcpt_rejections(
+    results: list[RecipientDeliveryResult],
+    refused: dict,
+    secrets: tuple[str, ...],
+) -> list[RecipientDeliveryResult]:
+    """A subsequent DATA/network error must not replace earlier RCPT replies."""
+    refusals = {str(recipient).casefold(): detail for recipient, detail in refused.items()}
+    return [
+        _smtp_rejection(result.recipient, int(refusals[result.recipient.casefold()][0]),
+                        refusals[result.recipient.casefold()][1], secrets)
+        if result.recipient.casefold() in refusals else result
+        for result in results
+    ]
 
 
 def send_smtp(
     message: EmailMessage,
     settings: dict[str, Any],
     secret: dict[str, str],
-) -> None:
+) -> list[RecipientDeliveryResult]:
     smtp = settings["smtp"]
     password = secret.get("smtp_password", "")
     username = str(smtp.get("username") or "")
     security = smtp["security"]
+    recipients = list(settings["recipients"])
     connection: smtplib.SMTP | smtplib.SMTP_SSL | None = None
+    rcpt_rejections: dict[str, tuple[int, bytes]] = {}
+    original_rcpt = None
     try:
         if security == "tls":
             connection = smtplib.SMTP_SSL(
@@ -528,29 +644,66 @@ def send_smtp(
                 connection.ehlo()
         if username:
             connection.login(username, password)
-        connection.send_message(message)
+        original_rcpt = connection.rcpt
+
+        def record_rcpt(recipient: str, *args, **kwargs):
+            response = original_rcpt(recipient, *args, **kwargs)
+            if response[0] not in {250, 251}:
+                rcpt_rejections[recipient] = response
+            return response
+
+        # Keep the stdlib's MIME/SMTPUTF8 handling, but retain RCPT responses
+        # that send_message cannot return when its subsequent DATA step fails.
+        connection.rcpt = record_rcpt
+        refused = connection.send_message(
+            message, from_addr=settings["sender"], to_addrs=recipients
+        )
+        return _smtp_recipient_results(recipients, refused, (password,))
+    except smtplib.SMTPRecipientsRefused as exc:
+        return _smtp_recipient_results(
+            recipients, {**rcpt_rejections, **exc.recipients}, (password,), all_refused=True
+        )
+    except smtplib.SMTPResponseException as exc:
+        return _preserve_rcpt_rejections(
+            [_smtp_rejection(recipient, exc.smtp_code, exc.smtp_error, (password,))
+             for recipient in recipients],
+            rcpt_rejections, (password,),
+        )
+    except (smtplib.SMTPNotSupportedError, ssl.SSLCertVerificationError) as exc:
+        return _preserve_rcpt_rejections(
+            _recipient_failures(
+                recipients, f"SMTP delivery failed: {exc}", (password,), permanent=True
+            ), rcpt_rejections, (password,),
+        )
     except (OSError, smtplib.SMTPException, ssl.SSLError) as exc:
-        raise NotificationDeliveryError(
-            _safe_error(f"SMTP delivery failed: {exc}", (password,))
-        ) from exc
+        return _preserve_rcpt_rejections(
+            _recipient_failures(recipients, f"SMTP delivery failed: {exc}", (password,)),
+            rcpt_rejections, (password,),
+        )
     finally:
         if connection is not None:
+            if original_rcpt is not None:
+                connection.rcpt = original_rcpt
             try:
                 connection.quit()
             except (OSError, smtplib.SMTPException):
-                connection.close()
+                try:
+                    connection.close()
+                except (OSError, smtplib.SMTPException):
+                    pass
 
 
 def send_msgraph(
     message: EmailMessage,
     settings: dict[str, Any],
     secret: dict[str, str],
-) -> None:
+) -> list[RecipientDeliveryResult]:
     graph = settings["graph"]
     client_secret = secret["graph_client_secret"]
     tenant_id = quote(str(graph["tenant_id"]), safe="")
     sender = quote(str(settings["sender"]), safe="")
     secrets_to_redact = (client_secret,)
+    recipients = list(settings["recipients"])
     try:
         with httpx.Client(
             timeout=httpx.Timeout(20.0),
@@ -566,13 +719,12 @@ def send_msgraph(
                 },
                 headers={"Accept": "application/json"},
             )
-            if token_response.status_code >= 400:
-                raise NotificationDeliveryError(
-                    _safe_error(
-                        f"Microsoft Entra authentication failed: "
-                        f"HTTP {token_response.status_code}",
-                        secrets_to_redact,
-                    )
+            if not 200 <= token_response.status_code < 300:
+                return _recipient_failures(
+                    recipients,
+                    f"Microsoft Entra authentication failed: HTTP {token_response.status_code}",
+                    secrets_to_redact,
+                    permanent=not _temporary_http_status(token_response.status_code),
                 )
             token_payload = token_response.json()
             access_token = (
@@ -581,18 +733,26 @@ def send_msgraph(
                 else ""
             )
             if not access_token:
-                raise NotificationDeliveryError(
-                    "Microsoft Entra returned no access token"
+                return _recipient_failures(
+                    recipients, "Microsoft Entra returned no access token", secrets_to_redact
                 )
+            secrets_to_redact = (client_secret, access_token)
+            graph_message = copy.deepcopy(message)
+            # Graph addresses MIME recipients, so retries must also narrow the
+            # headers rather than retain recipients from the original message.
+            for header in list(graph_message.keys()):
+                if header.lower() in {"to", "cc", "bcc"} or header.lower().startswith("resent-"):
+                    del graph_message[header]
+            graph_message["To"] = ", ".join(recipients)
             response = client.post(
                 f"{GRAPH_ROOT}/users/{sender}/sendMail",
-                content=base64.b64encode(message.as_bytes(policy=SMTP)),
+                content=base64.b64encode(graph_message.as_bytes(policy=SMTP)),
                 headers={
                     "Authorization": f"Bearer {access_token}",
                     "Content-Type": "text/plain",
                 },
             )
-            if response.status_code >= 400:
+            if not 200 <= response.status_code < 300:
                 detail = response.text
                 try:
                     payload = response.json()
@@ -602,30 +762,30 @@ def send_msgraph(
                             detail = str(error.get("message") or detail)
                 except (TypeError, ValueError):
                     pass
-                raise NotificationDeliveryError(
-                    _safe_error(
-                        f"Microsoft Graph delivery failed: {detail}",
-                        secrets_to_redact,
-                    )
+                return _recipient_failures(
+                    recipients,
+                    f"Microsoft Graph delivery failed (HTTP {response.status_code}): {detail}",
+                    secrets_to_redact,
+                    permanent=not _temporary_http_status(response.status_code),
                 )
-    except httpx.HTTPError as exc:
-        raise NotificationDeliveryError(
-            _safe_error(
-                f"Microsoft Graph delivery failed: {exc}",
-                secrets_to_redact,
-            )
-        ) from exc
+            return [RecipientDeliveryResult(recipient, "accepted") for recipient in recipients]
+    except (httpx.HTTPError, ValueError) as exc:
+        return _recipient_failures(
+            recipients, f"Microsoft Graph delivery failed: {exc}", secrets_to_redact
+        )
+
+
+def _temporary_http_status(status: int) -> bool:
+    return status in {408, 425, 429} or 500 <= status < 600
 
 
 def send_message(
     message: EmailMessage,
     settings: dict[str, Any],
     secret: dict[str, str],
-) -> None:
+) -> list[RecipientDeliveryResult]:
     if settings["transport"] == "smtp":
-        send_smtp(message, settings, secret)
-        return
+        return send_smtp(message, settings, secret)
     if settings["transport"] == "msgraph":
-        send_msgraph(message, settings, secret)
-        return
+        return send_msgraph(message, settings, secret)
     raise NotificationDeliveryError("Unsupported notification transport")

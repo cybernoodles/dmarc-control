@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.config import Settings
 from app.notifications import (
+    RecipientDeliveryResult,
     build_message,
     destination_hash,
     send_msgraph,
@@ -94,6 +95,7 @@ class NotificationTransportTests(unittest.TestCase):
         smtp_class: MagicMock,
     ) -> None:
         connection = smtp_class.return_value
+        connection.send_message.return_value = {}
         message = build_message(
             notification_test_alert(),
             notification_configuration(),
@@ -116,7 +118,10 @@ class NotificationTransportTests(unittest.TestCase):
             "dmarc-alerts@example.com",
             "smtp-secret",
         )
-        connection.send_message.assert_called_once_with(message)
+        connection.send_message.assert_called_once_with(
+            message, from_addr="dmarc-alerts@example.com",
+            to_addrs=["soc@example.com", "security@example.com"],
+        )
 
     @patch("app.notifications.httpx.Client")
     def test_graph_posts_the_shared_mime_message(
@@ -247,7 +252,9 @@ class NotificationSettingsApiTests(unittest.TestCase):
             with (
                 patch.object(main, "settings", test_settings),
                 patch.object(main, "store", test_store),
-                patch.object(main, "send_message") as mocked_send,
+                patch.object(main, "send_message", return_value=[
+                    RecipientDeliveryResult("soc@example.com", "accepted"),
+                ]) as mocked_send,
                 TestClient(main.app) as client,
             ):
                 client.post(

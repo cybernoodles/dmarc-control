@@ -12,6 +12,11 @@ Aufwand relativ: **klein** = begrenzte Änderung ohne Datenmigration,
 
 ## 1. SMTP-Teilzustellungen korrekt verfolgen — F05
 
+**Stand:** Implementiert. Empfängerzustände, begrenzte Wiederholungen und
+Admin-Ansicht sind vorhanden. Alte Gruppenversände bleiben unverändert
+erhalten und werden wegen fehlender Empfängerevidenz automatisch
+zurückgehalten, einschließlich alter fehlgeschlagener oder ungeklärter Versuche.
+
 **Umsetzung:** Den SMTP-Rückgabewert auswerten und Annahme, temporäre sowie
 dauerhafte Ablehnung pro Empfänger speichern. Nur vorübergehend abgewiesene
 Empfänger erneut versuchen. Im UI „vom Versandserver akzeptiert“ anzeigen;
@@ -29,6 +34,10 @@ pro Empfänger samt Migration. **Größer.** Die späteren Versanddetails am Ale
 bauen darauf auf.
 
 ## 2. Auswertung und Betrieb sichtbar machen
+
+**Nächster Schritt:** Persistenter Status der Prüfläufe. Die Empfängeransicht
+in den Admin-Einstellungen ist mit F05 vorhanden; direkte Versanddetails
+am Alert und manuelle Wiederholungen sind weiterhin offen.
 
 **Umsetzung:** Letzten begonnenen und letzten vollständig erfolgreichen
 Alert-Prüflauf, Dauer, geprüften Umfang und aktuellen Fehler getrennt vom
@@ -48,6 +57,9 @@ verschiedene Zustände.
 Empfängeransicht folgt auf deren Zustellmodell. **Mittel.**
 
 ## 3. Betroffene Nachrichten korrekt zählen — F06
+
+**Stand:** Implementiert. Gemeinsame betroffene Menge und Gesamtvolumen
+werden in Oberfläche, E-Mail und JSON getrennt dargestellt.
 
 **Umsetzung:** Bei kompensiertem Alignment die Nachrichten mit „SPF nicht
 aligned ODER DKIM nicht aligned“ als gemeinsame Menge zählen. Das

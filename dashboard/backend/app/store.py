@@ -7,10 +7,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from .recipient_deliveries import RecipientDeliveryStore
+
 DEFAULT_BRAND_COLOR = "#173f43"
 
 
-class StateStore:
+class StateStore(RecipientDeliveryStore):
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
         self._lock = threading.Lock()
@@ -182,6 +184,8 @@ class StateStore:
                 )
                 """
             )
+
+            self.initialize_recipient_deliveries(connection)
 
     def admin_configured(self) -> bool:
         with self._lock, self._connect() as connection:
@@ -849,6 +853,7 @@ class StateStore:
             "failed": counts.get("failed", 0),
             "pending": counts.get("sending", 0),
             "latest": dict(latest) if latest else None,
+            "recipient_delivery": self.recipient_delivery_summary(),
         }
 
     def alert_states(self) -> dict[str, dict[str, str]]:

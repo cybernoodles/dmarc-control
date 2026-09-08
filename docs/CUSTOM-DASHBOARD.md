@@ -200,8 +200,11 @@ Das Alerting ist standardmäßig deaktiviert. Wenn es ein Administrator
 einschaltet, bewertet ein Hintergrundprozess alle fünf Minuten die offenen
 Warnungen der letzten 30 Tage. Nur die im GUI ausgewählten Ereignistypen werden
 versendet. Eine Zustellung wird anhand von Warnungs-ID, Versandweg, Absender und
-Empfängerliste persistent dedupliziert. Vorübergehende Fehler werden höchstens
-dreimal mit ansteigendem Abstand erneut versucht.
+einzelner Empfängeradresse persistent dedupliziert. Insgesamt sind höchstens
+drei Versuche pro Empfänger vorgesehen, bei vorübergehenden Fehlern nach
+frühestens fünf beziehungsweise zehn Minuten. Die tatsächliche Wiederholung
+findet im nächsten Prüflauf statt und setzt weiterhin eine offene, ausgewählte
+Warnung sowie den Empfänger in der aktuellen Konfiguration voraus.
 
 Beim ersten Einsatz des Ereignismodells erfolgt einmalig eine vollständige
 Auswertung aller Domains für die letzten 30 Tage. Dieser initiale Bestand ist
@@ -215,11 +218,14 @@ Versandunterdrückung nicht auf.
 
 Alte Warnungs-IDs werden nur dann einem aktuellen Ereignis zugeordnet, wenn
 die rekonstruierte Zuordnung eindeutig ist. Dabei bleiben Bearbeitungsstatus,
-bereits erfolgreiche Zustellungen und vorhandene Wiederholungszustände
-erhalten. Bereits begonnene, eindeutig zugeordnete und noch nicht
-abgeschlossene Legacy-Zustellungen können ihren bestehenden Retry-Verlauf
-fortsetzen. Mehrdeutige Zusammenfassungen mehrerer Domains oder Tage werden
-nicht willkürlich einem einzelnen neuen Ereignis zugeordnet.
+bisherige Gruppenversände samt Versuchszahlen erhalten. Seit F05 werden
+Ereignisse mit solchen alten Versandzeilen automatisch zurückgehalten, auch
+wenn Empfängerliste oder Versandweg geändert werden. Das betrifft ebenfalls
+alte fehlgeschlagene und ungeklärte Versuche: Frühere SMTP-Teilannahmen lassen
+sich aus dem Gruppen-Hash nicht rekonstruieren. Die Oberfläche zeigt diesen
+Altbestand getrennt von neuen Empfängerannahmen. Mehrdeutige Zusammenfassungen
+mehrerer Domains oder Tage werden nicht willkürlich einem einzelnen neuen
+Ereignis zugeordnet.
 
 Ohne sichere Einzelzuordnung bleibt ein alter Bearbeitungsstatus am alten
 Link erhalten; das entsprechende neue Tagesereignis beginnt mit `open`.
@@ -254,8 +260,42 @@ HTML, Klartext und JSON enthalten einen Link zum konkreten Alert. Bei
 Host-bezogenen Ereignissen kommt ein direkter Link zur Sending-Host-Untersuchung
 hinzu; der Rückweg führt wieder zum Ausgangs-Alert.
 
+Bei kompensiertem Alignment zählt `messages` nur Nachrichten mit nicht
+ausgerichtetem SPF **oder** DKIM; beide Merkmale zählen dieselbe Nachricht
+höchstens einmal. `total_messages` enthält separat das Tagesgesamtvolumen der
+Domain/IP. Oberfläche, Klartext, HTML und JSON-Anhang verwenden diese Werte;
+im weiterhin kompatiblen JSON-Schema heißt die betroffene Menge
+`alert.affected_messages`, ergänzt um `alert.total_messages`. Die Korrektur
+ändert weder Ereignis-ID noch Bearbeitungs- und Versandzustand.
+
+Neue Versandzustände liegen in `notification_recipient_deliveries`. SMTP-
+Annahme, vorübergehende Ablehnung (4xx), dauerhafte Ablehnung (5xx), laufender
+Versuch und ausgeschöpftes Budget werden getrennt gespeichert. Nur noch fällige
+Empfänger stehen in einem Wiederholungsversand. Hinzufügen einer Adresse setzt
+die bereits gespeicherten Ergebnisse anderer Adressen nicht zurück. Microsoft
+Graph bestätigt die Annahme des Versandauftrags; die Oberfläche bezeichnet
+beides ausdrücklich als Annahme durch den Versandserver, nicht als bestätigte
+Zustellung ins Postfach. Empfängerdetails sind ausschließlich in den
+administrativ geschützten Benachrichtigungseinstellungen verfügbar; die Liste
+zeigt die letzten 100 Einträge und die Gesamtzahl.
+
+Beanspruchte Versuche werden atomar gespeichert und nach 15 Minuten ohne
+Ergebnis wieder freigegeben, ohne das Budget zurückzusetzen. Ein verspätetes
+Ergebnis kann keinen neueren Versuch überschreiben. Ein Verbindungsabbruch
+nach serverseitiger Annahme, aber vor deren Bestätigung, bleibt grundsätzlich
+mehrdeutig; ein begrenzter Retry kann in diesem Fall eine Annahme wiederholen.
+Eine allgemeine Exactly-once-Garantie besteht daher nicht.
+
+Bei einem Rollback auf eine Version vor F05 muss der automatische Versand
+zunächst pausiert werden: Alte Versionen berücksichtigen die neue
+Empfängertabelle nicht und könnten bereits akzeptierte Nachrichten erneut
+versenden. Die aktuelle Datenbank samt Empfängerzuständen erhalten; einen
+Datenbank-Snapshot nicht pauschal über spätere Bearbeitungsstände schreiben.
+
 Der Testversand wird ausschließlich durch einen angemeldeten Administrator
-ausgelöst. Er schaltet den automatischen Versand nicht ein.
+ausgelöst. Er schaltet den automatischen Versand nicht ein. Schon eine
+Teilablehnung führt zu einem sichtbaren fehlgeschlagenen Test mit Anzahl der
+akzeptierten Empfänger und den jeweiligen Fehlermeldungen.
 
 ## Dienst-Erkennung
 

@@ -109,6 +109,16 @@ class AlertEngine:
             self._query(domain, {"range": {"date_begin": {"gte": start.isoformat(), "lte": now.isoformat()}}}),
             [{"day": {"date_histogram": {"field": "date_begin", "calendar_interval": "day", "time_zone": "UTC"}}}, *keys],
             {"messages": total, **metrics,
+             "alignment_affected": {
+                 "filter": {"bool": {
+                     "should": [
+                         {"term": {"spf_aligned": False}},
+                         {"term": {"dkim_aligned": False}},
+                     ],
+                     "minimum_should_match": 1,
+                 }},
+                 "aggs": {"messages": total},
+             },
              **{key: {"terms": {"field": field, "size": 10}} for key, field in identity_fields.items()},
              "latest": {"top_hits": {"size": 1, "sort": [{"date_begin": "desc"}],
                                      "_source": {"includes": AGGREGATE_SOURCE_FIELDS}}}},
@@ -141,7 +151,7 @@ class AlertEngine:
                 "reverse_dns": source.get("source_reverse_dns"), "asn": source.get("source_asn"),
                 "as_name": source.get("source_as_name"), "service": detection.get("service"),
                 "service_confidence": detection.get("confidence"), "service_evidence": detection.get("evidence", []),
-                "header_froms": [event_domain],
+                "header_froms": [event_domain], "total_messages": messages,
                 **{name: _top_keys(bucket, name, 10) for name in identity_fields}, **counts,
             }
             if counts["dmarc_fail"]:
@@ -173,7 +183,8 @@ class AlertEngine:
                 events.append({**context,
                     "id": self.service._alert_id("v2", "compensated-alignment", event_domain, source_ip, report_day),
                     "priority": "info", "kind": "compensated-alignment", "title": "Kompensiertes Alignment-Problem",
-                    "trigger": f"{', '.join(names)} · DMARC bestanden", "messages": messages,
+                    "trigger": f"{', '.join(names)} · DMARC bestanden",
+                    "messages": _sum(bucket.get("alignment_affected", {})),
                 })
             prior["passed"] += counts["dmarc_pass"]
             prior["failed"] += counts["dmarc_fail"]
@@ -189,7 +200,7 @@ class AlertEngine:
                 "priority": "warning", "kind": "stale-reports", "title": "DMARC-Reports bleiben aus",
                 "source_ip": None, "country": None, "domain": item["domain"],
                 "trigger": f"Letzter Berichtszeitraum endete vor {age.days} Tagen; übliche Zustellverzögerung berücksichtigt",
-                "report_time": item["last_report"], "messages": 0,
+                "report_time": item["last_report"], "messages": 0, "total_messages": 0,
             })
         return events
 
@@ -205,8 +216,17 @@ class AlertEngine:
                           and event["source_ip"] == old["source_ip"]
                           and ((event["priority"] == old["priority"] == "critical")
                                or event["kind"] == old["kind"])]
-            if len(candidates) == 1 and candidates[0]["messages"] == old["messages"]:
-                aliases[old["id"]] = candidates[0]["id"]
+            if len(candidates) == 1:
+                candidate = candidates[0]
+                # The old compensated-alignment count represented all messages.
+                # Compare that same evidence scope while migrating its workflow.
+                candidate_count = (
+                    candidate["total_messages"]
+                    if candidate["kind"] == "compensated-alignment"
+                    else candidate["messages"]
+                )
+                if candidate_count == old["messages"]:
+                    aliases[old["id"]] = candidate["id"]
         return aliases
 
     async def alerts(self, domain: str, days: int) -> list[dict[str, Any]]:
