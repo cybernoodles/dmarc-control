@@ -195,3 +195,38 @@ Beispiel für den vollständig lokalen synthetischen Vergleich:
 PYTHONPATH=dashboard/backend python dashboard/backend/benchmarks/freshness_lookups.py \
   --sizes 3 100 1000 5000 --output /tmp/dmarc-freshness-benchmark.json
 ```
+
+## Produktionsabnahme
+
+Anwendungscode `bac34fd` wurde auf `main` gepusht und am 9. September 2026
+um 06:58 UTC auf docker01 aktiviert. Das Docker-Image wurde aus dem exakten
+Commit gebaut. Die separat vorhandenen lokalen Backup-Arbeiten blieben
+vollständig erhalten; auch deren kombinierter Stand besteht die
+225 Backendtests sowie TypeScript-Prüfung und Frontend-Build.
+
+Die Probe des neuen Images verwendete Wegwerfkopien einer konsistenten
+Produktionsdatenbank, einen gemeinsamen eingefrorenen Zeitpunkt und dieselben
+zwischengespeicherten, ausschließlich lesenden OpenSearch-Antworten:
+
+- Alle 18 bestehenden Tabellen waren nach der Initialisierung exakt erhalten.
+- Die vollständigen Hostbestände für 7, 30, 90 und 365 Tage waren identisch
+  (1, 9, 19 und 255 Quellen); ebenso alle Inhalte und IDs der 32 aktuellen
+  Warnungen. 75 gespeicherte Ereignisse und 51 Bearbeitungszustände blieben
+  erhalten.
+- Stilllegung, Reaktivierung, fehlender erster Report und erneute Prüfung
+  unmittelbar vor dem Versandanspruch waren erfolgreich. Echte Versandwege
+  waren blockiert; ein weiterer Versand wurde ausschließlich simuliert.
+- Die ursprüngliche Datenbankkopie blieb einschließlich Dateiprüfsumme
+  unverändert.
+
+Nach dem Umschalten waren die drei Container gesund. Parser und OpenSearch
+behielten ihren bisherigen Startzeitpunkt. Die Live-Prüfung bestätigte die
+neue Oberfläche, die Zugriffssperren und unveränderte Domain-, Bearbeitungs-
+und Versandzustände. Vorherige Datenbank, Dashboard-Quellstand und Image sind
+als geschützter Rückkehrweg gesichert.
+
+Der erste reguläre automatische Prüflauf nach dem Neustart begann um
+07:03:45 UTC und war erfolgreich: 175 ms, 3 Domains, 331 historische Hosts
+und 32 aktuelle Ereignisse. Die anschließende Zustandsprüfung bestätigte
+weiterhin alle 75 gespeicherten Ereignisse, 51 Bearbeitungszustände und
+9 bisherigen Versandgruppen. Es entstanden keine neuen Empfängerversände.
