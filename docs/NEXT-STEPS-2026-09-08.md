@@ -37,9 +37,9 @@ bauen darauf auf.
 
 **Stand:** Persistenter Prüflaufstatus und Versanddetails direkt an der
 Warnung sind implementiert. Auswertungserfolg, pausierter Versand und
-Empfängerablehnung werden getrennt angezeigt. Manuelle Wiederholungen bleiben
-als separate Erweiterung offen; sie dürfen weder bereits akzeptierte
-Empfänger erneut anschreiben noch unklare Altzustellungen pauschal freigeben.
+Empfängerablehnung werden getrennt angezeigt. Die optionale manuelle
+Versandwiederholung wurde am 2026-09-09 aus der weiteren Planung genommen
+(siehe Punkt 7).
 
 **Umsetzung:** Letzten begonnenen und letzten vollständig erfolgreichen
 Alert-Prüflauf, Dauer, geprüften Umfang und aktuellen Fehler getrennt vom
@@ -163,34 +163,15 @@ bei der Migration weiterhin als aktiv behandelt. Änderungen am
 Admin-Einstellungen, Migration und verständliche Statusanzeige. **Mittel–größer.**
 Bestehende beobachtete Domains bleiben ohne Fristneustart aktiv.
 
-## 7. Gezielte manuelle Versandwiederholung vorbereiten
+## 7. Gezielte manuelle Versandwiederholung — ausgelassen
 
-**Als Nächstes:** Die vorhandenen Versanddetails um einen gezielten
-Admin-Vorgang ergänzen. Zuerst zulässige Empfängerzustände und eine Vorschau
-der tatsächlich erneut angeschriebenen Empfänger definieren; danach die
-atomare Freigabe und Bedienung implementieren.
-
-**Umsetzung:** Nur eindeutig nicht akzeptierte Empfänger eines bestehenden
-Ereignisses freigeben. Bereits vom Versandserver akzeptierte Empfänger und
-ungeklärte Altzustellungen ausschließen. Dauerhafte Ablehnungen erst nach
-sichtbarer Prüfung des Fehlers bewusst freigeben. Ereignis, Empfänger,
-Zeitpunkt und Ergebnis der Freigabe protokollieren. Pausiertes Alerting und
-stillgelegte Domain-Frischewarnungen weiterhin respektieren.
-
-**Abnahme:** Zwei parallele Freigaben erzeugen nur einen neuen Versuch.
-Ein Neustart zwischen Freigabe und Versand verliert keinen Zustand. Erfolgreich
-akzeptierte Empfänger werden nie mit angeschrieben; unbekannte Altzustellungen
-lassen sich nicht durch eine Sammelaktion umgehen. Vorschau und tatsächliche
-Empfängermenge stimmen überein. Tests verwenden ausschließlich gemockte
-Transporte.
-
-**Abhängigkeit / Aufwand:** Empfängerzustände aus Phase 1 und Versanddetails
-aus Phase 2; der aktuelle Domainzustand muss vor dem Versuch erneut geprüft
-werden. **Mittel.**
+**Entscheidung vom 2026-09-09:** Auf Wunsch des Auftraggebers entfällt dieser
+Vorschlag. Eine manuelle Freigabe erneuter Versandversuche wird nicht
+implementiert. Die vorhandenen automatischen Wiederholungsregeln gelten weiter.
 
 ## 8. Bedienung und Auswertungsleistung anhand des Betriebs prüfen
 
-**Vorschlag nach Phase 7:** Wiederkehrende Untersuchungswege mit großen
+**Nächster optionaler Schritt:** Wiederkehrende Untersuchungswege mit großen
 Host- und Domainbeständen prüfen und die bereits gespeicherten Laufzeiten
 auswerten. Such- und Filtermöglichkeiten in der Domainverwaltung erst dann
 ergänzen, wenn die Größe des Inventars sie erfordert. OpenSearch-Optimierungen
