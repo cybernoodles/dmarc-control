@@ -608,14 +608,22 @@ class DashboardService:
                 or response.get("_shards", {}).get("failed", 0)
             ):
                 raise OpenSearchError("Sending-Host-Abfrage lieferte unvollständige Daten")
-            aggregation = response.get("aggregations", {}).get("hosts")
-            if aggregation is None:
-                if previous_cursor is not None:
-                    raise OpenSearchError("Sending-Host-Abfrage lieferte keine Folgeseite")
-                return []
-            page = aggregation.get("buckets", [])
+            aggregations = response.get("aggregations")
+            if aggregations is None or isinstance(aggregations, dict) and "hosts" not in aggregations:
+                total_hits = response.get("hits", {}).get("total")
+                if isinstance(total_hits, dict):
+                    total_hits = total_hits.get("value")
+                if previous_cursor is None and not aggregations and type(total_hits) is int and total_hits == 0:
+                    return []
+                raise OpenSearchError("Sending-Host-Aggregation fehlt in der Abfrageantwort")
+            if not isinstance(aggregations, dict):
+                raise OpenSearchError("Sending-Host-Abfrage lieferte eine ungültige Aggregation")
+            aggregation = aggregations["hosts"]
+            if not isinstance(aggregation, dict) or not isinstance(aggregation.get("buckets"), list):
+                raise OpenSearchError("Sending-Host-Abfrage lieferte eine ungültige Aggregation")
+            page = aggregation["buckets"]
             for bucket in page:
-                key = bucket.get("key")
+                key = bucket.get("key") if isinstance(bucket, dict) else None
                 host_ip = key.get("source_ip") if isinstance(key, dict) else None
                 if not isinstance(host_ip, str) or (
                     previous_ip is not None and host_ip <= previous_ip
@@ -624,7 +632,7 @@ class DashboardService:
                 previous_ip = host_ip
             buckets.extend(page)
             after_key = aggregation.get("after_key")
-            if not after_key:
+            if after_key is None:
                 return buckets
             cursor = after_key.get("source_ip") if isinstance(after_key, dict) else None
             if not page or not isinstance(cursor, str) or (

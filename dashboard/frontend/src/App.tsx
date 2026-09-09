@@ -3861,10 +3861,35 @@ function HostsView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const pageSize = 100;
+  const hostList = useRef<HTMLElement>(null);
+  const loadedList = useRef("");
+  const pageFocus = useRef<{ view: string; list: string; initiator: Element | null } | null>(null);
   const scope = JSON.stringify([domain, days, risk, searchQuery]);
   const offset = pagination.scope === scope ? pagination.offset : 0;
   const activeIp = targetHostIp;
   const searchPending = search.trim() !== searchQuery;
+  const pageFocusView = JSON.stringify([scope, search, refreshKey, reloadKey, activeIp]);
+  const listContext = JSON.stringify([scope, offset, refreshKey, reloadKey]);
+  const changePage = (nextOffset: number) => {
+    pageFocus.current = { view: pageFocusView,
+      list: JSON.stringify([scope, nextOffset, refreshKey, reloadKey]), initiator: document.activeElement };
+    setPagination({ scope, offset: nextOffset });
+  };
+
+  useLayoutEffect(() => {
+    const intent = pageFocus.current;
+    if (!intent) return;
+    if (intent.view !== pageFocusView || (!loading && error)) {
+      pageFocus.current = null;
+      return;
+    }
+    if (loading || searchPending || intent.list !== listContext || loadedList.current !== intent.list) return;
+    pageFocus.current = null;
+    // A user who started editing or investigating during the request keeps focus.
+    if (document.activeElement !== document.body && document.activeElement !== intent.initiator) return;
+    hostList.current?.focus({ preventScroll: true });
+    hostList.current?.scrollIntoView({ block: "start" });
+  }, [pageFocusView, listContext, loading, searchPending, error, hosts]);
 
   const load = useCallback(() => setReloadKey((value) => value + 1), []);
 
@@ -3892,12 +3917,17 @@ function HostsView({
       .then((page) => {
         if (controller.signal.aborted) return;
         if (offset > 0 && offset >= page.total) {
+          const nextOffset = Math.max(0, Math.floor((page.total - 1) / pageSize) * pageSize);
+          if (pageFocus.current?.list === JSON.stringify([scope, offset, refreshKey, reloadKey])) {
+            pageFocus.current.list = JSON.stringify([scope, nextOffset, refreshKey, reloadKey]);
+          }
           setPagination({
             scope,
-            offset: Math.max(0, Math.floor((page.total - 1) / pageSize) * pageSize),
+            offset: nextOffset,
           });
           return;
         }
+        loadedList.current = JSON.stringify([scope, offset, refreshKey, reloadKey]);
         setHosts(page.items);
         setTotal(page.total);
       })
@@ -4004,7 +4034,7 @@ function HostsView({
 
       {error && <ErrorState message={error} retry={load} />}
 
-      <section className="surface" aria-busy={listLoading}>
+      <section className="surface host-list" ref={hostList} tabIndex={-1} aria-label="Sending Hosts" aria-busy={listLoading}>
         {listLoading ? (
           <LoadingState label={t("Sending Hosts werden geladen")} />
         ) : error ? null : hosts.length ? (
@@ -4149,7 +4179,7 @@ function HostsView({
               className="button button-secondary"
               type="button"
               disabled={offset === 0}
-              onClick={() => setPagination({ scope, offset: Math.max(0, offset - pageSize) })}
+              onClick={() => changePage(Math.max(0, offset - pageSize))}
             >
               {t("Vorherige Seite")}
             </button>
@@ -4157,7 +4187,7 @@ function HostsView({
               className="button button-secondary"
               type="button"
               disabled={offset + hosts.length >= total}
-              onClick={() => setPagination({ scope, offset: offset + pageSize })}
+              onClick={() => changePage(offset + pageSize)}
             >
               {t("Nächste Seite")}
             </button>

@@ -234,6 +234,57 @@ class HostPaginationTests(unittest.IsolatedAsyncioTestCase):
             {"source_ip": "192.0.2.15"},
         )
 
+    async def test_malformed_first_or_followup_aggregation_never_looks_complete(self) -> None:
+        malformed = [
+            {},
+            {"aggregations": {}},
+            {"aggregations": [], "hits": {"total": {"value": 1}}},
+            {"aggregations": {"hosts": None}},
+            {"aggregations": {"hosts": []}},
+            {"aggregations": {"hosts": {}}},
+            {"aggregations": {"hosts": {"buckets": None}}},
+            {"aggregations": {"hosts": {"buckets": {}}}},
+            {"aggregations": {"hosts": {"buckets": "invalid"}}},
+            {"aggregations": {"hosts": {"buckets": [None]}}},
+        ]
+        first_page = response_page([host_bucket("192.0.2.1", 100)], after="192.0.2.1")
+        for invalid in malformed:
+            for followup in (False, True):
+                with self.subTest(invalid=invalid, followup=followup):
+                    client = SequenceClient([first_page, invalid] if followup else [invalid])
+                    with self.assertRaises(OpenSearchError):
+                        await self.service(client).hosts_page("*", 30, limit=100)
+                    self.assertEqual(client.calls, 2 if followup else 1)
+
+    async def test_normalized_empty_index_only_allowed_on_first_page(self) -> None:
+        for empty in (
+            {"hits": {"total": {"value": 0}}, "aggregations": {}},
+            {"hits": {"total": 0}},
+        ):
+            with self.subTest(empty=empty):
+                page = await self.service(SequenceClient([empty])).hosts_page("*", 30)
+                self.assertEqual(page["items"], [])
+                self.assertEqual(page["total"], 0)
+                client = SequenceClient([
+                    response_page([host_bucket("192.0.2.1", 100)], after="192.0.2.1"),
+                    empty,
+                ])
+                with self.assertRaises(OpenSearchError):
+                    await self.service(client).hosts_page("*", 30)
+        # A named aggregation is malformed even if its hit count is zero.
+        with self.assertRaises(OpenSearchError):
+            await self.service(SequenceClient([
+                {"hits": {"total": {"value": 0}}, "aggregations": {"hosts": {}}},
+            ])).hosts_page("*", 30)
+
+    async def test_empty_or_malformed_cursor_never_hides_a_followup_page(self) -> None:
+        for cursor in ({}, [], "", False, {"source_ip": None}):
+            with self.subTest(cursor=cursor):
+                response = response_page([host_bucket("192.0.2.1", 100)])
+                response["aggregations"]["hosts"]["after_key"] = cursor
+                with self.assertRaises(OpenSearchError):
+                    await self.service(SequenceClient([response])).hosts_page("*", 30)
+
 
 if __name__ == "__main__":
     unittest.main()

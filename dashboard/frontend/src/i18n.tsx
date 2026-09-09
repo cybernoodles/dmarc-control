@@ -16,6 +16,13 @@ export type Translate = (
 const LANGUAGE_STORAGE_KEY = "dmarc-control-language";
 
 const english: Record<string, string> = {
+  "Letzter Report": "Latest report",
+  "Registrierte Domains durchsuchen": "Search registered domains",
+  "Domainname oder alternative Schreibweise": "Domain name or alternative spelling",
+  "{matches} Treffer von {total} registrierten Domains": "{matches} matches out of {total} registered domains",
+  "Domain-Seiten": "Domain pages",
+  "{start}–{end} von {total} Treffern": "{start}–{end} of {total} matches",
+  "Keine passenden Domains": "No matching domains",
   "Registrierte Domains": "Registered domains",
   "Alle registrierten Domains, unabhängig von der Domain-Auswahl.": "All registered domains, regardless of the selected domain.",
   "Keine Frist aktiv": "No active deadline",

@@ -1545,6 +1545,23 @@ td > strong {
 
 .domain-monitoring-row-form label { max-width: 10rem; }
 .domain-monitoring-row-actions { justify-content: flex-start; }
+.domain-inventory-controls,
+.domain-inventory-search {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.domain-inventory-search { font-size: 0.75rem; }
+.domain-inventory-search input { min-width: 0; width: 100%; }
+.domain-inventory-pagination { margin: 0; }
+.domain-registry-heading h3:focus {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 4px;
+}
+.host-list:focus {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
 .domain-monitoring-settings .button { white-space: normal; }
 .domain-monitoring-settings .inline-message {
   border-radius: 0.5rem;

@@ -171,12 +171,21 @@ implementiert. Die vorhandenen automatischen Wiederholungsregeln gelten weiter.
 
 ## 8. Bedienung und Auswertungsleistung anhand des Betriebs prüfen
 
-**Nächster optionaler Schritt:** Wiederkehrende Untersuchungswege mit großen
-Host- und Domainbeständen prüfen und die bereits gespeicherten Laufzeiten
-auswerten. Such- und Filtermöglichkeiten in der Domainverwaltung erst dann
-ergänzen, wenn die Größe des Inventars sie erfordert. OpenSearch-Optimierungen
-an gemessenen langsamen Abfragen ausrichten; Vollständigkeit der Auswertung
-und erhaltene historische Links bleiben Abnahmekriterien.
+**Stand:** Geprüft und gezielt verbessert; Messungen und Grenzen stehen im
+[Prüfbericht vom 2026-09-09](AUDIT-PERFORMANCE-USABILITY-2026-09-09.md).
+Der laufende Bestand zeigt keine akuten Leistungsprobleme. Ein gemessener
+Skalierungsengpass vor Frischebenachrichtigungen wurde durch direkte
+Einzelabfragen behoben. Die Domainverwaltung erhält erst bei mehr als
+50 Domains eine Suche und Seiten mit jeweils 25 Einträgen; Fristentwürfe
+bleiben beim Navigieren erhalten. Beim Blättern in der Hostliste werden
+Listenanfang und Tastaturfokus wiederhergestellt. Fehlerhafte Folgeseiten der
+Reportsuche können keine scheinbar vollständigen Hostlisten mehr erzeugen.
+
+**Weitere Planung:** Aus diesem Audit bleibt kein zwingendes Umsetzungspaket
+offen. Größere Änderungen an historischen OpenSearch-Indizes werden als
+separates Betriebsthema anhand tatsächlicher Last und mit eigener
+Migrationsprüfung bewertet. Die vorhandenen Prüflaufzeiten stehen für solche
+späteren Vergleiche zur Verfügung; zusätzliche Caches sind derzeit nicht nötig.
 
 ## Gemeinsame Freigabekriterien
 

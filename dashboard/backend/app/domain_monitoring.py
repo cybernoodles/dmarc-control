@@ -225,22 +225,29 @@ class DomainMonitoringStore:
         key = alert.get("monitoring_domain") or alert.get("domain")
         if not isinstance(key, str) or key in {"", "*"}:
             return False
-        rows = self.list_domain_monitoring(default_grace_days, key)
-        if rows:
-            current = domain_freshness_event(rows[0], now)
-            return (
-                current is not None and current["id"] == alert.get("id")
-                and ("deadline" not in alert or current["deadline"] == alert["deadline"])
-            )
-        # Keep compatibility with malformed report domains from older versions.
         try:
-            canonical_domain(key)
+            canonical = canonical_domain(key)
         except ValueError:
-            for report in self.remember_domain_reports([], key):
-                current = domain_freshness_event(legacy_domain_monitoring(report, default_grace_days), now)
-                if current and current["id"] == alert.get("id"):
-                    return True
-        return False
+            # Historical malformed names retain their exact report key. This
+            # check is read-only and does not need to resynchronize inventory.
+            with self._lock, self._connect() as connection:
+                report = connection.execute(
+                    "SELECT domain,last_report FROM domain_report_history WHERE domain = ?", (key,),
+                ).fetchone()
+            current = domain_freshness_event(legacy_domain_monitoring(dict(report), default_grace_days), now) if report else None
+            return current is not None and current["id"] == alert.get("id")
+        # Read this domain's current lifecycle immediately before the claim.
+        # Alias lists are only presentation data; constructing all of them for
+        # every alert made a complete dispatch cycle quadratic in domain count.
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM domain_monitoring WHERE domain = ?", (canonical,),
+            ).fetchone()
+        current = domain_freshness_event(_public(dict(row), default_grace_days, []), now) if row else None
+        return (
+            current is not None and current["id"] == alert.get("id")
+            and ("deadline" not in alert or current["deadline"] == alert["deadline"])
+        )
 
 
 def legacy_domain_monitoring(report: dict[str, str], default_grace_days: int) -> dict[str, Any]:
