@@ -1,7 +1,7 @@
 <p align="center">
   <img
     src="./docs/assets/logo-restart/alternatives/dmarc-control-gate-precision.png"
-    alt="DMARC Control Logo"
+    alt="DMARC Control logo"
     width="240"
   >
 </p>
@@ -9,216 +9,96 @@
 <h1 align="center">DMARC Control</h1>
 
 <p align="center">
-  <strong>DMARC-Berichte verstehen, Absender kontrollieren und Risiken gezielt bearbeiten.</strong>
+  <strong>Understand DMARC reports, control sending sources, and act on risk.</strong>
 </p>
 
 <p align="center">
-  Selbst gehostet, datenschutzorientiert und als reproduzierbarer Docker-Compose-Stack betrieben.
+  Self-hosted DMARC monitoring with a web-first setup and operations workflow.
 </p>
 
 <p align="center">
   <img alt="Deployment: Docker Compose" src="https://img.shields.io/badge/Deployment-Docker%20Compose-2496ED?logo=docker&amp;logoColor=white">
-  <img alt="OpenSearch 2.19.6" src="https://img.shields.io/badge/OpenSearch-2.19.6-005EB8?logo=opensearch&amp;logoColor=white">
-  <img alt="parsedmarc 10.4.0" src="https://img.shields.io/badge/parsedmarc-10.4.0-173F43">
-  <img alt="Grafana optional" src="https://img.shields.io/badge/Grafana-optional-F46800?logo=grafana&amp;logoColor=white">
+  <img alt="Web UI: standard" src="https://img.shields.io/badge/Web%20UI-standard-2563EB">
+  <img alt="Grafana: optional" src="https://img.shields.io/badge/Grafana-optional-F46800?logo=grafana&amp;logoColor=white">
 </p>
 
 <p align="center">
-  <a href="#schnellstart">Schnellstart</a> ·
-  <a href="#architektur">Architektur</a> ·
-  <a href="#mailbox-konfiguration">Mailbox</a> ·
-  <a href="#troubleshooting">Troubleshooting</a>
+  <a href="#standard-installation-web-ui">Installation</a> ·
+  <a href="#post-installation">Post-installation</a> ·
+  <a href="#optional-grafana">Grafana</a> ·
+  <a href="#operations">Operations</a>
 </p>
 
-DMARC Control ist eine selbst gehostete Plattform zur Auswertung und
-Überwachung von DMARC-Berichten. Sie baut auf
-[parsedmarc](https://github.com/domainaware/parsedmarc) auf und kombiniert den
-Parser mit OpenSearch sowie einem eigenen Webdashboard – vollständig
-containerisiert mit Docker Compose. Grafana bleibt vorläufig als optionales
-Compose-Profil für bestehende Installationen verfügbar, gehört aber nicht mehr
-zur Standardinstallation.
+DMARC Control is a self-hosted platform for collecting, analysing, and acting
+on DMARC reports. It combines
+[parsedmarc](https://github.com/domainaware/parsedmarc), OpenSearch, and a
+dedicated React/FastAPI application in a Docker Compose deployment.
 
-## Was DMARC Control bietet
+The normal data flow is:
 
-- **Risikoorientiertes Dashboard:** Volumen, Passrate, echte DMARC-Fails,
-  Datenfrische, Policies und Trends in einer gemeinsamen Oberfläche.
-- **Sending-Host-Inventar:** IP, PTR, ASN, Land, Identitäten, Dienst-Erkennung
-  und manuelle Zuordnung mit nachvollziehbarer Konfidenz.
-- **Durchgängige Alert-Triage:** Warnungen bestätigen, beheben oder ignorieren
-  und direkt vom Ereignis zum betroffenen Sending Host wechseln.
-- **Verwaltete Mailbox-Anbindung:** Microsoft Graph oder IMAP werden im
-  Dashboard getestet, versioniert und erst nach expliziter Freigabe aktiviert.
-- **Benachrichtigungen:** Deduplizierte E-Mail-Alerts über SMTP oder Microsoft
-  Graph mit stabilen Deep Links und maschinenlesbarem JSON-Anhang.
-- **Datenschutzorientierte Forensik:** RUF-Daten sind standardmäßig deaktiviert;
-  die UI lädt keine Rohinhalte, Empfänger, Betreffzeilen oder Header.
-- **Portabler Betrieb:** Konfiguration und persistente Daten liegen gemeinsam
-  im Projektverzeichnis und bleiben klar von den Container-Images getrennt.
+`DMARC mailbox → parsedmarc → OpenSearch → DMARC Control web UI`
 
-## Architektur
+The web UI is the standard interface. Grafana is available as an optional
+analytics view for existing or specialised deployments.
 
-```mermaid
-flowchart LR
-    mailbox["DMARC-Postfach<br>Microsoft Graph oder IMAP"]
-    parser["parsedmarc<br>verwalteter Consumer"]
-    search["OpenSearch<br>historische DMARC-Daten"]
-    dashboard["DMARC Control<br>React + FastAPI"]
-    state["SQLite + AES-GCM-Schlüssel<br>Konfiguration und Workflow"]
-    browser["Read- und Admin-Benutzer"]
-    grafana["Grafana<br>optionales Profil"]
+## Product overview
 
-    mailbox --> parser
-    parser --> search
-    dashboard -->|"kontrollierte Abfragen"| search
-    dashboard -->|"aktive Konfiguration"| parser
-    parser -->|"Laufzeitstatus"| dashboard
-    dashboard <--> state
-    browser --> dashboard
-    grafana -->|"optionale Abfragen"| search
-```
+DMARC Control provides:
 
-OpenSearch bleibt ausschließlich im internen Compose-Netz. Der Browser spricht
-nur mit der FastAPI-Anwendung; sensible Verbindungsdaten werden verschlüsselt
-in der getrennten Steuerungsebene gespeichert.
+- a risk-focused overview of message volume, DMARC pass rates, failures,
+  policies, report freshness, and trends;
+- a sending-host inventory with IP, PTR, ASN, country, identities, service
+  detection, confidence, and manual classification;
+- domain monitoring and explainable Microsoft 365 sender assessment based on
+  MX, SPF, DKIM, and DMARC history;
+- persistent alert triage with open, acknowledged, resolved, and ignored
+  states;
+- managed report ingestion through Microsoft Graph or IMAP;
+- optional alert email delivery through SMTP or Microsoft Graph;
+- privacy-conscious defaults: forensic/RUF storage is disabled unless it is
+  explicitly enabled.
 
-## Schnellstart
+Microsoft 365 assessment adds context; it is not an allowlist. A confirmed or
+automatically expected provider can calm a fully DMARC-passing new-source
+event, but DMARC failures remain critical.
+
+## Standard installation: web UI
+
+Grafana is not required for the standard installation.
+
+### Requirements
+
+- A Linux host with Docker Engine and Docker Compose v2
+- Permission to create the persistent data directories with the required UIDs
+- TCP port `3030` available for the web UI
+- `vm.max_map_count=262144` for OpenSearch
+
+Set the OpenSearch kernel requirement:
 
 ```bash
-git clone https://github.com/cybernoodles/dmarc-control.git
-cd dmarc-control
-cp .env.example .env
-
-mkdir -p data/opensearch data/dashboard data/parser-control dmarc-reports
-sudo chown 1000:1000 data/opensearch
-sudo chown 10001:10001 data/dashboard data/parser-control
-
-docker compose up -d --build --remove-orphans
-```
-
-Anschließend `http://HOSTNAME_OR_IP:3030` öffnen. Der erste Aufruf führt
-durch das Anlegen des Read-Zugangs und des getrennten Admin-Passworts. Vor dem
-Start muss `vm.max_map_count=262144` gesetzt und `.env` mit eigenen Passwörtern
-vervollständigt werden; die vollständigen Hinweise stehen unter
-[Installation](#installation).
-
-## Stack
-
-| Component | Image | Zweck |
-|---|---|---|
-| DMARC Control | lokaler Multi-Stage-Build | Eigenes risikoorientiertes Webdashboard und API |
-| parsedmarc 10.4.0 | `ghcr.io/domainaware/parsedmarc:10.4.0` + lokaler Supervisor | Ein verwalteter Mailbox-Consumer für Microsoft Graph oder IMAP |
-| OpenSearch 2.19.6 | `opensearchproject/opensearch:2.19.6` mit gepinntem Digest | Datenspeicher |
-| Grafana (optional) | `grafana/grafana:latest` | Übergangsvisualisierung im Compose-Profil `grafana` |
-
-## Voraussetzungen
-
-- Docker + Docker Compose
-- `vm.max_map_count` auf mindestens 262144 gesetzt (OpenSearch-Pflicht)
-
-```bash
-# Einmalig setzen
 sudo sysctl -w vm.max_map_count=262144
-
-# Dauerhaft machen
 echo "vm.max_map_count=262144" | sudo tee /etc/sysctl.d/99-opensearch.conf
 ```
 
-## Verzeichnisstruktur
-
-```
-dmarc-control/
-├── docker-compose.yml
-├── .env                                    ← Passwörter (nicht ins Git!)
-├── .env.example                            ← Vorlage ohne echte Werte
-├── .gitignore
-├── README.md
-├── docs/
-│   ├── BACKLOG.md                           ← geplante Weiterentwicklung von DMARC Control
-│   ├── BACKUP-RESTORE.md                    ← Dateninventar und Wiederherstellungsabhängigkeiten
-│   ├── M365.md                              ← M365-Setup und RBAC-Prüfung
-│   ├── MIGRATION-TO-PORTABLE-DATA.md        ← Einmalmigration bestehender Docker-Volumes
-│   └── CUSTOM-DASHBOARD.md                  ← Architektur und Betrieb von DMARC Control
-├── dashboard/
-│   ├── Dockerfile                           ← React-Build und FastAPI-Laufzeit
-│   ├── frontend/                            ← React, TypeScript und ECharts
-│   └── backend/                             ← Kontrollierte OpenSearch-API und lokale Zustände
-├── parser/
-│   ├── Dockerfile                           ← gepinntes parsedmarc 10.4.0
-│   └── supervisor.py                        ← übernimmt nur aktivierte GUI-Konfigurationen
-├── data/                                    ← Persistente Laufzeitdaten (nicht im Git)
-│   ├── opensearch/                          ← Indizes und OpenSearch-Zustand
-│   ├── grafana/                             ← optional: Grafana SQLite, Benutzer und Plugins
-│   ├── dashboard/                           ← UI-Zustände, Zugangs-Hashes und verschlüsselte Verbindungen
-│   └── parser-control/                      ← automatisch erzeugtes internes Control-Token
-├── config/
-│   ├── parsedmarc.ini                       ← optionaler Legacy-/Migrations-Fallback
-│   ├── parsedmarc.ini.example               ← Referenz für bestehende Installationen
-│   └── grafana/                             ← optionales Provisioning
-│       └── provisioning/
-│           ├── datasources/
-│           │   └── opensearch.yml          ← Grafana Datasources (auto-provisioniert)
-│           └── dashboards/
-│               ├── dashboards.yml          ← Grafana Dashboard Provider
-│               ├── DMARC-Overview.json     ← Haupt-Dashboard (auto-provisioniert)
-│               ├── DMARC-Analysis.json     ← Detailanalyse (auto-provisioniert)
-│               └── Forensic/
-│                   └── DMARC-Forensic.json ← RUF-Analyse (separater Ordner)
-└── dmarc-reports/                           ← optional: Reports als Dateien ablegen
-```
-
-## Installation
-
-**1. Repo klonen**
+### Prepare the project
 
 ```bash
 git clone https://github.com/cybernoodles/dmarc-control.git
 cd dmarc-control
-```
-
-**2. Konfiguration anlegen**
-
-```bash
-# Konfiguration und Passwörter setzen
 cp .env.example .env
-nano .env
 ```
 
-Die Mailbox wird nach dem ersten Start im Webdashboard konfiguriert. Eine
-`config/parsedmarc.ini` ist für neue Installationen nicht erforderlich.
-
-### Deployment-Varianten
-
-| Variante | `COMPOSE_PROFILES` | Laufende Dienste |
-|---|---|---|
-| Standard (ohne Grafana) | leer | OpenSearch, DMARC Control, parsedmarc |
-| Optional (mit Grafana) | `grafana` | Kern-Stack plus Grafana |
-
-In der Standardinstallation bleiben diese beiden Werte leer:
+Edit `.env` and replace `OPENSEARCH_ADMIN_PASSWORD` with a strong bootstrap
+password. Keep these values empty for the standard installation:
 
 ```dotenv
 COMPOSE_PROFILES=
 GRAFANA_ADMIN_PASSWORD=
 ```
 
-Damit besteht der Stack ausschließlich aus OpenSearch, DMARC Control und
-parsedmarc. Für eine bestehende Installation, die Grafana vorläufig weiter
-betreiben soll, muss die lokale `.env` stattdessen beide Werte enthalten:
+Do not commit `.env`; it is installation-specific and may contain secrets.
 
-```dotenv
-COMPOSE_PROFILES=grafana
-GRAFANA_ADMIN_PASSWORD=EIN_EIGENES_STARKES_PASSWORT
-```
-
-`COMPOSE_PROFILES` ist damit die verbindliche, installationsspezifische
-Auswahl. Der Kommandozeilenparameter `--profile grafana` ist zwar ebenfalls
-möglich, sollte für dauerhafte Installationen aber nicht der einzige Nachweis
-der gewählten Variante sein.
-
-**3. Datenverzeichnisse vorbereiten**
-
-Die persistenten Daten liegen unter `./data`, damit das Projektverzeichnis
-vollständig auf einen anderen Host übertragen werden kann. Die Inhalte sind
-absichtlich nicht versioniert.
+### Prepare persistent storage
 
 ```bash
 mkdir -p data/opensearch data/dashboard data/parser-control dmarc-reports
@@ -226,281 +106,165 @@ sudo chown 1000:1000 data/opensearch
 sudo chown 10001:10001 data/dashboard data/parser-control
 ```
 
-Nur bei aktiviertem Grafana-Profil wird zusätzlich dessen Datenverzeichnis
-benötigt:
+OpenSearch runs as UID `1000`. DMARC Control and its parser-control files use
+UID `10001`. Incorrect ownership can prevent service startup or persistent
+writes.
 
-```bash
-mkdir -p data/grafana
-sudo chown 472:472 data/grafana
-```
-
-OpenSearch läuft im Container als UID 1000, DMARC Control als UID 10001 und
-das optionale Grafana als UID 472. Ohne diese Eigentümer kann der jeweilige
-Dienst beim ersten Start nicht in sein Datenverzeichnis schreiben. Beim ersten
-Aufruf von DMARC Control führt ein Setup-Screen durch das einmalige Festlegen
-eines Read-Benutzers mit Passwort und des separaten Admin-Passworts. Das
-Dashboard ist anschließend nur mit einer gültigen Read-Sitzung erreichbar.
-
-Bei bestehenden Installationen ohne Read-Benutzer erscheint nach dem Update
-ebenfalls der Setup-Screen. Das vorhandene Admin-Passwort muss dort bestätigt
-werden; es wird nicht ersetzt. Danach wird lediglich der neue Read-Zugang
-ergänzt.
-
-> **Dockge:** Relative Pfade wie `./data` beziehen sich auf den Ordner der
-> Compose-Datei. Daher entweder das gesamte Repository als Stack-Ordner
-> verwenden oder beim Übertragen nach Dockge die relativen Pfade (`./config`,
-> `./data` und `./dmarc-reports`) konsistent auf den Projektordner umstellen.
-
-**4. Stack starten**
+### Start the stack
 
 ```bash
 docker compose up -d --build --remove-orphans
+docker compose ps
 ```
 
-Beim ersten Start werden das Dashboard und der kleine Parser-Supervisor lokal
-gebaut. Die darunterliegende parsedmarc-Version ist reproduzierbar auf 10.4.0
-gepinnt. Ohne `COMPOSE_PROFILES=grafana` wird weder ein Grafana-Container
-erzeugt noch Port `3020` veröffentlicht.
+Open `http://HOSTNAME_OR_IP:3030`.
 
-**5. Logs verfolgen**
+For Dockge, use the repository root as the stack directory because Compose
+resolves all relative paths from the Compose file location. See
+[Dashboard and operations](docs/CUSTOM-DASHBOARD.md) for deployment notes.
+
+### Complete first-time setup
+
+The first browser visit opens the setup screen. Create:
+
+- a read username and password for normal dashboard access;
+- a separate administrator password for protected settings.
+
+Both passwords must contain at least 12 characters. The dashboard is available
+after setup, but report ingestion remains idle until a mailbox connection has
+been tested and activated. On a clean installation, `docker compose ps` may
+show `parsedmarc` as unhealthy until that activation; this is expected.
+
+## Post-installation
+
+### Connect a report mailbox
+
+Open **Settings → Mailbox connection**, authenticate as administrator, and
+choose Microsoft 365 or IMAP.
+
+The workflow is deliberately explicit:
+
+1. Save the connection as a draft.
+2. Run **Test connection**.
+3. Review the result.
+4. Activate the successfully tested revision.
+
+The connection test is read-only. It verifies authentication and access to the
+configured folders without reading, moving, or deleting report messages.
+Activation starts report processing with the selected revision.
+
+For Microsoft 365, use a dedicated report mailbox and create the report and
+archive folders before testing the connection. The defaults are
+`Inbox/DMARC` and `Inbox/DMARC/Processed`. The current UI supports client-secret
+authentication. Assign `Application Mail.ReadWrite` through Exchange Online
+Application RBAC scoped to the dedicated mailbox; do not add a tenant-wide
+grant for the same permission. See
+[Microsoft 365 mailbox integration](docs/M365.md) for the complete setup and
+verification procedure.
+
+For IMAP, provide the TLS-enabled server, credentials, report folder, and
+archive folder in the same screen.
+
+### Configure email notifications
+
+Notifications are disabled by default. Open **Settings → Notifications** and
+configure one of these transports:
+
+- SMTP with STARTTLS, implicit TLS, or an explicitly trusted internal relay;
+- Microsoft Graph with `Mail.Send`, ideally restricted to the configured
+  sender mailbox.
+
+Set the sender, recipients, language, public dashboard URL, and event types.
+Save the settings, send a test message, and only then enable automatic
+notifications. A test message does not enable alerting by itself.
+
+### Review monitored domains
+
+Open **Settings → Domains** to add expected domains, retire unused domains, and
+review Microsoft 365 evidence. Administrators can confirm or reject the
+automatic provider assessment without weakening DMARC-failure handling.
+
+### Verify report processing
+
+After mailbox activation, wait for the first DMARC aggregate report and check
+the overview. Parser logs are available with:
 
 ```bash
 docker compose logs -f parsedmarc
 ```
 
-### Bestehende Installation migrieren
+## Optional Grafana
 
-Bestehende Installationen, die Grafana behalten sollen, müssen vor dem ersten
-Start mit dieser Compose-Version `COMPOSE_PROFILES=grafana` sowie ein
-`GRAFANA_ADMIN_PASSWORD` in ihrer `.env` setzen. Damit bleiben Container, Port
-und Datenpfad bei den gewohnten Compose-Befehlen Bestandteil des Stacks.
+Grafana can be used as the primary analytics view, but it does not replace the
+DMARC Control service. Initial setup, mailbox management, domain settings,
+alert triage, and notifications remain in the web UI.
 
-Ältere Versionen dieses Repositories verwendeten Docker-Volumes für
-OpenSearch und Grafana. Die einmalige, datenerhaltende Übernahme in das neue
-`data/`-Layout ist in [docs/MIGRATION-TO-PORTABLE-DATA.md](docs/MIGRATION-TO-PORTABLE-DATA.md)
-beschrieben. Nicht vorab einen leeren Stack mit dem neuen Compose starten.
-
-## Mailbox-Konfiguration
-
-Die Einrichtung erfolgt unter **Einstellungen → Postfachanbindung**:
-
-1. Als Admin anmelden und Microsoft 365 oder IMAP auswählen.
-2. Verbindungsdaten eingeben und als neuen Entwurf speichern.
-3. **Verbindung testen**. Dieser Test authentifiziert sich und prüft nur den
-   lesenden Zugriff auf die angegebenen Ordner. Er liest, verarbeitet,
-   verschiebt und löscht keine Nachrichten.
-4. Den erfolgreich getesteten Entwurf ausdrücklich aktivieren. Der Supervisor
-   beendet bei einem Wechsel seinen bisherigen Kindprozess kontrolliert und
-   startet genau einen parsedmarc-Prozess mit der neuen Revision.
-
-Das Client Secret beziehungsweise IMAP-Passwort wird verschlüsselt in
-`data/dashboard/dashboard.db` abgelegt. Der AES-Schlüssel entsteht automatisch
-als `data/dashboard/connection.key`; für ein vollständiges Backup werden beide
-Dateien benötigt. Weder Secret noch Schlüssel werden über die API an den
-Browser zurückgegeben.
-
-### Microsoft 365 via Microsoft Graph API (empfohlen)
-
-Für den Betrieb ein separates Postfach wie `dmarc-reports@example.com` mit dem
-Ordner `Inbox/DMARC` verwenden. Es enthält ausschließlich DMARC-Reports und wird
-nicht interaktiv genutzt.
-
-- **Berechtigung:** App-only `Mail.ReadWrite`; parsedmarc archiviert verarbeitete Nachrichten.
-- **Scope:** Zugriff zwingend auf dieses eine Postfach beschränken. Für neue Unternehmens-Setups ist Exchange Online Application RBAC vorgesehen; das ausführliche Vorgehen steht in [docs/M365.md](docs/M365.md).
-- **Anmeldung:** Die aktuelle GUI unterstützt App-only `ClientSecret`.
-  Eigentümer, Ablaufdatum und Rotation müssen dokumentiert werden.
-
-### Forensic-/RUF-Reports (nur nach Freigabe)
-
-Forensic-Berichte können Header, Empfänger und Betreffzeilen enthalten. Die Speicherung ist deshalb standardmäßig deaktiviert. Ein `git pull` aktiviert sie **nicht** und ändert auch keine vorhandene `config/parsedmarc.ini`.
-
-Erst nach Freigabe von Retention, Berechtigungskonzept und Incident-Prozess in
-der lokalen `.env` aktivieren:
+Enable the profile in `.env`:
 
 ```dotenv
-PARSEDMARC_SAVE_FAILURE=True
+COMPOSE_PROFILES=grafana
+GRAFANA_ADMIN_PASSWORD=REPLACE_WITH_A_STRONG_PASSWORD
 ```
 
-Der Compose-Wert wird als parsedmarc-Option `save_failure` übernommen.
-Bestehende Legacy-Konfigurationen mit `save_forensic = True` funktionieren
-weiterhin, da parsedmarc dies als Alias behandelt. Nicht beide Optionen
-gleichzeitig setzen – `save_failure` hat Vorrang.
-
-Danach parsedmarc neu starten und eingehende RUF-Berichte abwarten:
+Prepare its persistent directory and update the stack:
 
 ```bash
-docker compose restart parsedmarc
+mkdir -p data/grafana
+sudo chown 472:472 data/grafana
+docker compose up -d --build --remove-orphans
 ```
 
-Bei aktiviertem Grafana-Profil zeigt das zusätzliche Dashboard **DMARC
-Forensic Analysis** ausschließlich minimierte Betriebsmetadaten – keine
-Betreffzeilen, Empfänger, Header oder Rohinhalte. Es wird in den separaten
-Grafana-Ordner **Forensic** provisioniert. Diesem Ordner in Grafana nur den
-zuständigen Security-/Incident-Rollen Zugriff gewähren.
+Open `http://HOSTNAME_OR_IP:3020` and sign in as `admin` with the password from
+`.env`. The repository provisions overview, analysis, and forensic dashboards.
+The forensic dashboard remains empty while forensic/RUF storage is disabled.
 
-### IMAP
+## Security and data
 
-Host, Port, TLS, Benutzer, Passwort sowie Report- und Archivordner werden
-ebenfalls unter **Einstellungen → Postfachanbindung** verwaltet. Der Verbindungstest
-öffnet die Ordner mit `read-only`; Abruf und Verarbeitung beginnen erst nach
-der expliziten Aktivierung.
+- OpenSearch has no host-published port and is used over the internal Compose
+  network. Do not publish its port directly.
+- Port `3030` serves HTTP by default. Do not expose it directly to the public
+  internet; use a firewall and an HTTPS reverse proxy for remote access.
+- Mailbox and notification secrets are encrypted before they are stored in
+  `data/dashboard/dashboard.db`. The matching key is stored in
+  `data/dashboard/connection.key`.
+- Forensic/RUF reports can contain personal or sensitive message metadata and
+  are disabled by default. Enable them only with an approved retention and
+  access policy.
+- A complete recovery requires consistent backups of the persistent data and
+  installation configuration. Do not copy the live OpenSearch directory as a
+  backup. Follow [Backup and restore](docs/BACKUP-RESTORE.md) before operating
+  the stack in production.
 
-## E-Mail-Benachrichtigungen
+## Operations
 
-Das Alerting wird unter **Einstellungen → Benachrichtigungen** eingerichtet und
-ist nach Installation oder Update standardmäßig deaktiviert. Unterstützt werden:
+### Update
 
-- SMTP mit STARTTLS, implizitem TLS oder einem explizit gewählten internen Relay,
-  jeweils mit optionaler Benutzeranmeldung
-- Microsoft Graph mit einer eigenen App-Registrierung oder wiederverwendeten
-  Zugangsdaten der gespeicherten Microsoft-365-Postfachanbindung
+Installations created with older Docker volumes may require a one-time data
+migration. Read [Migration to portable data](docs/MIGRATION-TO-PORTABLE-DATA.md)
+first. If the installation still uses the old volumes, stop and migrate it
+before running the Compose update below.
 
-Für Graph-Versand benötigt die App-Registrierung die Application-Berechtigung
-`Mail.Send`. Der Zugriff sollte in Exchange Online auf das konfigurierte
-Absenderpostfach begrenzt werden.
+```bash
+git pull --ff-only
+docker compose up -d --build --remove-orphans
+```
 
-Empfänger, E-Mail-Sprache, öffentliche Dashboard-URL und auslösende Fälle sind
-im GUI wählbar. Ein expliziter Testversand ist möglich, ohne das automatische
-Alerting einzuschalten. Jede Nachricht enthält eine HTML- und Klartext-Version,
-stabile `X-DMARC-Control-*`-Header und den versionierten JSON-Anhang
-`dmarc-alert.json`. Erfolgreich versendete Ereignisse werden in
-`dashboard.db` dedupliziert; vorübergehende Fehler werden höchstens dreimal mit
-ansteigendem Abstand versucht.
+### Basic checks
 
-## Optionales Grafana-Profil
+```bash
+docker compose ps
+curl -fsS http://localhost:3030/api/health
+docker compose logs --tail=100 dashboard parsedmarc opensearch
+```
 
-Grafana ist nicht Bestandteil der Standardinstallation. Es bleibt als
-Übergangsvariante in derselben Compose-Datei versioniert und wird nur mit
-`COMPOSE_PROFILES=grafana` in der lokalen `.env` oder explizit mit
-`docker compose --profile grafana ...` aktiviert.
+## Further documentation
 
-| URL | Credentials |
+| Document | Purpose |
 |---|---|
-| `http://HOSTNAME_OR_IP:3020` | `admin` / Passwort aus `.env` |
+| [Microsoft 365 mailbox integration](docs/M365.md) | Dedicated mailbox, Graph permissions, and Exchange Application RBAC |
+| [Dashboard and operations](docs/CUSTOM-DASHBOARD.md) | Architecture, APIs, alerting behaviour, and Dockge notes |
+| [Backup and restore](docs/BACKUP-RESTORE.md) | Data ownership, consistency requirements, and recovery order |
+| [Migration to portable data](docs/MIGRATION-TO-PORTABLE-DATA.md) | Moving older Docker volumes into the current bind-mount layout |
 
-Grafana provisioniert drei versionierte Dashboards und öffnet nach Anmeldung direkt **DMARC Overview**:
-
-- **DMARC Overview:** Betriebsstatus, Datenfrische, DMARC-Trend und Policies; Zeitraum 30 Tage, Aktualisierung alle 5 Minuten.
-- **DMARC Analysis:** Sender-, IP-, SPF- und DKIM-Detailanalyse; Zeitraum 90 Tage. Forensic-Daten sind bewusst ausgeschlossen.
-- **DMARC Forensic Analysis:** RUF-/Forensic-Untersuchung mit 30 Tagen Standardzeitraum und begrenzten Aggregationen. Aktuelle parsedmarc-Versionen speichern diese Berichte in `dmarc_failure-*`; das Dashboard bleibt leer, solange `save_failure = False` gesetzt ist oder keine RUF-Berichte eingehen.
-
-Datasources und Dashboards sind schreibgeschützt provisioniert. Änderungen
-erfolgen im Repository und werden danach mit `docker compose restart grafana`
-übernommen. Damit bleibt die laufende Instanz nachvollziehbar und frei von
-UI-Drift.
-
-Die Grafana-Version bleibt vorläufig bewusst unverändert auf `latest`, wie in
-`docker-compose.yml` definiert.
-
-Um Grafana in einer bestehenden Installation kontrolliert stillzulegen, zuerst
-den Dienst stoppen und entfernen:
-
-```bash
-docker compose --profile grafana stop grafana
-docker compose --profile grafana rm -f grafana
-```
-
-Danach `COMPOSE_PROFILES=` und `GRAFANA_ADMIN_PASSWORD=` in `.env` leeren. Das
-Verzeichnis `data/grafana/` wird dabei nicht gelöscht und kann bis zum Ende der
-vereinbarten Rückrollfrist gesichert aufbewahrt werden.
-
-## DMARC Control
-
-Das eigene Webdashboard ist die Standardoberfläche. Das optionale Grafana kann
-in Übergangsinstallationen parallel laufen. Für die Normalisierung und Ablage
-der DMARC-Berichte verwendet DMARC Control
-[parsedmarc](https://github.com/domainaware/parsedmarc) als technische Basis:
-
-- Übersicht mit Volumen, Passrate, echten DMARC-Fails, Datenfrische und Trend
-- klare Trennung zwischen finalem DMARC-Fail und kompensiertem SPF-/DKIM-Alignment
-- vollständiges Sending-Host-Inventar mit IP, PTR, ASN/Land, Identitäten und Last Seen
-- mehrstufige Dienst-Erkennung mit Konfidenz und manueller Bestätigung
-- deduplizierte Warnungen mit Status `offen`, `bestätigt`, `behoben` und `ignoriert`
-- durchgängige Alert-Triage mit direkter Sending-Host-Untersuchung, Rückweg zum
-  Ausgangs-Alert und kompatiblen Deep Links aus E-Mail-Benachrichtigungen
-- konfigurierbares E-Mail-Alerting über SMTP oder Microsoft Graph
-- datenschutzreduzierte Forensik ohne Laden von Rohinhalt, Empfängern, Betreff oder Headern
-
-Der Browser spricht ausschließlich mit FastAPI. OpenSearch ist nicht direkt aus
-dem Browser erreichbar und wird von der API ausschließlich lesend abgefragt.
-Warnungsstatus, Benachrichtigungszustellungen, manuelle Zuordnungen, der globale
-UI-Farbstandard sowie verschlüsselte Mailbox- und Benachrichtigungszugänge
-liegen getrennt in
-`data/dashboard/dashboard.db`. Lokale Farbanpassungen bleiben als
-Browser-Präferenz erhalten. Globale Farb- und Mailboxänderungen sind mit dem
-separaten Admin-Passwort geschützt. Gleiches gilt für
-Benachrichtigungseinstellungen und Testversand. Der Zugriff auf das gesamte
-Dashboard erfordert zusätzlich eine gültige Read-Sitzung. Beide Passwörter
-werden ausschließlich als gesalzene Hashes gespeichert und können unter
-**Einstellungen → Administration** geändert werden.
-
-Weitere Details und der Dockge-Betriebsablauf stehen in
-[docs/CUSTOM-DASHBOARD.md](docs/CUSTOM-DASHBOARD.md).
-
-Die vollständige Trennung zwischen historischen OpenSearch-Daten,
-Dashboard-Steuerungsdaten, Verschlüsselungsschlüssel und optionalem
-Grafana-Zustand ist in
-[docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) beschrieben. Dort ist auch
-festgehalten, welche Teilwiederherstellungen möglich sind und in welcher
-Reihenfolge ein vollständiger Restore erfolgen muss.
-
-## Ports
-
-| Service | Port | Beschreibung |
-|---|---|---|
-| Grafana (optional) | 3020 | Nur bei aktiviertem Profil `grafana` |
-| DMARC Control | 3030 | Eigenes v2-Webdashboard |
-| OpenSearch API | 9200 | Nur intern |
-
-## Ressourcenbedarf
-
-| Ressource | Minimum |
-|---|---|
-| RAM | 2 GB |
-| CPU | 1 Core |
-| Disk | ~1 GB/Jahr (je nach Report-Volumen) |
-
-## Hinweise
-
-- **Zeitfelder:** Aggregate verwenden `date_begin`, Failure-/Forensic-Indizes `arrival_date`.
-- **Forensic/RUF:** Standardmäßig deaktiviert, weil diese Reports personenbezogene Header oder Betreffzeilen enthalten können. Bei Bedarf nur mit dokumentierter Retention und getrennten Berechtigungen aktivieren.
-- **OpenSearch-Sicherheit:** Der Stack veröffentlicht keine OpenSearch-Ports;
-  Dashboard, Parser und optional Grafana greifen nur im Compose-Netz darauf zu.
-  Vor einem Firmenbetrieb müssen OpenSearch Security, TLS, Zugriffskontrolle
-  und Back-up verbindlich ergänzt werden.
-- **Portabilität:** Konfiguration, `.env` und alle persistenten Containerdaten liegen unter dem Projektverzeichnis. Für einen Hostwechsel den Stack sauber stoppen, das gesamte Verzeichnis inklusive `data/` übertragen und auf dem Zielhost mit kompatiblen Image-Versionen starten. Für OpenSearch ist ein Snapshot zusätzlich der empfohlene Backup- und Migrationsweg.
-
-## Troubleshooting
-
-```bash
-# OpenSearch Gesundheit prüfen
-docker exec dmarc-opensearch curl -s http://localhost:9200/_cluster/health | python3 -m json.tool
-
-# Indizes prüfen
-docker exec dmarc-opensearch curl -s http://localhost:9200/_cat/indices?v | grep dmarc
-
-# parsedmarc Logs
-docker compose logs parsedmarc --tail=50
-
-# Optional: prüfen, ob die Grafana-Dashboards und Datasource provisioniert wurden
-docker compose logs grafana | grep -i "provision\|opensearch"
-
-# Aktive Standarddienste anzeigen; ohne Profil darf grafana nicht erscheinen
-docker compose config --services
-
-# Optionale Variante auflösen; hier muss grafana erscheinen
-docker compose --profile grafana config --services
-
-# Stack neu starten
-docker compose restart
-
-# parsedmarc Image neu bauen (nach Update)
-docker compose build --no-cache parsedmarc
-docker compose up -d
-```
-
-## Lizenz
-
-DMARC Control steht unter [Apache 2.0](LICENSE). Das zugrunde liegende
-[parsedmarc](https://github.com/domainaware/parsedmarc) steht ebenfalls unter
-[Apache 2.0](https://github.com/domainaware/parsedmarc/blob/master/LICENSE).
+The Compose and Docker build files are the source of truth for component
+versions, container settings, published ports, and optional profiles.
