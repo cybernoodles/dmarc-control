@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -30,10 +30,20 @@ class DomainMonitoringApiTests(unittest.TestCase):
         for read, admin in ((False, False), (False, True), (True, False)):
             with (patch.object(main, "is_read_authenticated", return_value=read),
                   patch.object(main, "is_admin_authenticated", return_value=admin)):
-                for method, body in (("get", None),
-                                     ("post", {"domain": "expected.example", "grace_days": 3}),
-                                     ("patch", {"domain": "expected.example", "state": "retired"})):
-                    response = self.client.request(method, "/api/settings/domains", json=body)
+                for method, path, body in (
+                    ("get", "/api/settings/domains", None),
+                    ("post", "/api/settings/domains", {
+                        "domain": "expected.example", "grace_days": 3,
+                    }),
+                    ("patch", "/api/settings/domains", {
+                        "domain": "expected.example", "state": "retired",
+                    }),
+                    ("put", "/api/settings/domains/expected.example/services/microsoft365", {
+                        "decision": "confirmed",
+                    }),
+                    ("post", "/api/settings/domains/expected.example/services/microsoft365/refresh", None),
+                ):
+                    response = self.client.request(method, path, json=body)
                     self.assertEqual(response.status_code, 401)
         self.assertEqual(self.store.list_domain_monitoring(7), [])
 
@@ -63,7 +73,20 @@ class DomainMonitoringApiTests(unittest.TestCase):
             listing = self.client.get("/api/settings/domains").json()
             self.assertEqual(listing["default_grace_days"], 7)
             self.assertEqual(listing["domains"], [reset.json()])
-            self.assertEqual(StateStore(self.settings.database_path).list_domain_monitoring(7), listing["domains"])
+            self.assertEqual(
+                StateStore(self.settings.database_path).list_domain_monitoring(7),
+                [
+                    {
+                        key: value for key, value in item.items()
+                        if key != "service_assessments"
+                    }
+                    for item in listing["domains"]
+                ],
+            )
+            service = listing["domains"][0]["service_assessments"][0]
+            self.assertEqual(service["service_id"], "microsoft365")
+            self.assertEqual(service["dns_status"], "pending")
+            self.assertEqual(service["effective_status"], "unknown")
 
     def test_validation_and_transitions_reject_invalid_writes_without_mutation(self):
         self.store.remember_domain_reports([{"domain": "observed.example", "last_report": datetime.now(UTC).isoformat()}])
@@ -84,6 +107,123 @@ class DomainMonitoringApiTests(unittest.TestCase):
             missing = self.client.patch("/api/settings/domains", json={"domain": "missing.example", "state": "retired"})
             self.assertEqual(missing.status_code, 404)
         self.assertEqual(self.store.list_domain_monitoring(7), before)
+
+    def test_admin_can_confirm_reject_and_restore_automatic_service_policy(self):
+        self.store.add_domain_monitoring(
+            "example.com", 3, default_grace_days=7,
+        )
+        path = "/api/settings/domains/example.com/services/microsoft365"
+        with (patch.object(main, "is_read_authenticated", return_value=True),
+              patch.object(main, "is_admin_authenticated", return_value=True)):
+            confirmed = self.client.put(path, json={"decision": "confirmed"})
+            rejected = self.client.put(path, json={"decision": "rejected"})
+            automatic = self.client.put(path, json={"decision": "automatic"})
+            listing = self.client.get("/api/settings/domains")
+
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["effective_status"], "expected")
+        self.assertEqual(rejected.json()["effective_status"], "rejected")
+        self.assertEqual(automatic.json()["decision"], "automatic")
+        self.assertEqual(automatic.json()["effective_status"], "unknown")
+        self.assertEqual(
+            listing.json()["domains"][0]["service_assessments"][0]["decision"],
+            "automatic",
+        )
+
+    def test_manual_dns_refresh_persists_explainable_microsoft365_evidence(self):
+        self.store.add_domain_monitoring(
+            "example.com", 3, default_grace_days=7,
+        )
+        assessor = AsyncMock()
+        assessor.assess.return_value = {
+            "service_id": "microsoft365",
+            "label": "Microsoft 365",
+            "dns_status": "fresh",
+            "assessment": "strong",
+            "score": 1.0,
+            "evidence": [{
+                "type": "spf",
+                "value": "include:spf.protection.outlook.com",
+                "rule_id": "microsoft365.spf.commercial.include.direct",
+            }],
+            "contradictions": [{
+                "type": "dns",
+                "value": "CNAME selector2._domainkey.example.com",
+                "rule_id": "dns.timeout",
+            }],
+            "assessed_at": datetime.now(UTC).isoformat(),
+            "ttl_seconds": 60,
+        }
+        wakeup = Mock()
+        with (patch.object(main, "is_read_authenticated", return_value=True),
+              patch.object(main, "is_admin_authenticated", return_value=True),
+              patch.dict(main.domain_dns_assessors, {"microsoft365": assessor}),
+              patch.object(
+                  main.app.state, "domain_dns_wakeup", wakeup, create=True,
+              )):
+            response = self.client.post(
+                "/api/settings/domains/example.com/services/microsoft365/refresh"
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(result["dns_status"], "fresh")
+        self.assertEqual(result["assessment"], "strong")
+        self.assertEqual(result["evidence"][0]["type"], "spf")
+        self.assertIn("dns.timeout", result["contradictions"][0])
+        assessor.assess.assert_awaited_once_with("example.com")
+        wakeup.set.assert_called_once_with()
+        stored = self.store.domain_service_assessment(
+            "example.com", "microsoft365",
+        )
+        self.assertEqual(stored["assessment"], "strong")
+
+    def test_expired_dns_snapshot_is_presented_as_stale(self):
+        self.store.add_domain_monitoring(
+            "example.com", 3, default_grace_days=7,
+        )
+        now = datetime.now(UTC)
+        self.store.save_domain_service_dns_assessment(
+            "example.com",
+            {
+                "service_id": "microsoft365",
+                "dns_status": "fresh",
+                "assessment": "configured",
+                "assessed_at": now - timedelta(hours=2),
+                "expires_at": now - timedelta(hours=1),
+                "evidence": [{
+                    "type": "spf",
+                    "value": "include:spf.protection.outlook.com",
+                    "rule_id": "microsoft365.spf.commercial.include.direct",
+                }],
+                "contradictions": [],
+            },
+        )
+        with (patch.object(main, "is_read_authenticated", return_value=True),
+              patch.object(main, "is_admin_authenticated", return_value=True)):
+            response = self.client.get("/api/settings/domains")
+
+        assessment = response.json()["domains"][0]["service_assessments"][0]
+        self.assertEqual(assessment["dns_status"], "stale")
+        self.assertEqual(assessment["effective_status"], "suggested")
+
+    def test_service_operations_reject_unknown_services_and_domains(self):
+        self.store.add_domain_monitoring(
+            "example.com", 3, default_grace_days=7,
+        )
+        with (patch.object(main, "is_read_authenticated", return_value=True),
+              patch.object(main, "is_admin_authenticated", return_value=True)):
+            unknown_service = self.client.put(
+                "/api/settings/domains/example.com/services/lookalike365",
+                json={"decision": "confirmed"},
+            )
+            unknown_domain = self.client.put(
+                "/api/settings/domains/missing.example/services/microsoft365",
+                json={"decision": "confirmed"},
+            )
+        # Domain existence is checked before a provider policy may be created.
+        self.assertEqual(unknown_service.status_code, 404)
+        self.assertEqual(unknown_domain.status_code, 404)
 
 
 if __name__ == "__main__":

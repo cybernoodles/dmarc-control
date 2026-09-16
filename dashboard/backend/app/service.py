@@ -689,6 +689,7 @@ class DashboardService:
                 "asn": host.get("asn"),
                 "as_name": host.get("as_name"),
                 "service": host["service_detection"].get("service"),
+                "service_id": host["service_detection"].get("service_id"),
                 "service_confidence": host["service_detection"].get(
                     "confidence"
                 ),

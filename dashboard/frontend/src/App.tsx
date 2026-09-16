@@ -71,6 +71,7 @@ import { useInvestigationNavigation } from "./useInvestigationNavigation";
 import { validDomain, type View } from "./investigationLocation";
 import { useAlertUpdates } from "./useAlertUpdates";
 import { DomainMonitoringSettings } from "./DomainMonitoringSettings";
+import { isExpectedProviderPassAlert } from "./alertPresentation";
 type SettingsSection =
   | "appearance"
   | "notifications"
@@ -4582,6 +4583,19 @@ function AlertsView({
                   </small>
                 )}
                 <small>{alert.domain}</small>
+                {isExpectedProviderPassAlert(alert) && (
+                  <span
+                    className="alert-provider-context"
+                    title={t("Die Zuordnung gilt für diesen DMARC-bestandenen Host. DMARC-Fehler bleiben kritisch.")}
+                  >
+                    <CheckCircle2 aria-hidden="true" />
+                    {alert.provider_group_label
+                      ? t("{service} · erwarteter Versanddienst · DMARC bestanden", {
+                          service: alert.provider_group_label,
+                        })
+                      : t("Erwarteter Versanddienst · DMARC bestanden")}
+                  </span>
+                )}
               </td>
               <td>
                 <span>{alertTrigger(alert)}</span>

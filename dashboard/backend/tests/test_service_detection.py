@@ -42,6 +42,7 @@ class ServiceDetectionProvenanceTests(unittest.TestCase):
     def test_overlapping_microsoft_rules_choose_one_specific_match(self) -> None:
         result = score_service({"source_reverse_dns": "mail.outbound.protection.outlook.com"})
         self.assertEqual(result["service"], "Microsoft 365")
+        self.assertEqual(result["service_id"], "microsoft365")
         self.assertEqual(result["confidence"], 0.30)
         self.assertEqual(len(result["evidence_details"]), 1)
         self.assertEqual(result["evidence_details"][0]["rule_id"], "microsoft365.outbound_domain")
@@ -178,6 +179,7 @@ class ServiceDetectionProvenanceTests(unittest.TestCase):
             with self.subTest(name=name, source_type=source_type):
                 result = score_service({"source_name": name, "source_type": source_type})
                 self.assertEqual(result["service"], "Unbekannt")
+                self.assertIsNone(result["service_id"])
                 self.assertEqual(result["confidence"], 0)
 
     def test_hosting_domains_and_asn_names_alone_are_not_mail_products(self) -> None:

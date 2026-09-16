@@ -8,6 +8,7 @@ import re
 import secrets
 import time
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -37,6 +38,8 @@ from .connection import (
     SecretVault,
     test_mailbox_connection,
 )
+from .domain_monitoring import canonical_domain
+from .domain_service_assessment import DomainDnsAssessor, SERVICE_CATALOG
 from .opensearch import OpenSearchClient, OpenSearchError
 from .notifications import (
     NOTIFICATION_CASES,
@@ -60,19 +63,31 @@ client = OpenSearchClient(
 )
 store = StateStore(settings.database_path)
 service = DashboardService(client, store, settings)
+domain_dns_assessors = {
+    service_id: DomainDnsAssessor(service_id=service_id)
+    for service_id in SERVICE_CATALOG
+}
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     store.interrupt_running_evaluations()
     application.state.notification_wakeup = asyncio.Event()
-    task = asyncio.create_task(notification_delivery_loop(application))
+    application.state.domain_dns_wakeup = asyncio.Event()
+    application.state.domain_dns_wakeup.set()
+    notification_task = asyncio.create_task(
+        notification_delivery_loop(application)
+    )
+    dns_task = asyncio.create_task(domain_dns_refresh_loop(application))
     try:
         yield
     finally:
-        task.cancel()
+        notification_task.cancel()
+        dns_task.cancel()
         with suppress(asyncio.CancelledError):
-            await task
+            await notification_task
+        with suppress(asyncio.CancelledError):
+            await dns_task
 
 
 app = FastAPI(
@@ -139,6 +154,12 @@ class DomainMonitoringUpdate(BaseModel):
         if not self.model_fields_set.intersection({"state", "grace_days"}):
             raise ValueError("Überwachungsstatus oder Wartefrist erforderlich")
         return self
+
+
+class DomainServiceDecisionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["automatic", "confirmed", "rejected"]
 
 
 class PasswordRequest(BaseModel):
@@ -800,6 +821,262 @@ def public_evaluation_status() -> dict:
     }
 
 
+def public_domain_service_assessment(assessment: dict) -> dict:
+    """Expose stable UI fields without turning DNS evidence into a whitelist."""
+    service_id = assessment["service_id"]
+    catalog = SERVICE_CATALOG.get(service_id, {})
+    evidence = []
+    for item in assessment.get("evidence", []):
+        if not isinstance(item, dict):
+            continue
+        value = item.get("value", item.get("record", ""))
+        evidence.append({
+            "type": str(item.get("type", "dns")),
+            "value": str(value),
+            "rule_id": str(item.get("rule_id", "dns.evidence")),
+        })
+    contradictions = []
+    for item in assessment.get("contradictions", []):
+        if isinstance(item, dict):
+            label = ": ".join(
+                value for value in (
+                    str(item.get("type", "DNS")),
+                    str(item.get("value", "")),
+                ) if value
+            )
+            rule_id = item.get("rule_id")
+            contradictions.append(
+                f"{label} ({rule_id})" if rule_id else label
+            )
+        else:
+            contradictions.append(str(item))
+    dns_status = assessment.get("dns_status", "unavailable")
+    if assessment.get("dns_expired"):
+        dns_status = "stale"
+    elif assessment.get("assessed_at") is None:
+        dns_status = "pending"
+    return {
+        "service_id": service_id,
+        "label": str(catalog.get("label", service_id)),
+        "decision": assessment.get("decision", "automatic"),
+        "effective_status": assessment.get("effective_status", "unknown"),
+        "dns_status": dns_status,
+        "assessment": assessment.get("assessment", "unknown"),
+        "evidence": evidence,
+        "contradictions": contradictions,
+        "assessed_at": assessment.get("assessed_at"),
+        "observation": assessment.get("observation"),
+    }
+
+
+def empty_domain_service_assessment(domain: str, service_id: str) -> dict:
+    return {
+        "domain": domain,
+        "service_id": service_id,
+        "decision": "automatic",
+        "effective_status": "unknown",
+        "dns_status": "unavailable",
+        "assessment": "unknown",
+        "evidence": [],
+        "contradictions": [],
+        "assessed_at": None,
+        "dns_expired": False,
+        "observation": None,
+    }
+
+
+def public_domain_monitoring_item(
+    item: dict,
+    assessments: dict[tuple[str, str], dict] | None = None,
+) -> dict:
+    def assessment_for(service_id: str) -> dict:
+        if assessments is None:
+            return store.domain_service_assessment(item["domain"], service_id)
+        return assessments.get(
+            (item["domain"], service_id),
+            empty_domain_service_assessment(item["domain"], service_id),
+        )
+
+    return {
+        **item,
+        "service_assessments": [
+            public_domain_service_assessment(
+                assessment_for(service_id)
+            )
+            for service_id in SERVICE_CATALOG
+        ],
+    }
+
+
+def registered_domain(domain: str) -> tuple[str, dict]:
+    try:
+        key = canonical_domain(domain)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    matches = store.list_domain_monitoring(
+        settings.stale_report_days,
+        key,
+    )
+    if not matches:
+        raise HTTPException(status_code=404, detail="Domain ist nicht registriert")
+    return key, matches[0]
+
+
+def known_domain_service(service_id: str) -> str:
+    normalized = service_id.strip().lower()
+    if normalized not in SERVICE_CATALOG:
+        raise HTTPException(status_code=404, detail="Versanddienst ist unbekannt")
+    return normalized
+
+
+async def refresh_domain_service_dns(domain: str, service_id: str) -> dict:
+    assessor = domain_dns_assessors[service_id]
+    result = await assessor.assess(domain)
+    # Zero is valid DNS cache guidance but cannot drive a tight application
+    # retry loop. Network failures use the configured background interval.
+    raw_ttl = result.get("ttl_seconds")
+    ttl = raw_ttl if type(raw_ttl) is int and raw_ttl > 0 else settings.domain_dns_refresh_seconds
+    result["ttl_seconds"] = min(86_400, max(300, ttl))
+    store.save_domain_service_dns_assessment(domain, result)
+    return public_domain_service_assessment(
+        store.domain_service_assessment(domain, service_id)
+    )
+
+
+def domain_service_dns_is_due(assessment: dict, now: datetime) -> bool:
+    expires_at = assessment.get("dns_expires_at")
+    if assessment.get("assessed_at") is None or not isinstance(expires_at, str):
+        return True
+    try:
+        expiry = datetime.fromisoformat(expires_at)
+    except ValueError:
+        return True
+    if expiry.tzinfo is None:
+        return True
+    return expiry.astimezone(UTC) <= now
+
+
+async def refresh_due_domain_service_dns() -> float:
+    """Refresh expired snapshots and return the next safe wake-up delay.
+
+    ``DOMAIN_DNS_REFRESH_SECONDS`` is the maximum polling interval.  A shorter
+    authoritative DNS TTL must wake the loop earlier, otherwise a valid
+    assessment can spend most of its lifetime exposed as stale.
+    """
+    due: list[tuple[str, str]] = []
+    now = datetime.now(UTC)
+    assessments = {
+        (item["domain"], item["service_id"]): item
+        for item in store.domain_service_assessments(now=now)
+    }
+    for item in store.list_domain_monitoring(settings.stale_report_days):
+        if item["state"] == "retired":
+            continue
+        for service_id in SERVICE_CATALOG:
+            assessment = assessments.get(
+                (item["domain"], service_id),
+                empty_domain_service_assessment(item["domain"], service_id),
+            )
+            if domain_service_dns_is_due(assessment, now):
+                due.append((item["domain"], service_id))
+
+    async def refresh_one(domain: str, service_id: str) -> None:
+        try:
+            await refresh_domain_service_dns(domain, service_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "Domain service DNS assessment failed for %s/%s",
+                domain,
+                service_id,
+            )
+
+    for offset in range(0, len(due), 4):
+        await asyncio.gather(*(
+            refresh_one(domain, service_id)
+            for domain, service_id in due[offset:offset + 4]
+        ))
+
+    # Re-read after the refresh so the delay reflects the newly stored TTLs.
+    # Failed or malformed snapshots retry after five minutes rather than
+    # causing a tight loop.
+    checked_at = datetime.now(UTC)
+    refreshed = {
+        (item["domain"], item["service_id"]): item
+        for item in store.domain_service_assessments(now=checked_at)
+    }
+    retry_delay = min(float(settings.domain_dns_refresh_seconds), 300.0)
+    delays: list[float] = []
+    for domain, service_id in {
+        (item["domain"], service_id)
+        for item in store.list_domain_monitoring(settings.stale_report_days)
+        if item["state"] != "retired"
+        for service_id in SERVICE_CATALOG
+    }:
+        expires_at = refreshed.get((domain, service_id), {}).get(
+            "dns_expires_at"
+        )
+        try:
+            expiry = datetime.fromisoformat(expires_at)
+        except (TypeError, ValueError):
+            delays.append(retry_delay)
+            continue
+        if expiry.tzinfo is None:
+            delays.append(retry_delay)
+            continue
+        remaining = (expiry.astimezone(UTC) - checked_at).total_seconds()
+        delays.append(remaining if remaining > 0 else retry_delay)
+    return max(1.0, min(
+        float(settings.domain_dns_refresh_seconds),
+        min(delays, default=float(settings.domain_dns_refresh_seconds)),
+    ))
+
+
+async def domain_dns_refresh_loop(application: FastAPI) -> None:
+    wakeup: asyncio.Event = application.state.domain_dns_wakeup
+    delay = float(settings.domain_dns_refresh_seconds)
+    while True:
+        try:
+            await asyncio.wait_for(
+                wakeup.wait(),
+                timeout=delay,
+            )
+        except TimeoutError:
+            pass
+        wakeup.clear()
+        try:
+            delay = await refresh_due_domain_service_dns()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Domain service DNS refresh cycle failed")
+            delay = min(float(settings.domain_dns_refresh_seconds), 300.0)
+
+
+def expected_provider_pass_suppression_is_current(alert: dict) -> bool:
+    if (
+        alert.get("notification_suppressed_reason")
+        != "expected-provider-dmarc-pass"
+        or alert.get("kind") != "new-source-ip"
+        or alert.get("automatic_service_id") not in SERVICE_CATALOG
+        or type(alert.get("total_messages")) is not int
+        or type(alert.get("dmarc_pass")) is not int
+        or type(alert.get("dmarc_fail", 0)) is not int
+        or alert["total_messages"] <= 0
+        or alert.get("dmarc_pass") != alert["total_messages"]
+        or alert.get("dmarc_fail", 0) != 0
+    ):
+        return False
+    try:
+        assessment = store.domain_service_assessment(
+            alert["domain"], alert["automatic_service_id"],
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+    return assessment["effective_status"] == "expected"
+
+
 async def dispatch_notification_cycle() -> None:
     current = store.notification_settings()
     if not current or not current["settings"].get("enabled"):
@@ -835,6 +1112,7 @@ async def dispatch_notification_cycle() -> None:
             alert.get("status") != "open"
             or event_type not in selected_cases
             or not alert.get("notification_eligible", True)
+            or expected_provider_pass_suppression_is_current(alert)
         ):
             continue
         if event_type == "stale-reports" and not store.domain_freshness_allows(
@@ -1002,8 +1280,15 @@ async def domain_monitoring(request: Request):
     require_admin(request)
     # Administration remains available during an OpenSearch outage. Discovery
     # is updated by the domain selector and complete alert evaluations.
+    assessments = {
+        (item["domain"], item["service_id"]): item
+        for item in store.domain_service_assessments()
+    }
     return {
-        "domains": store.list_domain_monitoring(settings.stale_report_days),
+        "domains": [
+            public_domain_monitoring_item(item, assessments)
+            for item in store.list_domain_monitoring(settings.stale_report_days)
+        ],
         "default_grace_days": settings.stale_report_days,
     }
 
@@ -1012,10 +1297,13 @@ async def domain_monitoring(request: Request):
 async def create_domain_monitoring(update: DomainMonitoringCreate, request: Request):
     require_admin(request)
     try:
-        return store.add_domain_monitoring(
+        saved = store.add_domain_monitoring(
             update.domain, update.grace_days,
             default_grace_days=settings.stale_report_days,
         )
+        if hasattr(app.state, "domain_dns_wakeup"):
+            app.state.domain_dns_wakeup.set()
+        return public_domain_monitoring_item(saved)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1025,13 +1313,53 @@ async def update_domain_monitoring(update: DomainMonitoringUpdate, request: Requ
     require_admin(request)
     changes = update.model_dump(exclude_unset=True, exclude={"domain"})
     try:
-        return store.update_domain_monitoring(
+        saved = store.update_domain_monitoring(
             update.domain, **changes, default_grace_days=settings.stale_report_days,
         )
+        if saved["state"] != "retired" and hasattr(app.state, "domain_dns_wakeup"):
+            app.state.domain_dns_wakeup.set()
+        return public_domain_monitoring_item(saved)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Domain ist nicht registriert") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/settings/domains/{domain}/services/{service_id}")
+async def update_domain_service_decision(
+    domain: str,
+    service_id: str,
+    update: DomainServiceDecisionUpdate,
+    request: Request,
+):
+    require_admin(request)
+    key, _item = registered_domain(domain)
+    service_key = known_domain_service(service_id)
+    try:
+        saved = store.set_domain_service_decision(
+            key,
+            service_key,
+            update.decision,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return public_domain_service_assessment(saved)
+
+
+@app.post("/api/settings/domains/{domain}/services/{service_id}/refresh")
+async def refresh_domain_service_assessment(
+    domain: str,
+    service_id: str,
+    request: Request,
+):
+    require_admin(request)
+    key, _item = registered_domain(domain)
+    service_key = known_domain_service(service_id)
+    result = await refresh_domain_service_dns(key, service_key)
+    # Recalculate the background deadline from the manually obtained TTL.
+    if hasattr(app.state, "domain_dns_wakeup"):
+        app.state.domain_dns_wakeup.set()
+    return result
 
 
 @app.get("/api/auth/status")

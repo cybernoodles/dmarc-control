@@ -34,6 +34,10 @@ class Settings:
         30,
         int(os.getenv("NOTIFICATION_POLL_SECONDS", "300")),
     )
+    domain_dns_refresh_seconds: int = max(
+        300,
+        int(os.getenv("DOMAIN_DNS_REFRESH_SECONDS", "3600")),
+    )
 
 
 settings = Settings()

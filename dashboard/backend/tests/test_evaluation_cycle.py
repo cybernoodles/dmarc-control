@@ -121,6 +121,59 @@ class EvaluationCycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.evaluation_status()["latest"]["status"], "success")
         self.assertEqual(self.store.recipient_delivery_summary()["permanent_failure"], 2)
 
+    async def test_expected_provider_pass_is_not_dispatched(self):
+        self.config["cases"] = ["new-source-ip"]
+        self.store.save_notification_settings(
+            settings=self.config,
+            secret_ciphertext="unused",
+        )
+        self.store.set_domain_service_decision(
+            "a.example", "microsoft365", "confirmed",
+        )
+        alert = {
+            **example_alert(),
+            "kind": "new-source-ip",
+            "domain": "a.example",
+            "status": "open",
+            "notification_eligible": True,
+            "automatic_service_id": "microsoft365",
+            "dmarc_pass": 1,
+            "dmarc_fail": 0,
+            "provider_expectation": "expected",
+            "notification_suppressed_reason": "expected-provider-dmarc-pass",
+        }
+        evaluated = {
+            "items": [alert],
+            "counts": {"events": 1, "domains": 1, "hosts": 1},
+        }
+        with patch.object(
+            main.service,
+            "alert_evaluation",
+            new=AsyncMock(return_value=evaluated),
+        ):
+            await main.dispatch_notification_cycle()
+            self.assertEqual(
+                self.store.evaluation_status()["latest"]["status"],
+                "success",
+            )
+            self.assertEqual(
+                self.store.recipient_delivery_summary()["total"], 0,
+            )
+            self.sender.assert_not_called()
+
+            # A concurrent policy change is rechecked immediately before
+            # claiming recipients; a stale suppression marker cannot hide it.
+            self.store.set_domain_service_decision(
+                "a.example", "microsoft365", "rejected",
+            )
+            self.sender.return_value = [
+                RecipientDeliveryResult(recipient, "accepted")
+                for recipient in self.config["recipients"]
+            ]
+            await main.dispatch_notification_cycle()
+
+        self.sender.assert_called_once()
+
     async def test_cancelled_evaluation_is_interrupted_and_reraises(self):
         with patch.object(main.service, "alert_evaluation", side_effect=asyncio.CancelledError):
             with self.assertRaises(asyncio.CancelledError):

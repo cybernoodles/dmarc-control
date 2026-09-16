@@ -56,6 +56,13 @@ _NAME_ALIASES = {
     "mandrill": "Mailchimp",
     "mailchimp transactional": "Mailchimp",
 }
+_SERVICE_IDS = {
+    "SMTP2GO": "smtp2go",
+    "Microsoft 365": "microsoft365",
+    "Google Workspace": "google_workspace",
+    "Amazon SES": "amazon_ses",
+    "Mailchimp": "mailchimp",
+}
 _ASN_NAMES = (
     ("SMTP2GO", r"\bdeft\b", "smtp2go.asn_name"),
     ("Microsoft 365", r"\bmicrosoft\b", "microsoft365.asn_name"),
@@ -142,7 +149,8 @@ def _dynamic_profile(source: dict[str, Any], trusted_source: bool) -> dict[str, 
     if not any(re.search(r"(?<![0-9])" + re.escape(pattern) + r"(?![0-9])", ptr) for pattern in patterns):
         return None
     return {
-        "service": "Dynamischer IP-Bereich", "confidence": 0.54,
+        "service": "Dynamischer IP-Bereich", "service_id": None,
+        "confidence": 0.54,
         "confidence_label": "Niedrig", "profile": "dynamic_ip",
         "evidence": ["PTR: Quell-IP eingebettet", "PTR: dynamisches Anschlussmuster"],
         "evidence_details": [
@@ -226,7 +234,8 @@ def score_service(
         dynamic = _dynamic_profile(source, trusted_source)
         if dynamic:
             return dynamic
-        return {"service": "Unbekannt", "confidence": 0, "confidence_label": "Keine Zuordnung",
+        return {"service": "Unbekannt", "service_id": None,
+                "confidence": 0, "confidence_label": "Keine Zuordnung",
                 "evidence": [], "evidence_details": [], "profile": "unknown"}
     service, result = min(identified, key=lambda item: (-item[1].confidence(), item[0]))
     confidence = result.confidence()
@@ -252,7 +261,8 @@ def score_service(
                 "independence_group": "auth_conflict", "auth_result": "pass",
             })
     return {
-        "service": service, "confidence": confidence,
+        "service": service, "service_id": _SERVICE_IDS[service],
+        "confidence": confidence,
         "confidence_label": "Hoch" if confidence >= 0.80 else "Mittel" if confidence >= 0.55 else "Niedrig",
         "evidence": labels, "evidence_details": details,
         "profile": "mail_service",

@@ -6,6 +6,7 @@ from typing import Any
 
 from .host_classification import classify_host
 from .domain_monitoring import canonical_domain, domain_freshness_event, legacy_domain_monitoring
+from .domain_service_assessment import SERVICE_CATALOG
 from .service_detection import score_service
 from .freshness import report_freshness
 from .opensearch import OpenSearchError
@@ -137,6 +138,7 @@ class AlertEngine:
         )
         overrides = self.store.host_overrides()
         events = []
+        provider_observations: dict[tuple[str, str], dict[str, Any]] = {}
         # Composite day is the leading key. Sort explicitly for deterministic
         # historical classification even with synthetic or reordered responses.
         for bucket in sorted(buckets, key=lambda item: (item["key"]["day"], item["key"]["domain"], item["key"]["ip"])):
@@ -144,6 +146,10 @@ class AlertEngine:
             report_time = _iso_from_epoch(key["day"])
             report_day = report_time[:10]
             source_ip, event_domain = key["ip"], key["domain"]
+            try:
+                service_domain = canonical_domain(event_domain)
+            except ValueError:
+                service_domain = None
             prior = history.setdefault((event_domain, source_ip), {"first_seen": report_time, "passed": 0, "failed": 0})
             first_seen = prior["first_seen"] or report_time
             counts = {name: _sum(bucket.get(name, {})) for name in mechanisms}
@@ -159,11 +165,44 @@ class AlertEngine:
                 dkim_selectors=_top_keys(bucket, "dkim_selectors"),
             )
             detection, _ = classify_host(automatic, overrides.get(source_ip))
+            automatic_service_id = automatic.get("service_id")
+            has_provider_conflict = any(
+                detail.get("origin") == "source_auth_conflict"
+                for detail in automatic.get("evidence_details", [])
+                if isinstance(detail, dict)
+            )
+            if (
+                automatic_service_id in SERVICE_CATALOG
+                and service_domain is not None
+                and automatic.get("profile") == "mail_service"
+                and automatic.get("confidence", 0) >= 0.55
+                and not has_provider_conflict
+            ):
+                observation = provider_observations.setdefault(
+                    (service_domain, automatic_service_id),
+                    {
+                        "messages": 0,
+                        "dmarc_pass": 0,
+                        "dmarc_fail": 0,
+                        "days": set(),
+                        "last_seen": None,
+                    },
+                )
+                observation["messages"] += messages
+                observation["dmarc_pass"] += counts["dmarc_pass"]
+                observation["dmarc_fail"] += counts["dmarc_fail"]
+                observation["days"].add(report_day)
+                observation["last_seen"] = max(
+                    value for value in (observation["last_seen"], report_time)
+                    if value is not None
+                )
             context = {
                 "source_ip": source_ip, "domain": event_domain, "country": source.get("source_country"),
                 "report_time": report_time, "source_profile": detection.get("profile"),
                 "reverse_dns": source.get("source_reverse_dns"), "asn": source.get("source_asn"),
                 "as_name": source.get("source_as_name"), "service": detection.get("service"),
+                "service_id": detection.get("service_id"),
+                "automatic_service_id": automatic_service_id,
                 "service_confidence": detection.get("confidence"), "service_evidence": detection.get("evidence", []),
                 "classification_mode": detection["classification_mode"],
                 "manual_service_name": detection["manual_service_name"],
@@ -206,6 +245,61 @@ class AlertEngine:
                 })
             prior["passed"] += counts["dmarc_pass"]
             prior["failed"] += counts["dmarc_fail"]
+
+        # The automatic decision always uses one fixed rolling 30-day window.
+        # Wider UI views must not rewrite it with a different evidence scope.
+        # This is a complete replacement, so providers absent from the current
+        # window cannot remain expected on stale historical evidence.
+        if domain == "*" and days == 30:
+            self.store.replace_domain_service_observations({
+                (event_domain, service_id): {
+                    "messages": observation["messages"],
+                    "dmarc_pass": observation["dmarc_pass"],
+                    "dmarc_fail": observation["dmarc_fail"],
+                    "distinct_days": len(observation["days"]),
+                    "last_seen": observation["last_seen"],
+                }
+                for (event_domain, service_id), observation
+                in provider_observations.items()
+            }, now=now)
+
+        assessment_map = {
+            (item["domain"], item["service_id"]): item
+            for item in self.store.domain_service_assessments(now=now)
+        }
+        for event in events:
+            service_id = event.get("automatic_service_id")
+            if service_id not in SERVICE_CATALOG:
+                continue
+            try:
+                service_domain = canonical_domain(event["domain"])
+            except (TypeError, ValueError):
+                continue
+            assessment = assessment_map.get(
+                (service_domain, service_id),
+                {"effective_status": "unknown", "decision": "automatic"},
+            )
+            event.update(
+                provider_expectation=assessment["effective_status"],
+                provider_decision=assessment["decision"],
+                provider_group_id=self.service._alert_id(
+                    "provider", service_domain, service_id,
+                ),
+                provider_group_label=SERVICE_CATALOG[service_id]["label"],
+            )
+            # An expected provider may reduce per-IP churn only when every
+            # message represented by this event passed DMARC. Provider identity
+            # never weakens a failure, alignment issue, or missing-report alert.
+            if (
+                event["kind"] == "new-source-ip"
+                and assessment["effective_status"] == "expected"
+                and event.get("dmarc_pass", 0) == event.get("total_messages", 0)
+                and event.get("total_messages", 0) > 0
+            ):
+                event.update(
+                    priority="info",
+                    notification_suppressed_reason="expected-provider-dmarc-pass",
+                )
 
         fresh = await report_freshness(self.client, self.settings, domain)
         known = self.store.remember_domain_reports(fresh, domain)

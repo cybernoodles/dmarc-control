@@ -22,6 +22,7 @@ def classify_host(
     if manual:
         detection.update(
             service=manual_name,
+            service_id=None,
             confidence=None,
             confidence_label="Übernommen" if mode == "legacy_preserved" else "Manuell",
             evidence=[],

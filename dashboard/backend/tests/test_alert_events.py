@@ -34,9 +34,10 @@ def report(
     passed: bool = True,
     spf_aligned: bool | None = None,
     dkim_aligned: bool | None = None,
+    microsoft365: bool = False,
 ) -> dict[str, Any]:
     begin = (NOW - timedelta(days=days_ago)).replace(hour=0)
-    return {
+    item = {
         "date_begin": begin,
         "date_end": begin + timedelta(days=1),
         "header_from": domain,
@@ -48,6 +49,13 @@ def report(
         "spf_aligned": passed if spf_aligned is None else spf_aligned,
         "dkim_aligned": passed if dkim_aligned is None else dkim_aligned,
     }
+    if microsoft365:
+        item.update(
+            source_type="esp",
+            source_name="Office 365",
+            source_as_name="Microsoft Corporation",
+        )
+    return item
 
 
 class ReportClient:
@@ -321,6 +329,155 @@ class AlertEventTests(unittest.IsolatedAsyncioTestCase):
         new_source = next(event for event in events if event["kind"] == "new-source-ip")
         self.assertEqual((fail["messages"], fail["total_messages"]), (3, 10))
         self.assertEqual((new_source["messages"], new_source["total_messages"]), (20, 20))
+
+    async def test_confirmed_microsoft365_calms_only_fully_passing_new_ip(self) -> None:
+        self.store.set_domain_service_decision(
+            "a.example", "microsoft365", "confirmed", now=NOW,
+        )
+        engine, _ = self.engine([
+            report(
+                1, source_ip="192.0.2.10", messages=12,
+                microsoft365=True,
+            ),
+            report(
+                1, source_ip="192.0.2.11", messages=3, passed=False,
+                microsoft365=True,
+            ),
+        ])
+
+        events = await engine._evaluate("*", 30, NOW)
+        passing = next(event for event in events if event["source_ip"] == "192.0.2.10")
+        failing = next(event for event in events if event["source_ip"] == "192.0.2.11")
+
+        self.assertEqual(passing["kind"], "new-source-ip")
+        self.assertEqual(passing["priority"], "info")
+        self.assertEqual(
+            passing["notification_suppressed_reason"],
+            "expected-provider-dmarc-pass",
+        )
+        self.assertEqual(passing["provider_expectation"], "expected")
+        self.assertEqual(passing["automatic_service_id"], "microsoft365")
+        self.assertEqual(failing["priority"], "critical")
+        self.assertGreater(failing["dmarc_fail"], 0)
+        self.assertNotIn("notification_suppressed_reason", failing)
+        self.assertNotEqual(failing["title"], passing["title"])
+
+        self.store.set_domain_service_decision(
+            "a.example", "microsoft365", "rejected", now=NOW,
+        )
+        restored = next(
+            event for event in await engine._evaluate("*", 30, NOW)
+            if event["source_ip"] == "192.0.2.10"
+        )
+        self.assertEqual(restored["priority"], "warning")
+        self.assertEqual(restored["provider_expectation"], "rejected")
+        self.assertNotIn("notification_suppressed_reason", restored)
+
+    async def test_automatic_microsoft365_expectation_combines_ips_and_days(self) -> None:
+        self.store.save_domain_service_dns_assessment(
+            "a.example",
+            {
+                "service_id": "microsoft365",
+                "dns_status": "fresh",
+                "assessment": "configured",
+                "assessed_at": NOW,
+                "expires_at": NOW + timedelta(days=1),
+                "evidence": [{
+                    "type": "spf",
+                    "value": "include:spf.protection.outlook.com",
+                    "rule_id": "microsoft365.spf.commercial.include.direct",
+                }],
+                "contradictions": [],
+            },
+            now=NOW,
+        )
+        engine, _ = self.engine([
+            report(
+                days_ago,
+                domain="A.Example" if days_ago % 2 else "a.example",
+                source_ip=f"192.0.2.{20 + days_ago}",
+                messages=15,
+                microsoft365=True,
+            )
+            for days_ago in range(7)
+        ])
+
+        events = await engine._evaluate("*", 30, NOW)
+        assessment = self.store.domain_service_assessment(
+            "a.example", "microsoft365", now=NOW,
+        )
+
+        self.assertEqual(assessment["effective_status"], "expected")
+        self.assertEqual(assessment["decision"], "automatic")
+        self.assertEqual(assessment["observation"]["messages"], 105)
+        self.assertEqual(assessment["observation"]["dmarc_pass"], 105)
+        self.assertEqual(assessment["observation"]["dmarc_fail"], 0)
+        self.assertEqual(assessment["observation"]["distinct_days"], 7)
+        self.assertTrue(events)
+        self.assertEqual(len({event["provider_group_id"] for event in events}), 1)
+        self.assertTrue(all(
+            event.get("notification_suppressed_reason")
+            == "expected-provider-dmarc-pass"
+            for event in events
+        ))
+
+    async def test_wider_alert_view_cannot_replace_fixed_provider_history_window(self) -> None:
+        self.store.save_domain_service_dns_assessment(
+            "a.example",
+            {
+                "service_id": "microsoft365",
+                "dns_status": "fresh",
+                "assessment": "configured",
+                "assessed_at": NOW,
+                "expires_at": NOW + timedelta(days=1),
+                "evidence": [{
+                    "type": "spf",
+                    "value": "include:spf.protection.outlook.com",
+                    "rule_id": "microsoft365.spf.commercial.include.direct",
+                }],
+                "contradictions": [],
+            },
+            now=NOW,
+        )
+        engine, client = self.engine([
+            report(
+                days_ago,
+                source_ip=f"192.0.2.{20 + days_ago}",
+                messages=15,
+                microsoft365=True,
+            )
+            for days_ago in range(7)
+        ])
+        await engine._evaluate("*", 30, NOW)
+        fixed = self.store.domain_service_assessment(
+            "a.example", "microsoft365", now=NOW,
+        )["observation"]
+
+        client.reports.append(report(
+            100, source_ip="192.0.2.250", messages=500,
+            passed=False, microsoft365=True,
+        ))
+        await engine._evaluate("*", 365, NOW)
+        after_wide_read = self.store.domain_service_assessment(
+            "a.example", "microsoft365", now=NOW,
+        )["observation"]
+
+        self.assertEqual(after_wide_read, fixed)
+        self.assertEqual(after_wide_read["messages"], 105)
+
+    async def test_malformed_historical_domain_never_enters_provider_policy(self) -> None:
+        engine, _ = self.engine([
+            report(1, domain="bad domain", microsoft365=True),
+        ])
+
+        events = await engine._evaluate("*", 30, NOW)
+
+        source_event = next(
+            event for event in events if event["kind"] == "new-source-ip"
+        )
+        self.assertEqual(source_event["priority"], "warning")
+        self.assertNotIn("provider_expectation", source_event)
+        self.assertEqual(self.store.domain_service_assessments(), [])
 
     async def test_alignment_count_correction_preserves_existing_event_id_and_status(self) -> None:
         engine, _ = self.engine([

@@ -1,13 +1,89 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Globe2, LockKeyhole, RefreshCw } from "lucide-react";
+import { Globe2, LockKeyhole, RefreshCw, ShieldAlert } from "lucide-react";
 import {
   api, ApiError, type AuthStatus, type DomainMonitoringItem,
-  type DomainMonitoringPatch,
+  type DomainMonitoringPatch, type DomainServiceAssessment,
+  type DomainServiceDecision, type DomainServiceDnsStatus,
+  type DomainServiceEffectiveStatus,
 } from "./api";
 import { useI18n } from "./i18n";
 import { DOMAIN_LIST_THRESHOLD, domainSearchIndex, domainSearchTerms,
   domainPage, initialDomainDraft, reconcileDomainDraft, storedDomainDraft, type DomainRowDraft } from "./domainMonitoringView";
 type RowAction = "grace" | "retire" | "reactivate";
+type ServiceAction = DomainServiceDecision | "refresh";
+
+interface ServiceActionState {
+  busy: boolean;
+  action?: ServiceAction;
+  error: string;
+  message: string;
+}
+
+const emptyServiceActionState: ServiceActionState = {
+  busy: false,
+  error: "",
+  message: "",
+};
+
+function serviceActionKey(domain: string, serviceId: string) {
+  return `${domain}\u0000${serviceId}`;
+}
+
+function serviceStatusTone(status: DomainServiceEffectiveStatus) {
+  if (status === "expected") return "success";
+  if (status === "suggested") return "info";
+  return "neutral";
+}
+
+function serviceStatusLabel(status: DomainServiceEffectiveStatus) {
+  const labels: Record<DomainServiceEffectiveStatus, string> = {
+    unknown: "Status unbekannt",
+    suggested: "Automatisch vorgeschlagen",
+    expected: "Als Versanddienst erwartet",
+    rejected: "Nicht erwartet",
+  };
+  return labels[status];
+}
+
+function dnsStatusTone(status: DomainServiceDnsStatus) {
+  if (status === "fresh") return "success";
+  if (status === "pending") return "info";
+  if (status === "invalid" || status === "stale") return "warning";
+  return "neutral";
+}
+
+function dnsStatusLabel(status: DomainServiceDnsStatus) {
+  const labels: Record<DomainServiceDnsStatus, string> = {
+    fresh: "DNS aktuell",
+    negative: "Keine DNS-Hinweise",
+    invalid: "DNS-Antwort ungültig",
+    unavailable: "DNS nicht verfügbar",
+    stale: "DNS-Bewertung veraltet",
+    pending: "DNS-Bewertung ausstehend",
+  };
+  return labels[status];
+}
+
+function decisionLabel(decision: DomainServiceDecision) {
+  const labels: Record<DomainServiceDecision, string> = {
+    automatic: "Automatisch",
+    confirmed: "Manuell bestätigt",
+    rejected: "Nicht erwartet",
+  };
+  return labels[decision];
+}
+
+function evidenceTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    mx: "MX-Konfiguration",
+    spf: "SPF-Konfiguration",
+    dkim: "DKIM-Konfiguration",
+    history: "DMARC-Historie",
+    observation: "Report-Beobachtung",
+    provider: "Provider-Zuordnung",
+  };
+  return labels[type] ?? type;
+}
 
 const errorSources: Record<string, string> = {
   "Invalid domain name": "Ungültiger Domainname.",
@@ -68,6 +144,7 @@ function DomainRegistry({ active, onChanged, onAdminExpired }: {
   const [search, setSearch] = useState("");
   const [requestedPage, setRequestedPage] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, DomainRowDraft>>({});
+  const [serviceActions, setServiceActions] = useState<Record<string, ServiceActionState>>({});
   const draftRef = useRef(drafts);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
   const pageFocusVersion = useRef(0);
@@ -84,6 +161,16 @@ function DomainRegistry({ active, onChanged, onAdminExpired }: {
     const next = { ...draftRef.current, [item.domain]: change(storedDomainDraft(draftRef.current, item.domain) ?? initialDomainDraft(item.grace_days)) };
     draftRef.current = next;
     setDrafts(next);
+  };
+  const setServiceActionState = (key: string, change: Partial<ServiceActionState>) => {
+    if (!mounted.current) return;
+    setServiceActions((current) => ({
+      ...current,
+      [key]: {
+        ...(Object.hasOwn(current, key) ? current[key] : emptyServiceActionState),
+        ...change,
+      },
+    }));
   };
   const changePage = (page: number) => {
     const version = ++pageFocusVersion.current;
@@ -170,8 +257,14 @@ function DomainRegistry({ active, onChanged, onAdminExpired }: {
     try {
       const saved = await operation();
       if (!mounted.current) return null;
-      setItems((current) => [...(current ?? []).filter((item) => item.domain !== saved.domain), saved]
-        .sort((left, right) => left.domain.localeCompare(right.domain)));
+      setItems((current) => {
+        const existing = current?.find((item) => item.domain === saved.domain);
+        const next = saved.service_assessments === undefined && existing?.service_assessments !== undefined
+          ? { ...saved, service_assessments: existing.service_assessments }
+          : saved;
+        return [...(current ?? []).filter((item) => item.domain !== saved.domain), next]
+          .sort((left, right) => left.domain.localeCompare(right.domain));
+      });
       callbacks.current.onChanged();
       return saved;
     } catch (error) {
@@ -226,6 +319,54 @@ function DomainRegistry({ active, onChanged, onAdminExpired }: {
     } finally { setRowDraft(item, (draft) => ({ ...draft, busy: false })); }
   };
 
+  const runServiceAction = async (
+    item: DomainMonitoringItem,
+    assessment: DomainServiceAssessment,
+    action: ServiceAction,
+  ) => {
+    const stateKey = serviceActionKey(item.domain, assessment.service_id);
+    const pendingKey = `service:${stateKey}`;
+    if (pending.current.has(pendingKey)) return;
+    pending.current.add(pendingKey);
+    setPendingCount(pending.current.size);
+    loadController.current?.abort();
+    requestVersion.current += 1;
+    setLoading(false);
+    setServiceActionState(stateKey, { busy: true, action, error: "", message: "" });
+    try {
+      const saved = action === "refresh"
+        ? await api.refreshDomainServiceAssessment(item.domain, assessment.service_id)
+        : await api.setDomainServiceDecision(item.domain, assessment.service_id, action);
+      if (!mounted.current) return;
+      setItems((current) => current?.map((entry) => {
+        if (entry.domain !== item.domain) return entry;
+        const assessments = entry.service_assessments ?? [];
+        const found = assessments.some((candidate) => candidate.service_id === saved.service_id);
+        return {
+          ...entry,
+          service_assessments: found
+            ? assessments.map((candidate) => candidate.service_id === saved.service_id ? saved : candidate)
+            : [...assessments, saved],
+        };
+      }) ?? current);
+      callbacks.current.onChanged();
+      setServiceActionState(stateKey, {
+        message: action === "refresh"
+          ? t("Bewertung für {service} aktualisiert.", { service: saved.label })
+          : t("Entscheidung für {service} gespeichert.", { service: saved.label }),
+      });
+    } catch (reason) {
+      handleAdminExpiry(reason);
+      setServiceActionState(stateKey, { error: publicError(reason) });
+    } finally {
+      pending.current.delete(pendingKey);
+      if (mounted.current) {
+        setPendingCount(pending.current.size);
+        setServiceActionState(stateKey, { busy: false, action: undefined });
+      }
+    }
+  };
+
   return <div className="domain-registry">
     <p className="domain-monitoring-note">{t("Beobachtete Domains werden automatisch aufgenommen. Erwartete Domains kannst du schon vor dem ersten Report hinzufügen.")}</p>
     <form className="domain-add-form" onSubmit={add} aria-busy={adding}>
@@ -272,19 +413,23 @@ function DomainRegistry({ active, onChanged, onAdminExpired }: {
     </div>}
     <div className="domain-monitoring-list">
       {visible.map((item) => <DomainRow key={item.domain} item={item} loading={loading} draft={storedDomainDraft(drafts, item.domain)}
+        serviceActions={serviceActions}
         onEdit={(grace) => setRowDraft(item, (draft) => ({ ...draft, grace, revision: draft.revision + 1 }))}
-        onAction={(action) => void runRow(item, action)} />)}
+        onAction={(action) => void runRow(item, action)}
+        onServiceAction={(assessment, action) => void runServiceAction(item, assessment, action)} />)}
     </div>
     <p className="domain-monitoring-note">{t("Stilllegen beendet Warnungen wegen ausbleibender Reports. Echte DMARC-Fehler werden weiterhin ausgewertet. Vorhandene Reports und Warnungen bleiben erhalten.")}</p>
   </div>;
 }
 
-function DomainRow({ item, loading, draft, onEdit, onAction }: {
+function DomainRow({ item, loading, draft, serviceActions, onEdit, onAction, onServiceAction }: {
   item: DomainMonitoringItem;
   loading: boolean;
   draft?: DomainRowDraft;
+  serviceActions: Record<string, ServiceActionState>;
   onEdit: (value: string) => void;
   onAction: (action: RowAction) => void;
+  onServiceAction: (assessment: DomainServiceAssessment, action: ServiceAction) => void;
 }) {
   const { t, formatDate } = useI18n();
   const { grace, busy, error, message } = draft ?? initialDomainDraft(item.grace_days);
@@ -301,6 +446,8 @@ function DomainRow({ item, loading, draft, onEdit, onAction }: {
       <div><dt>{t("Überwachungsbeginn")}</dt><dd>{formatDate(item.monitoring_started_at, true)}</dd></div>
       <div><dt>{t("Fristende")}</dt><dd>{retired ? t("Keine Frist aktiv") : formatDate(item.deadline, true)}</dd></div>
     </dl>
+    <DomainServiceAssessments item={item} disabled={loading || busy}
+      actionStates={serviceActions} onAction={onServiceAction} />
     <form className="domain-monitoring-row-form" onSubmit={(event) => { event.preventDefault(); onAction(retired ? "reactivate" : "grace"); }}>
       <label><span>{t("Wartefrist (Tage)")}</span><input type="number" required min={1} max={365} step={1}
         value={grace} onChange={(event) => onEdit(event.target.value)} aria-label={t("Wartefrist für {domain}", { domain: item.domain })} /></label>
@@ -317,4 +464,111 @@ function DomainRow({ item, loading, draft, onEdit, onAction }: {
     {error && <p role="alert" className="inline-message critical">{error}</p>}
     {message && <p role="status" className="inline-message success">{message}</p>}
   </article>;
+}
+
+function DomainServiceAssessments({ item, disabled, actionStates, onAction }: {
+  item: DomainMonitoringItem;
+  disabled: boolean;
+  actionStates: Record<string, ServiceActionState>;
+  onAction: (assessment: DomainServiceAssessment, action: ServiceAction) => void;
+}) {
+  const { t, formatDate, formatNumber } = useI18n();
+  const assessments = item.service_assessments;
+  return <section className="domain-service-assessments"
+    aria-label={t("Erwartete Versanddienste für {domain}", { domain: item.domain })}>
+    <div className="domain-service-section-heading">
+      <div>
+        <h5>{t("Erwartete Versanddienste")}</h5>
+        <p className="domain-monitoring-note">{t("MX ist nur ein Hinweis auf den Empfangsdienst. Automatische Erwartungen benötigen SPF- oder DKIM-Belege und eine stabile DMARC-Historie.")}</p>
+      </div>
+    </div>
+    <p className="domain-service-safety-note" role="note">
+      <ShieldAlert aria-hidden="true" />
+      <span>{t("Keine Freigabeliste; DMARC-Fails bleiben kritisch.")}</span>
+    </p>
+    {assessments === undefined && <p className="domain-monitoring-note">
+      {t("Diese Installation liefert noch keine Versanddienstbewertungen.")}
+    </p>}
+    {assessments?.length === 0 && <p className="domain-monitoring-note">
+      {t("Noch keine erwarteten Versanddienste ermittelt.")}
+    </p>}
+    {assessments?.map((assessment) => {
+      const key = serviceActionKey(item.domain, assessment.service_id);
+      const actionState = Object.hasOwn(actionStates, key)
+        ? actionStates[key]
+        : emptyServiceActionState;
+      const observation = assessment.observation;
+      return <article className="domain-service-assessment" key={assessment.service_id}
+        aria-label={assessment.label} aria-busy={actionState.busy}>
+        <div className="domain-service-assessment-heading">
+          <div>
+            <strong>{assessment.label}</strong>
+            <small>{t("Entscheidung: {decision}", { decision: t(decisionLabel(assessment.decision)) })}</small>
+          </div>
+          <div className="domain-service-statuses">
+            <span className={`status-pill status-${serviceStatusTone(assessment.effective_status)}`}>
+              {t(serviceStatusLabel(assessment.effective_status))}
+            </span>
+            <span className={`status-pill status-${dnsStatusTone(assessment.dns_status)}`}>
+              {t(dnsStatusLabel(assessment.dns_status))}
+            </span>
+          </div>
+        </div>
+        {assessment.evidence.length > 0 ? <div className="domain-service-evidence">
+          <h6>{t("Belege")}</h6>
+          <ul>{assessment.evidence.map((evidence, index) => <li
+            key={`${evidence.type}:${evidence.rule_id}:${evidence.value}:${index}`}>
+            <span>{t(evidenceTypeLabel(evidence.type))}</span>
+            <strong>{evidence.value}</strong>
+            <code>{evidence.rule_id}</code>
+          </li>)}</ul>
+        </div> : <p className="domain-monitoring-note">{t("Keine belastbaren Belege vorhanden.")}</p>}
+        {assessment.contradictions.length > 0 && <div className="domain-service-contradictions">
+          <h6>{t("Widersprüche")}</h6>
+          <ul>{assessment.contradictions.map((contradiction, index) =>
+            <li key={`${contradiction}:${index}`}>{contradiction}</li>)}</ul>
+        </div>}
+        {observation && <dl className="domain-service-observation">
+          <div><dt>{t("Nachrichten")}</dt><dd>{formatNumber(observation.messages)}</dd></div>
+          <div><dt>{t("DMARC bestanden")}</dt><dd>{formatNumber(observation.dmarc_pass)}</dd></div>
+          <div><dt>{t("DMARC fehlgeschlagen")}</dt><dd>{formatNumber(observation.dmarc_fail)}</dd></div>
+          <div><dt>{t("Beobachtungstage")}</dt><dd>{formatNumber(observation.distinct_days)}</dd></div>
+          <div><dt>{t("Zuletzt beobachtet")}</dt><dd>{observation.last_seen
+            ? formatDate(observation.last_seen, true) : t("Noch keine Beobachtung")}</dd></div>
+        </dl>}
+        {assessment.assessed_at && <p className="domain-monitoring-note">
+          {t("Zuletzt bewertet: {date}", { date: formatDate(assessment.assessed_at, true) })}
+        </p>}
+        <div className="domain-service-actions" role="group"
+          aria-label={t("Entscheidung für {service} bei {domain}", {
+            service: assessment.label, domain: item.domain,
+          })}>
+          {(["automatic", "confirmed", "rejected"] as const).map((decision) => <button
+            className={assessment.decision === decision ? "button button-secondary active" : "button button-secondary"}
+            type="button" key={decision} aria-pressed={assessment.decision === decision}
+            aria-label={t("{decision} für {service} bei {domain}", {
+              decision: t(decisionLabel(decision)), service: assessment.label, domain: item.domain,
+            })}
+            disabled={disabled || actionState.busy || assessment.decision === decision}
+            onClick={() => onAction(assessment, decision)}>
+            {t(decision === "confirmed" ? "Bestätigen" : decisionLabel(decision))}
+          </button>)}
+          <button className="button button-ghost" type="button"
+            aria-label={t("Bewertung für {service} bei {domain} aktualisieren", {
+              service: assessment.label, domain: item.domain,
+            })}
+            disabled={disabled || actionState.busy} onClick={() => onAction(assessment, "refresh")}>
+            <RefreshCw aria-hidden="true" />{t("Aktualisieren")}
+          </button>
+        </div>
+        {actionState.busy && <p role="status" className="domain-monitoring-note">
+          {actionState.action === "refresh"
+            ? t("Versanddienstbewertung wird aktualisiert …")
+            : t("Entscheidung wird gespeichert …")}
+        </p>}
+        {actionState.error && <p role="alert" className="inline-message critical">{actionState.error}</p>}
+        {actionState.message && <p role="status" className="inline-message success">{actionState.message}</p>}
+      </article>;
+    })}
+  </section>;
 }

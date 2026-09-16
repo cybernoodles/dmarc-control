@@ -22,6 +22,45 @@ export interface DomainItem {
 
 export type DomainMonitoringState = "active" | "expected" | "retired";
 export type FreshnessReason = "never_observed" | "report_gap" | "reactivated";
+export type DomainServiceDecision = "automatic" | "confirmed" | "rejected";
+export type DomainServiceEffectiveStatus =
+  | "unknown"
+  | "suggested"
+  | "expected"
+  | "rejected";
+export type DomainServiceDnsStatus =
+  | "fresh"
+  | "negative"
+  | "invalid"
+  | "unavailable"
+  | "stale"
+  | "pending";
+
+export interface DomainServiceEvidence {
+  type: string;
+  value: string;
+  rule_id: string;
+}
+
+export interface DomainServiceObservation {
+  messages: number;
+  dmarc_pass: number;
+  dmarc_fail: number;
+  distinct_days: number;
+  last_seen: string | null;
+}
+
+export interface DomainServiceAssessment {
+  service_id: string;
+  label: string;
+  decision: DomainServiceDecision;
+  effective_status: DomainServiceEffectiveStatus;
+  dns_status: DomainServiceDnsStatus;
+  evidence: DomainServiceEvidence[];
+  contradictions: string[];
+  assessed_at?: string | null;
+  observation?: DomainServiceObservation | null;
+}
 
 export interface DomainMonitoringItem {
   domain: string;
@@ -35,6 +74,7 @@ export interface DomainMonitoringItem {
   deadline: string | null;
   observed: boolean;
   freshness_reason?: FreshnessReason | null;
+  service_assessments?: DomainServiceAssessment[];
 }
 
 export interface DomainMonitoringSettings {
@@ -101,6 +141,7 @@ export interface DetectionEvidence {
 
 export interface AutomaticDetection {
   service: string;
+  service_id?: string | null;
   confidence: number;
   confidence_label: string;
   evidence: string[];
@@ -227,6 +268,13 @@ export interface Alert {
   messages: number;
   total_messages?: number;
   kind: string;
+  service_id?: string | null;
+  automatic_service_id?: string | null;
+  provider_expectation?: DomainServiceEffectiveStatus;
+  provider_decision?: DomainServiceDecision;
+  provider_group_id?: string | null;
+  provider_group_label?: string | null;
+  notification_suppressed_reason?: string | null;
   status: AlertStatus;
   status_updated_at: string | null;
   historical?: boolean;
@@ -590,6 +638,20 @@ export const api = {
     request<DomainMonitoringItem>("/api/settings/domains", {
       method: "PATCH", body: JSON.stringify(update),
     }),
+  setDomainServiceDecision: (
+    domain: string,
+    serviceId: string,
+    decision: DomainServiceDecision,
+  ) =>
+    request<DomainServiceAssessment>(
+      `/api/settings/domains/${encodeURIComponent(domain)}/services/${encodeURIComponent(serviceId)}`,
+      { method: "PUT", body: JSON.stringify({ decision }) },
+    ),
+  refreshDomainServiceAssessment: (domain: string, serviceId: string) =>
+    request<DomainServiceAssessment>(
+      `/api/settings/domains/${encodeURIComponent(domain)}/services/${encodeURIComponent(serviceId)}/refresh`,
+      { method: "POST" },
+    ),
   overview: (domain: string, days: number, signal?: AbortSignal) =>
     request<Overview>(`/api/overview?${query({ domain, days })}`, { signal }),
   hosts: (

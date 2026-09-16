@@ -10,11 +10,17 @@ from typing import Any
 from .recipient_deliveries import RecipientDeliveryStore
 from .evaluation_runs import EvaluationRunStore
 from .domain_monitoring import DomainMonitoringStore
+from .domain_services import DomainServiceStore
 
 DEFAULT_BRAND_COLOR = "#173f43"
 
 
-class StateStore(RecipientDeliveryStore, EvaluationRunStore, DomainMonitoringStore):
+class StateStore(
+    RecipientDeliveryStore,
+    EvaluationRunStore,
+    DomainMonitoringStore,
+    DomainServiceStore,
+):
     def __init__(self, database_path: Path) -> None:
         self._database_path = database_path
         self._lock = threading.Lock()
@@ -97,6 +103,7 @@ class StateStore(RecipientDeliveryStore, EvaluationRunStore, DomainMonitoringSto
                 """
             )
             self.initialize_domain_monitoring(connection)
+            self.initialize_domain_services(connection)
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS app_settings (
