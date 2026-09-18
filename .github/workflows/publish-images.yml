@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to publish, for example v2.2.0"
+        required: true
+        type: string
 
 permissions: {}
 
@@ -97,8 +103,8 @@ jobs:
         with:
           images: ${{ matrix.component.image }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{version}},value=${{ github.event.inputs.version || github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.event.inputs.version || github.ref_name }}
             type=sha,prefix=sha-
           labels: |
             org.opencontainers.image.source=https://github.com/cybernoodles/dmarc-control
