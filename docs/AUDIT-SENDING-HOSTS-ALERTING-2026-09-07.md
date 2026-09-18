@@ -35,7 +35,7 @@ Die Befunde wurden am **aktuellen lokalen Arbeitsstand** untersucht: Basis-Commi
 
 **Abnahme:** Behoben/ignoriert bleibt bei ausschließlich neuen Pass-Reports erhalten; neue tatsächliche Fehler werden nach einer expliziten Wiedereröffnungs- oder Folgeereignisregel behandelt. Alte Ereignisse bleiben über ihre ID erreichbar.
 
-Code: [Datum und Domain der Alert-ID](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:743), [Erzeugung des Fail-Alerts](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:788), [Versand nur offener Ereignisse](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/main.py:840).
+Code: [Datum und Domain der Alert-ID](../dashboard/backend/app/service.py:743), [Erzeugung des Fail-Alerts](../dashboard/backend/app/service.py:788), [Versand nur offener Ereignisse](../dashboard/backend/app/main.py:840).
 
 ### F02 — Begrenzte Hostlisten führen zu fehlenden Warnungen und Suchtreffern
 
@@ -51,7 +51,7 @@ Code: [Datum und Domain der Alert-ID](/Users/dennis/Documents/Codex/dmarc-contro
 
 **Abnahme:** Fehlerhosts bleiben bei mehr als 1.000 aktiven IPs in Alerting, Risikofilter und Suche auffindbar; die UI zeigt eine vollständige oder ausdrücklich paginierte Ergebnismenge.
 
-Code: [Kandidatenbegrenzung](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:527), [nachgelagerter Risikofilter](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:660), [250 Hosts für Alerts](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:737), [lokale Suche](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4318).
+Code: [Kandidatenbegrenzung](../dashboard/backend/app/service.py:527), [nachgelagerter Risikofilter](../dashboard/backend/app/service.py:660), [250 Hosts für Alerts](../dashboard/backend/app/service.py:737), [lokale Suche](../dashboard/frontend/src/App.tsx:4318).
 
 ### F03 — Gemeinsame Source-IPs vermischen Domain und Fehler
 
@@ -63,7 +63,7 @@ Code: [Kandidatenbegrenzung](/Users/dennis/Documents/Codex/dmarc-control/dashboa
 
 **Abnahme:** Globale und domainspezifische Ansicht verwenden für dasselbe Ereignis dieselbe ID und denselben Bearbeitungsstatus. Fehlerzahlen und Domain beziehen sich auf dieselbe Datengruppe.
 
-Code: [Gruppierung nur nach IP](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:528), [Domainauswahl](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:744), [globaler Versandlauf](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/main.py:834).
+Code: [Gruppierung nur nach IP](../dashboard/backend/app/service.py:528), [Domainauswahl](../dashboard/backend/app/service.py:744), [globaler Versandlauf](../dashboard/backend/app/main.py:834).
 
 ### F04 — Die Report-Frische hat zwei blinde Flecken
 
@@ -79,7 +79,7 @@ Code: [Gruppierung nur nach IP](/Users/dennis/Documents/Codex/dmarc-control/dash
 
 **Abnahme:** Neue Reports für B lösen den Ausfall von A nicht auf. Ein bestehender Ausfall bleibt auch nach Ablauf des Anzeigezeitraums erkennbar; eine leere Erstinstallation erzeugt nicht automatisch unbegründete Ausfälle.
 
-Code: [zeitlich gefilterte Übersicht](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:298), [Frischeprüfung nur bei vorhandenem Zeitwert](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:868), [Versandumfang](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/main.py:834).
+Code: [zeitlich gefilterte Übersicht](../dashboard/backend/app/service.py:298), [Frischeprüfung nur bei vorhandenem Zeitwert](../dashboard/backend/app/service.py:868), [Versandumfang](../dashboard/backend/app/main.py:834).
 
 ### F05 — Teilweise SMTP-Ablehnung wird als Erfolg gespeichert
 
@@ -91,7 +91,7 @@ Code: [zeitlich gefilterte Übersicht](/Users/dennis/Documents/Codex/dmarc-contr
 
 **Abnahme:** Teilfehler sind sichtbar, akzeptierte Empfänger erhalten kein unnötiges Duplikat, vorübergehend abgewiesene werden nach der Wiederholungsregel berücksichtigt.
 
-Code: [ignorierter SMTP-Rückgabewert](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/notifications.py:531), [Erfolgsmarkierung](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/main.py:869).
+Code: [ignorierter SMTP-Rückgabewert](../dashboard/backend/app/notifications.py:531), [Erfolgsmarkierung](../dashboard/backend/app/main.py:869).
 
 ### F06 — Kompensiertes Alignment überschätzt die betroffene Menge
 
@@ -103,7 +103,7 @@ Code: [ignorierter SMTP-Rückgabewert](/Users/dennis/Documents/Codex/dmarc-contr
 
 **Abnahme:** Der Beispielsfall meldet eine betroffene Nachricht und 1.000 Nachrichten Gesamtvolumen.
 
-Code: [Mengenübernahme](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:861), [JSON-Feld affected_messages](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/notifications.py:234).
+Code: [Mengenübernahme](../dashboard/backend/app/service.py:861), [JSON-Feld affected_messages](../dashboard/backend/app/notifications.py:234).
 
 ### F07 — Hohe Konfidenz beruht teilweise auf nur einer Zeichenkette
 
@@ -121,7 +121,7 @@ Im letzten Fall enthält die Ergebnis-Evidenz trotzdem „PTR: Microsoft EOP“.
 
 **Abnahme:** Fremde Domains mit eingebettetem Providernamen gelten nicht als Providerdomain. Ein alleiniger PTR kann nicht durch drei überlappende Regeln wie drei unabhängige Belege gewertet werden.
 
-Code: [Zusammenführung der Signale](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:128), [überlappende Microsoft-Regeln](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:145), [Teilzeichenkettenvergleich](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:168), [UI-Aussage zur Evidenz](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4752).
+Code: [Zusammenführung der Signale](../dashboard/backend/app/service.py:128), [überlappende Microsoft-Regeln](../dashboard/backend/app/service.py:145), [Teilzeichenkettenvergleich](../dashboard/backend/app/service.py:168), [UI-Aussage zur Evidenz](../dashboard/frontend/src/App.tsx:4752).
 
 ### F08 — Eine Notiz speichert unbemerkt eine feste Dienstzuordnung
 
@@ -133,7 +133,7 @@ Code: [Zusammenführung der Signale](/Users/dennis/Documents/Codex/dmarc-control
 
 **Abnahme:** Eine reine Notizänderung lässt die automatische Erkennung weiterarbeiten. Eine bewusst manuelle Zuordnung bleibt erhalten und wird eindeutig als manuell gekennzeichnet.
 
-Code: [Formularinitialisierung](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4571), [Speicherpayload](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4590), [Übernahme des Overrides](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/service.py:679).
+Code: [Formularinitialisierung](../dashboard/frontend/src/App.tsx:4571), [Speicherpayload](../dashboard/frontend/src/App.tsx:4590), [Übernahme des Overrides](../dashboard/backend/app/service.py:679).
 
 ### F09 — Filter und angezeigte Ergebnisse können auseinanderlaufen
 
@@ -147,7 +147,7 @@ Code: [Formularinitialisierung](/Users/dennis/Documents/Codex/dmarc-control/dash
 
 **Abnahme:** Kontrolliert vertauschte Antwortreihenfolgen führen immer zu Daten des aktuellen Filters. Ein Detail-404 verhindert keine neue gültige Hostliste.
 
-Code: [Hostloader](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4298), [Alertloader](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4861), [vermeintliches Warten auf Neuladen](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4886).
+Code: [Hostloader](../dashboard/frontend/src/App.tsx:4298), [Alertloader](../dashboard/frontend/src/App.tsx:4861), [vermeintliches Warten auf Neuladen](../dashboard/frontend/src/App.tsx:4886).
 
 ### F10 — Untersuchungslinks bewahren den gewählten Kontext nicht
 
@@ -159,7 +159,7 @@ Code: [Hostloader](/Users/dennis/Documents/Codex/dmarc-control/dashboard/fronten
 
 **Abnahme:** Neuladen und Teilen eines 90-Tage-/Domain-Links erhält den Untersuchungsumfang. Alte Mail-Links bleiben auflösbar oder zeigen das gespeicherte Ereignis mit verständlichem historischen Kontext.
 
-Code: [feste Startfilter](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:997), [URL-Verwaltung](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:1120), [E-Mail-Links](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/notifications.py:58).
+Code: [feste Startfilter](../dashboard/frontend/src/App.tsx:997), [URL-Verwaltung](../dashboard/frontend/src/App.tsx:1120), [E-Mail-Links](../dashboard/backend/app/notifications.py:58).
 
 ## Zusätzliche Vorschläge für UI und Bedienung
 
@@ -177,7 +177,7 @@ Die folgenden Vorschläge ergänzen die Fehlerkorrekturen. Die Einschätzung ber
 | 8 | Alert-Suche, Typ-/Prioritätsfilter und Sortierung | Triage nach Domain, IP, Ereignistyp und Priorität erleichtern. Die aktuelle Reihenfolge zeigt innerhalb einer Priorität ältere Reportzeiten zuerst. | Mittel |
 | 9 | Erklärtexte an die tatsächliche Logik angleichen | Kritisch bedeutet echter DMARC-Fail, unabhängig von bestätigter Dienstzuordnung. „Neuer unbekannter Sender“ nur verwenden, wenn er tatsächlich unbekannt ist; sonst „Neue Source-IP mit DMARC-Fail“. | Klein |
 
-Relevante UI-Stellen: [IP-Link in der Übersicht](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4113), [Hostdetail unter der Tabelle](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4487), [Formularreset](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4578), [Zählung offener Alerts](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:4903), [Statusaktionen](/Users/dennis/Documents/Codex/dmarc-control/dashboard/frontend/src/App.tsx:5020).
+Relevante UI-Stellen: [IP-Link in der Übersicht](../dashboard/frontend/src/App.tsx:4113), [Hostdetail unter der Tabelle](../dashboard/frontend/src/App.tsx:4487), [Formularreset](../dashboard/frontend/src/App.tsx:4578), [Zählung offener Alerts](../dashboard/frontend/src/App.tsx:4903), [Statusaktionen](../dashboard/frontend/src/App.tsx:5020).
 
 ## Technische Verbesserungen und Umsetzung
 
@@ -185,7 +185,7 @@ Relevante UI-Stellen: [IP-Link in der Übersicht](/Users/dennis/Documents/Codex/
 
 **Danach gezielte Korrekturen:** SMTP-Teilzustellungen und Mengenangaben (F05/F06), Erkennung und Overrides (F07/F08), anschließend oder parallel Filterkonsistenz und Links (F09/F10). Diese Änderungen lassen sich mit kleinen, auf die jeweiligen Grenzfälle ausgerichteten Tests absichern.
 
-**Beobachtbarkeit ergänzen:** Der [OpenSearch-Client](/Users/dennis/Documents/Codex/dmarc-control/dashboard/backend/app/opensearch.py:43) prüft bei HTTP-Erfolg weder `timed_out` noch fehlgeschlagene Shards. Eine unvollständige Auswertung sollte als solche erkennbar sein. Das ist eine zusätzliche Absicherung; ein konkreter produktiver Fall mit solchen Antworten wurde nicht untersucht.
+**Beobachtbarkeit ergänzen:** Der [OpenSearch-Client](../dashboard/backend/app/opensearch.py:43) prüft bei HTTP-Erfolg weder `timed_out` noch fehlgeschlagene Shards. Eine unvollständige Auswertung sollte als solche erkennbar sein. Das ist eine zusätzliche Absicherung; ein konkreter produktiver Fall mit solchen Antworten wurde nicht untersucht.
 
 **Leistung anschließend messen:** Hostabfragen beziehen historische Daten für „erstmals gesehen“ und frühere Ergebnisse ein. Vor zusätzlichen Caches oder einer Umgestaltung zunächst Laufzeiten mit realistischen Datenmengen messen. Unveränderliche Hosthistorie, Anzeigeabfragen und periodische Alert-Auswertung bieten mögliche Ansatzpunkte. Der Frontend-Build meldet außerdem ein großes JavaScript-Paket von rund 821 kB beziehungsweise 262 kB komprimiert; bedarfsgesteuertes Laden etwa der Diagramme ist eine nachrangige Optimierung, keine hier nachgewiesene Bedienungsstörung.
 
