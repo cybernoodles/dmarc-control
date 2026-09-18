@@ -1,7 +1,7 @@
 # Container releases
 
-DMARC Control publishes three independently deployable runtime images when a
-version tag is pushed:
+DMARC Control publishes three independently deployable runtime images from a
+reviewed release candidate:
 
 | Image | Content |
 | --- | --- |
@@ -16,18 +16,29 @@ service.
 
 ## Create a release
 
-Run the full test suite before creating a tag. A pushed annotated version tag
-such as `v2.2.1` starts `.github/workflows/publish-images.yml`:
+The release is intentionally a two-stage process. It ensures that the Git tag
+and the release Compose file refer to the exact, immutable image digests.
+
+1. From the reviewed candidate commit, run **Publish container images** through
+   the GitHub Actions UI with the intended version, for example `v2.2.2`.
+   The workflow runs the frontend, backend, and supervisor tests and publishes
+   all three `linux/amd64` and `linux/arm64` images.
+2. Resolve the three resulting digests and pin them, together with the version,
+   in `docker-compose.release.yml` and `.env.release.example`. Commit that
+   release metadata. No Docker build context may change between the candidate
+   build and this metadata commit.
+3. Create and push the annotated Git tag only after the digest-pinned files are
+   committed:
 
 ```bash
-git tag -a v2.2.1 -m "DMARC Control 2.2.1"
-git push origin v2.2.1
+git tag -a v2.2.2 -m "DMARC Control 2.2.2"
+git push origin v2.2.2
 ```
 
-The workflow runs the frontend and backend tests, then builds and publishes
-all three images for `linux/amd64` and `linux/arm64`. Each image receives the
-version tag (`2.2.1`), the minor tag (`2.2`), and an immutable commit tag.
-It also attaches a build provenance record and SBOM.
+The tag push runs the test job again, but does not rebuild images. This prevents
+an image manifest from changing after its digest has been pinned. Each published
+image receives the version tag (`2.2.2`), the minor tag (`2.2`), and an
+immutable commit tag. The build also attaches a provenance record and SBOM.
 
 The first published packages must be made public in their GitHub Package
 settings if installations should pull them without a registry login. Keep the
