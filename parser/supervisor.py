@@ -20,6 +20,12 @@ CONTROL_API = os.getenv(
 CONTROL_TOKEN_FILE = Path(
     os.getenv("PARSER_CONTROL_TOKEN_FILE", "/run/parser-control/control.token")
 )
+BACKUP_MAINTENANCE_LOCK_FILE = Path(
+    os.getenv(
+        "BACKUP_MAINTENANCE_LOCK_FILE",
+        "/run/parser-control/backup.lock",
+    )
+)
 LEGACY_CONFIG = Path(
     os.getenv("PARSER_LEGACY_CONFIG", "/etc/parsedmarc/legacy.ini")
 )
@@ -199,6 +205,10 @@ def _version() -> str:
         return "unknown"
 
 
+def backup_maintenance_active() -> bool:
+    return BACKUP_MAINTENANCE_LOCK_FILE.is_file()
+
+
 def start_child(config_path: Path) -> subprocess.Popen:
     child = subprocess.Popen(
         [PARSEDMARC_COMMAND, "-c", str(config_path)],
@@ -235,8 +245,48 @@ def run() -> int:
     current_signature: tuple[str, int | None] | None = None
     current_path: Path | None = None
     last_configuration: dict[str, Any] | None = None
+    maintenance_active = False
 
     while not stop_requested:
+        if backup_maintenance_active():
+            if child is not None:
+                stopped_mode = (
+                    current_signature[0] if current_signature else "legacy"
+                )
+                stopped_revision = (
+                    current_signature[1] if current_signature else None
+                )
+                stop_child(child)
+                child = None
+                current_signature = None
+                post_status(
+                    mode=stopped_mode,
+                    state="stopped",
+                    revision=stopped_revision,
+                    version=version,
+                    message="Backup maintenance lock active",
+                )
+            elif not maintenance_active:
+                post_status(
+                    mode=(
+                        str(last_configuration.get("mode", "legacy"))
+                        if last_configuration
+                        else "legacy"
+                    ),
+                    state="stopped",
+                    revision=(
+                        last_configuration.get("revision")
+                        if last_configuration
+                        else None
+                    ),
+                    version=version,
+                    message="Backup maintenance lock active",
+                )
+            maintenance_active = True
+            time.sleep(POLL_SECONDS)
+            continue
+        maintenance_active = False
+
         try:
             desired = fetch_configuration()
             last_configuration = desired

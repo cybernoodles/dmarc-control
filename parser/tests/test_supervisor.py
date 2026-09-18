@@ -17,6 +17,18 @@ SPEC.loader.exec_module(supervisor)
 
 
 class ManagedConfigurationTests(unittest.TestCase):
+    def test_backup_maintenance_lock_is_explicit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / "backup.lock"
+            with patch.object(
+                supervisor,
+                "BACKUP_MAINTENANCE_LOCK_FILE",
+                lock,
+            ):
+                self.assertFalse(supervisor.backup_maintenance_active())
+                lock.write_text("backup-id\n", encoding="utf-8")
+                self.assertTrue(supervisor.backup_maintenance_active())
+
     def test_graph_runtime_config_contains_one_mailbox_backend(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory) / "base.ini"

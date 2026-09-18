@@ -244,6 +244,56 @@ const english: Record<string, string> = {
     "Appearance, mailbox connection and protected administration",
   "Darstellung, Benachrichtigungen, Postfachanbindung und geschützte Administration":
     "Appearance, notifications, mailbox connection and protected administration",
+  "Darstellung, Domains, Benachrichtigungen, Postfachanbindung, Backup und geschützte Administration":
+    "Appearance, domains, notifications, mailbox connection, backup and protected administration",
+  "Backup & Wiederherstellung": "Backup & restore",
+  "Dumps oder externe Sicherung": "Dumps or external backup",
+  "Backup-Strategie": "Backup strategy",
+  "Integrierte Dumps": "Integrated dumps",
+  "DMARC Control erstellt automatisch geprüfte OpenSearch-Snapshots und verschlüsselte Steuerungsbackups.":
+    "DMARC Control automatically creates verified OpenSearch snapshots and encrypted control-state backups.",
+  "Externe Sicherung": "External backup",
+  "VM oder Host werden bereits anwendungskonsistent einschließlich aller persistenten Daten gesichert.":
+    "The VM or host is already backed up application-consistently, including all persistent data.",
+  "Kein Backup": "No backup",
+  "Nur für Testsysteme. Bei einem Ausfall gehen Historie und Steuerungszustand verloren.":
+    "For test systems only. History and control state will be lost after a failure.",
+  "Wähle eine Backup-Strategie.": "Select a backup strategy.",
+  "Diese Entscheidung ist erforderlich und kann später in den Einstellungen geändert werden.":
+    "This decision is required and can be changed later in Settings.",
+  "Backup-Strategie festlegen": "Choose a backup strategy",
+  "Bestehende Installationen müssen einmalig festlegen, ob DMARC Control selbst sichert oder eine externe Sicherung verantwortlich ist.":
+    "Existing installations must choose once whether DMARC Control creates backups or an external backup is responsible.",
+  "Eine Containersicherung allein genügt nicht. Externe Sicherungen müssen die persistenten data-Verzeichnisse und die Konfiguration anwendungskonsistent erfassen.":
+    "A container backup alone is insufficient. External backups must capture the persistent data directories and configuration application-consistently.",
+  "Admin-Passwort zur Bestätigung": "Admin password for confirmation",
+  "Strategie übernehmen": "Apply strategy",
+  "Backup-Strategie konnte nicht gespeichert werden.":
+    "The backup strategy could not be saved.",
+  "Lege fest, ob DMARC Control integrierte Dumps erstellt oder eine externe Sicherung verantwortlich ist.":
+    "Choose whether DMARC Control creates integrated dumps or an external backup is responsible.",
+  "Letztes Backup erfolgreich": "Latest backup successful",
+  Backupfehler: "Backup error",
+  "Backup läuft": "Backup running",
+  "Wiederherstellung läuft": "Restore in progress",
+  "Integrierte Sicherung aktiv": "Integrated backup active",
+  "Integrierte Sicherung inaktiv": "Integrated backup inactive",
+  "Backup-Status wird geladen": "Loading backup status",
+  "Backup-Status konnte nicht geladen werden.":
+    "The backup status could not be loaded.",
+  "Integrierte Sicherungen wirklich deaktivieren? Vorhandene Backups bleiben erhalten.":
+    "Disable integrated backups? Existing backups will be retained.",
+  "Backup-Strategie wurde gespeichert.": "The backup strategy was saved.",
+  "Der Recovery-Key fehlt. Er wird nicht automatisch ersetzt, damit vorhandene Backups nicht unbemerkt unlesbar werden.":
+    "The recovery key is missing. It will not be replaced automatically, so existing backups do not silently become unreadable.",
+  "Letzter Erfolg": "Latest success",
+  "Noch kein erfolgreiches Backup": "No successful backup yet",
+  "Nächster Lauf": "Next run",
+  "Wird geplant": "Being scheduled",
+  "Recovery-Key-Fingerprint": "Recovery key fingerprint",
+  "Melde dich im Bereich Administration an, um die Backup-Strategie zu ändern.":
+    "Sign in under Administration to change the backup strategy.",
+  "Backup-Strategie speichern": "Save backup strategy",
   Einstellungsbereiche: "Settings sections",
   "Darstellung & Sprache": "Appearance & language",
   "Branding und Benutzeroberfläche": "Branding and user interface",

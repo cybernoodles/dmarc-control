@@ -188,6 +188,7 @@ class NotificationSettingsApiTests(unittest.TestCase):
                         "admin_password": "initial-admin-password",
                         "read_username": "dmarc-reader",
                         "read_password": "initial-read-password",
+                        "backup_mode": "external",
                     },
                 )
                 saved = client.put(
@@ -263,6 +264,7 @@ class NotificationSettingsApiTests(unittest.TestCase):
                         "admin_password": "initial-admin-password",
                         "read_username": "dmarc-reader",
                         "read_password": "initial-read-password",
+                        "backup_mode": "external",
                     },
                 )
                 initial = client.get("/api/settings/notifications")

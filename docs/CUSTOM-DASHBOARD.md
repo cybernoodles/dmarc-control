@@ -66,6 +66,13 @@ weder Klartext-Secret noch Schlüssel ausgeliefert. Ein separat automatisch
 erzeugtes Token in `data/parser-control/control.token` schützt die nur im
 Compose-Netz erreichbare Verbindung zwischen Supervisor und API.
 
+Bei der Wahl **Integrierte Dumps** entsteht zusätzlich
+`data/dashboard/backup.key`. Dieser separate Schlüssel verschlüsselt das
+Steuerungsbackup und muss außerhalb von `backups/` sicher verwahrt werden. Ein
+gemeinsamer Lock unter `data/parser-control/backup.lock` pausiert Parser und
+automatischen Mailversand nur während einer konsistenten Sicherung oder eines
+Restore.
+
 OpenSearch-Historie, SQLite-Steuerungszustand, Schlüssel und Parser-Token sind
 getrennte Backup-Objekte. Die verbindliche Dateninventar- und
 Abhängigkeitsmatrix steht in
@@ -75,8 +82,10 @@ Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
 sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
 Abweichung. Beim ersten Aufruf blockiert ein Setup-Screen das Dashboard, bis
 ein Read-Benutzer mit Passwort und ein separates Admin-Passwort festgelegt
-wurden. Beide Passwörter müssen mindestens zwölf Zeichen enthalten; nur ihre
-gesalzenen Hashes werden in `dashboard.db` gespeichert.
+und eine Backup-Strategie gewählt wurden. Beide Passwörter müssen mindestens
+zwölf Zeichen enthalten; nur ihre gesalzenen Hashes werden in `dashboard.db`
+gespeichert. Bestehende Installationen mit bereits vollständigen Zugängen
+werden nach dem Read-Login einmalig separat zur Backup-Strategie geführt.
 
 Eine gültige Read-Sitzung ist für das gesamte Dashboard und alle normalen
 API-Endpunkte erforderlich. Ausgenommen sind Healthcheck, die öffentlich
@@ -136,11 +145,11 @@ sie verschwindet nicht allein durch die Wahl eines kürzeren Anzeigezeitraums.
 Unvollständige Abfragen, etwa mit fehlgeschlagenen Shards oder ungültigen
 Seitencursorn, gelten als Auswertungsfehler.
 
-Alle so bekannten Domains bleiben überwacht. Eine Oberfläche zum Stilllegen
-einzelner Domains oder zum Erfassen erwarteter, bisher nie beobachteter Domains
-ist noch nicht vorhanden. Historische Domains, deren Reports bereits vor der
-ersten Erfassung vollständig gelöscht waren, lassen sich aus diesen Daten
-nicht nachträglich entdecken.
+Alle so bekannten Domains bleiben standardmäßig überwacht. Administratoren
+können einzelne Domains stilllegen oder erwartete, bisher nie beobachtete
+Domains erfassen. Historische Domains, deren Reports bereits vor der ersten
+Erfassung vollständig gelöscht waren, lassen sich aus diesen Daten nicht
+nachträglich entdecken.
 
 ## Sending-Host-Inventar
 
@@ -495,6 +504,31 @@ nächsten Intervall; das Öffnen der Warnungsliste wertet den aktuellen Stand
 direkt aus. Die Verwaltung des gespeicherten Bestands bleibt auch bei einer
 OpenSearch-Störung möglich.
 
+### Erwartete Versanddienste
+
+Für jede registrierte, nicht stillgelegte Domain bewertet ein Hintergrundlauf
+die Microsoft-365-Konfiguration anhand aktueller MX-, SPF- und DKIM-Antworten.
+DNS-Timeouts, ungültige Antworten, negative Ergebnisse und abgelaufene
+Snapshots bleiben getrennt sichtbar. Ein manueller Refresh ist in der
+Domainverwaltung möglich; `DOMAIN_DNS_REFRESH_SECONDS` begrenzt das reguläre
+Intervall nach oben. Kürzere DNS-TTLs lösen eine frühere Prüfung aus.
+
+Ein Microsoft-365-MX ist nur ein Hinweis auf den eingehenden Dienst und reicht
+nicht zur automatischen Absendererwartung. Diese benötigt einen aktuellen
+SPF- oder DKIM-Beleg sowie mindestens 100 beobachtete Nachrichten an sieben
+verschiedenen Tagen mit mindestens 99 Prozent DMARC-Pass. Die Beobachtung wird
+in einem festen rollierenden 30-Tage-Fenster pro Domain und Dienst über alle
+zugeordneten Microsoft-365-IPs aggregiert. Andere Anzeigezeiträume ändern diese
+Entscheidungsgrundlage nicht.
+Administratoren können die automatische Entscheidung ausdrücklich bestätigen
+oder ablehnen; DNS-Belege und Widersprüche bleiben dabei nachvollziehbar.
+
+Die Erwartung ist keine Allowlist. Sie beruhigt ausschließlich ein Ereignis
+„neue Source-IP“, wenn sämtliche Nachrichten dieses Ereignisses DMARC bestanden
+haben, und unterdrückt dafür die E-Mail-Benachrichtigung. DMARC-Fails,
+Alignment-Probleme, Ereignis-IDs sowie Bearbeitungs- und Zustellhistorie werden
+nicht abgeschwächt oder verworfen.
+
 ## API
 
 | Endpunkt | Zweck |
@@ -513,6 +547,8 @@ OpenSearch-Störung möglich.
 | `GET /api/settings/domains` | gespeicherte Domainüberwachung einschließlich Fristen als Admin lesen |
 | `POST /api/settings/domains` | erwartete Domain mit `domain` und `grace_days` als Admin hinzufügen |
 | `PATCH /api/settings/domains` | Status und/oder Wartefrist einer Domain als Admin ändern; `grace_days: null` übernimmt den globalen Standard |
+| `PUT /api/settings/domains/{domain}/services/{service_id}` | automatische, bestätigte oder abgelehnte Dienstentscheidung als Admin speichern |
+| `POST /api/settings/domains/{domain}/services/{service_id}/refresh` | DNS-Belege für einen bekannten Versanddienst als Admin neu bewerten |
 | `GET /api/settings/notifications/status` | Read-sicheren Konfigurations- und Aktivstatus des E-Mail-Alertings lesen |
 | `GET /api/settings/mailbox` | Entwurf, aktive Revision und Parserstatus lesen |
 | `PUT /api/settings/mailbox` | neuen Verbindungsentwurf als Admin speichern |
@@ -549,9 +585,11 @@ konfigurierten Stacks-Verzeichnis ab, beispielsweise:
 DOCKGE_STACKS_DIRECTORY/dmarc-control
 ```
 
-Die Compose-Datei, `.env`, `dashboard/`, `parser/`, `config/` und `data/` müssen
-gemeinsam in diesem Projektverzeichnis liegen. Relative Pfade werden von
-Compose gegen den Speicherort der Compose-Datei aufgelöst.
+Die Compose-Datei, `.env`, `dashboard/`, `parser/`, `backup/`, `config/`,
+`data/` und standardmäßig `backups/` müssen gemeinsam in diesem
+Projektverzeichnis liegen. Relative Pfade werden von Compose gegen den
+Speicherort der Compose-Datei aufgelöst. `DMARC_BACKUP_ROOT` kann das
+Backup-Verzeichnis bewusst auf ein getrenntes Dateisystem verlegen.
 
 Soll Grafana aktiviert werden, muss die lokale `.env`
 `COMPOSE_PROFILES=grafana` und ein gesetztes `GRAFANA_ADMIN_PASSWORD`

@@ -318,10 +318,40 @@ export interface AppearanceSettings {
 
 export interface AuthStatus {
   setup_required: boolean;
+  backup_setup_required: boolean;
   admin_configured: boolean;
   read_authenticated: boolean;
   read_username: string | null;
   authenticated: boolean;
+}
+
+export type BackupMode = "integrated" | "external" | "none";
+
+export interface BackupRuntimeStatus {
+  state:
+    | "disabled"
+    | "waiting"
+    | "running"
+    | "success"
+    | "error"
+    | "restoring";
+  message?: string;
+  backup_id?: string;
+  last_success_at?: string;
+  next_run_at?: string;
+  schedule?: string;
+  retention_days?: number;
+  updated_at: string;
+}
+
+export interface BackupSettings {
+  configured: boolean;
+  mode: BackupMode | "unconfigured";
+  configured_at: string | null;
+  updated_at: string | null;
+  runtime: BackupRuntimeStatus | null;
+  recovery_key_ready: boolean;
+  recovery_key_fingerprint: string | null;
 }
 
 export type MailboxProvider = "msgraph" | "imap";
@@ -541,6 +571,7 @@ export const api = {
     adminPassword: string,
     readUsername: string,
     readPassword: string,
+    backupMode: BackupMode,
   ) =>
     request<AuthStatus>("/api/auth/setup", {
       method: "POST",
@@ -548,7 +579,13 @@ export const api = {
         admin_password: adminPassword,
         read_username: readUsername,
         read_password: readPassword,
+        backup_mode: backupMode,
       }),
+    }),
+  setupBackup: (adminPassword: string, mode: BackupMode) =>
+    request<AuthStatus>("/api/settings/backup/setup", {
+      method: "POST",
+      body: JSON.stringify({ admin_password: adminPassword, mode }),
     }),
   loginRead: (username: string, password: string) =>
     request<AuthStatus>("/api/auth/read-login", {
@@ -580,6 +617,13 @@ export const api = {
     request<AuthStatus>("/api/auth/read-credentials", {
       method: "PUT",
       body: JSON.stringify({ username, password }),
+    }),
+  backupSettings: () =>
+    request<BackupSettings>("/api/settings/backup"),
+  updateBackupSettings: (mode: BackupMode) =>
+    request<BackupSettings>("/api/settings/backup", {
+      method: "PUT",
+      body: JSON.stringify({ mode }),
     }),
   mailboxSettings: () =>
     request<MailboxConnectionState>("/api/settings/mailbox"),

@@ -1,7 +1,7 @@
 ---
 # DMARC Control: Webdashboard + parsedmarc + OpenSearch
 # Grafana bleibt über das optionale Compose-Profil "grafana" verfügbar.
-# parsedmarc ist auf 10.4.0 gepinnt; OpenSearch auf 2.19.6.
+# parsedmarc ist auf 11.0.2 gepinnt; OpenSearch auf 2.19.6.
 #
 # Voraussetzungen auf dem Docker-Host:
 #   sudo sysctl -w vm.max_map_count=262144
@@ -11,7 +11,9 @@
 # Dies macht den Stack zusammen mit Konfiguration und .env transportabel.
 # Vor dem ersten Start: README.md beachten (insbesondere Eigentümer der
 # Unterverzeichnisse data/opensearch, data/dashboard und data/parser-control;
-# bei aktiviertem Grafana-Profil zusätzlich data/grafana).
+# bei aktiviertem Grafana-Profil zusätzlich data/grafana). Das getrennte
+# Backup-Ziel liegt standardmäßig unter ./backups und wird erst nach der
+# verpflichtenden Strategiewahl im Web-Setup beschrieben.
 #
 # Standardstart ohne Grafana: docker compose up -d
 # Optional mit Grafana: docker compose --profile grafana up -d
@@ -40,8 +42,12 @@ services:
       # Performance / Sicherheit für Single-Node
       - plugins.security.ssl.http.enabled=false
       - plugins.security.disabled=true        # intern kein TLS nötig (nur lokal erreichbar)
+      - path.repo=/mnt/snapshots
     volumes:
       - ./data/opensearch:/usr/share/opensearch/data
+      - ${DMARC_BACKUP_ROOT:-./backups}/opensearch:/mnt/snapshots
+    group_add:
+      - "10001"
     ulimits:
       memlock:
         soft: -1
@@ -92,8 +98,11 @@ services:
       - DMARC_AGGREGATE_INDEX=dmarc_aggregate-*
       - DMARC_FORENSIC_INDEX=dmarc_failure-*
       - DASHBOARD_DATABASE_PATH=/app/data/dashboard.db
+      - DASHBOARD_BACKUP_KEY_PATH=/app/data/backup.key
+      - BACKUP_MAINTENANCE_LOCK_FILE=/app/parser-control/backup.lock
       - STALE_REPORT_DAYS=3
       - NEW_HOST_WINDOW_DAYS=7
+      - DOMAIN_DNS_REFRESH_SECONDS=${DOMAIN_DNS_REFRESH_SECONDS:-3600}
     volumes:
       - ./data/dashboard:/app/data
       - ./data/parser-control:/app/parser-control
@@ -110,8 +119,55 @@ services:
     networks:
       - dmarc-net
 
+  # ── Automatische, im Setup explizit aktivierte Backups ────────────────────
+  backup:
+    build:
+      context: ./backup
+    image: dmarc-control-backup:local
+    container_name: dmarc-backup
+    restart: unless-stopped
+    environment:
+      - OPENSEARCH_URL=http://opensearch:9200
+      - DASHBOARD_URL=http://dashboard:8000
+      - DASHBOARD_DATA_ROOT=/dashboard-data
+      - PARSER_CONTROL_ROOT=/run/parser-control
+      - STACK_CONFIG_ROOT=/stack-config
+      - BACKUP_ROOT=/backups
+      - BACKUP_SCHEDULE=${DMARC_BACKUP_SCHEDULE:-0 2 * * *}
+      - BACKUP_RETENTION_DAYS=${DMARC_BACKUP_RETENTION_DAYS:-30}
+      - BACKUP_POLL_SECONDS=${DMARC_BACKUP_POLL_SECONDS:-30}
+      - BACKUP_PARSER_PAUSE_TIMEOUT=${DMARC_BACKUP_PARSER_PAUSE_TIMEOUT:-60}
+      - DMARC_CONTROL_RELEASE=${DMARC_CONTROL_RELEASE:-unknown}
+    volumes:
+      - ${DMARC_BACKUP_ROOT:-./backups}:/backups
+      - ./data/dashboard:/dashboard-data
+      - ./data/parser-control:/run/parser-control
+      - ./.env:/stack-config/.env:ro
+      - ./docker-compose.yml:/stack-config/docker-compose.yml:ro
+      - ./config:/stack-config/config:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "dmarc-backup", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - dmarc-net
+
   # ── parsedmarc (ein verwalteter Mailbox-Consumer) ──────────────────────────
-  # Der Supervisor startet genau einen auf 10.4.0 gepinnten parsedmarc-Prozess.
+  # Der Supervisor startet genau einen auf 11.0.2 gepinnten parsedmarc-Prozess.
   # Bis eine GUI-Konfiguration erfolgreich getestet und aktiviert wurde,
   # verwendet er unverändert die bestehende Legacy-Konfiguration.
   parsedmarc:
@@ -123,6 +179,7 @@ services:
     environment:
       - PARSER_CONTROL_API=http://dashboard:8000/api/internal/parser
       - PARSER_CONTROL_TOKEN_FILE=/run/parser-control/control.token
+      - BACKUP_MAINTENANCE_LOCK_FILE=/run/parser-control/backup.lock
       - PARSER_LEGACY_CONFIG=/legacy/parsedmarc.ini
       - PARSER_SAVE_AGGREGATE=True
       - PARSER_SAVE_FAILURE=${PARSEDMARC_SAVE_FAILURE:-False}

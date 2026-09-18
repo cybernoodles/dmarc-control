@@ -17,10 +17,22 @@ class Settings:
             "/app/data/connection.key",
         )
     )
+    backup_encryption_key_path: Path = Path(
+        os.getenv(
+            "DASHBOARD_BACKUP_KEY_PATH",
+            "/app/data/backup.key",
+        )
+    )
     parser_control_token_file: Path = Path(
         os.getenv(
             "PARSER_CONTROL_TOKEN_FILE",
             "/app/parser-control/control.token",
+        )
+    )
+    backup_lock_file: Path = Path(
+        os.getenv(
+            "BACKUP_MAINTENANCE_LOCK_FILE",
+            "/app/parser-control/backup.lock",
         )
     )
     session_secure_cookie: bool = os.getenv(

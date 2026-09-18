@@ -12,6 +12,7 @@ import {
   EyeOff,
   FileSearch,
   Globe2,
+  HardDriveDownload,
   Info,
   LayoutDashboard,
   LockKeyhole,
@@ -45,6 +46,8 @@ import {
   ApiError,
   AppearanceSettings,
   AuthStatus,
+  BackupMode,
+  BackupSettings,
   DomainItem,
   Forensics,
   Host,
@@ -77,6 +80,7 @@ type SettingsSection =
   | "notifications"
   | "domains"
   | "connection"
+  | "backup"
   | "administration";
 
 const DEFAULT_BRAND_COLOR = "#173f43";
@@ -85,6 +89,80 @@ const CUSTOM_BRAND_STORAGE_KEY = "dmarc-control-custom-brand-color";
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
+}
+
+function BackupModeSelector({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: BackupMode | "";
+  onChange: (mode: BackupMode) => void;
+  disabled?: boolean;
+}) {
+  const { t } = useI18n();
+  const options: Array<{
+    mode: BackupMode;
+    title: string;
+    description: string;
+    icon: typeof Database;
+  }> = [
+    {
+      mode: "integrated",
+      title: t("Integrierte Dumps"),
+      description: t(
+        "DMARC Control erstellt automatisch geprüfte OpenSearch-Snapshots und verschlüsselte Steuerungsbackups.",
+      ),
+      icon: Database,
+    },
+    {
+      mode: "external",
+      title: t("Externe Sicherung"),
+      description: t(
+        "VM oder Host werden bereits anwendungskonsistent einschließlich aller persistenten Daten gesichert.",
+      ),
+      icon: Cloud,
+    },
+    {
+      mode: "none",
+      title: t("Kein Backup"),
+      description: t(
+        "Nur für Testsysteme. Bei einem Ausfall gehen Historie und Steuerungszustand verloren.",
+      ),
+      icon: CircleAlert,
+    },
+  ];
+
+  return (
+    <div className="backup-mode-grid" role="radiogroup" aria-label={t("Backup-Strategie")}>
+      {options.map((option) => {
+        const Icon = option.icon;
+        return (
+          <label
+            className={classNames(
+              "backup-mode-option",
+              value === option.mode && "selected",
+            )}
+            key={option.mode}
+          >
+            <input
+              type="radio"
+              name="backup-mode"
+              value={option.mode}
+              checked={value === option.mode}
+              disabled={disabled}
+              onChange={() => onChange(option.mode)}
+            />
+            <Icon aria-hidden="true" />
+            <span>
+              <strong>{option.title}</strong>
+              <small>{option.description}</small>
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
 }
 
 function normalizeHex(value: string) {
@@ -466,6 +544,16 @@ function AppGate() {
     );
   }
 
+  if (auth.read_authenticated && auth.backup_setup_required) {
+    return (
+      <BackupStrategySetup
+        language={language}
+        setLanguage={setLanguage}
+        onComplete={setAuth}
+      />
+    );
+  }
+
   return <>
     {!auth.read_authenticated && <>
       {preserveDraft && <p className="session-draft-notice" role="status">
@@ -498,6 +586,7 @@ function AdminSetup({
   const [readUsername, setReadUsername] = useState("");
   const [readPassword, setReadPassword] = useState("");
   const [readConfirmation, setReadConfirmation] = useState("");
+  const [backupMode, setBackupMode] = useState<BackupMode | "">("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -523,6 +612,10 @@ function AdminSetup({
       setError(t("Die Read-Passwörter stimmen nicht überein."));
       return;
     }
+    if (!backupMode) {
+      setError(t("Wähle eine Backup-Strategie."));
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -531,6 +624,7 @@ function AdminSetup({
           adminPassword,
           readUsername.trim(),
           readPassword,
+          backupMode,
         ),
       );
     } catch (reason) {
@@ -550,7 +644,7 @@ function AdminSetup({
 
   return (
     <div className="setup-shell">
-      <section className="setup-card">
+      <section className="setup-card setup-card-wide">
         <div className="setup-language" role="group" aria-label={t("Sprache")}>
           <button
             type="button"
@@ -652,11 +746,27 @@ function AdminSetup({
             />
           </label>
           <small>{t("Beide Passwörter benötigen mindestens 12 Zeichen.")}</small>
+          <div className="setup-divider" />
+          <div className="setup-backup-choice">
+            <div>
+              <strong>{t("Backup-Strategie")}</strong>
+              <small>
+                {t(
+                  "Diese Entscheidung ist erforderlich und kann später in den Einstellungen geändert werden.",
+                )}
+              </small>
+            </div>
+            <BackupModeSelector
+              value={backupMode}
+              onChange={setBackupMode}
+              disabled={saving}
+            />
+          </div>
           {error && <div className="setup-error">{error}</div>}
           <button
             className="button button-primary setup-submit"
             type="submit"
-            disabled={saving}
+            disabled={saving || !backupMode}
           >
             <LockKeyhole aria-hidden="true" />
             {saving ? t("Wird gespeichert …") : t("Zugänge speichern")}
@@ -670,6 +780,110 @@ function AdminSetup({
             )}
           </span>
         </div>
+      </section>
+    </div>
+  );
+}
+
+function BackupStrategySetup({
+  language,
+  setLanguage,
+  onComplete,
+}: {
+  language: "de" | "en";
+  setLanguage: (language: "de" | "en") => void;
+  onComplete: (status: AuthStatus) => void;
+}) {
+  const { t } = useI18n();
+  const [mode, setMode] = useState<BackupMode | "">("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!mode) {
+      setError(t("Wähle eine Backup-Strategie."));
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      onComplete(await api.setupBackup(adminPassword, mode));
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "";
+      setError(
+        message === "Invalid admin password"
+          ? t("Admin-Passwort ist falsch.")
+          : message || t("Backup-Strategie konnte nicht gespeichert werden."),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="setup-shell">
+      <section className="setup-card setup-card-wide">
+        <div className="setup-language" role="group" aria-label={t("Sprache")}>
+          <button
+            type="button"
+            className={classNames(language === "de" && "active")}
+            onClick={() => setLanguage("de")}
+          >
+            DE
+          </button>
+          <button
+            type="button"
+            className={classNames(language === "en" && "active")}
+            onClick={() => setLanguage("en")}
+          >
+            EN
+          </button>
+        </div>
+        <span className="brand-mark setup-brand-mark">
+          <HardDriveDownload aria-hidden="true" />
+        </span>
+        <div className="setup-heading">
+          <span>{t("Ersteinrichtung")}</span>
+          <h1>{t("Backup-Strategie festlegen")}</h1>
+          <p>
+            {t(
+              "Bestehende Installationen müssen einmalig festlegen, ob DMARC Control selbst sichert oder eine externe Sicherung verantwortlich ist.",
+            )}
+          </p>
+        </div>
+        <form className="setup-form" onSubmit={submit}>
+          <BackupModeSelector value={mode} onChange={setMode} disabled={saving} />
+          <div className="settings-note">
+            <Info aria-hidden="true" />
+            <span>
+              {t(
+                "Eine Containersicherung allein genügt nicht. Externe Sicherungen müssen die persistenten data-Verzeichnisse und die Konfiguration anwendungskonsistent erfassen.",
+              )}
+            </span>
+          </div>
+          <label>
+            <span>{t("Admin-Passwort zur Bestätigung")}</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              required
+              maxLength={256}
+              value={adminPassword}
+              onChange={(event) => setAdminPassword(event.target.value)}
+            />
+          </label>
+          {error && <div className="setup-error">{error}</div>}
+          <button
+            className="button button-primary setup-submit"
+            type="submit"
+            disabled={saving || !mode}
+          >
+            <Save aria-hidden="true" />
+            {saving ? t("Wird gespeichert …") : t("Strategie übernehmen")}
+          </button>
+        </form>
       </section>
     </div>
   );
@@ -2609,6 +2823,221 @@ function NotificationSettingsPanel({
   );
 }
 
+function BackupSettingsPanel({
+  auth,
+  setAuth,
+}: {
+  auth: AuthStatus;
+  setAuth: (status: AuthStatus) => void;
+}) {
+  const { t, formatDate } = useI18n();
+  const [settingsState, setSettingsState] = useState<BackupSettings | null>(null);
+  const [mode, setMode] = useState<BackupMode | "">("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [feedbackTone, setFeedbackTone] = useState<
+    "success" | "critical" | "info"
+  >("info");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api
+      .backupSettings()
+      .then((current) => {
+        setSettingsState(current);
+        setMode(current.mode === "unconfigured" ? "" : current.mode);
+        setFeedback("");
+      })
+      .catch((reason: Error) => {
+        setFeedbackTone("critical");
+        setFeedback(reason.message || t("Backup-Status konnte nicht geladen werden."));
+      })
+      .finally(() => setLoading(false));
+  }, [t]);
+
+  useEffect(() => load(), [load]);
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!mode) return;
+    if (!auth.authenticated) {
+      setFeedbackTone("critical");
+      setFeedback(t("Melde dich zuerst als Admin an."));
+      return;
+    }
+    const disablesIntegrated =
+      settingsState?.mode === "integrated" && mode !== "integrated";
+    if (
+      (mode === "none" || disablesIntegrated) &&
+      !window.confirm(
+        t(
+          "Integrierte Sicherungen wirklich deaktivieren? Vorhandene Backups bleiben erhalten.",
+        ),
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    setFeedback("");
+    try {
+      const updated = await api.updateBackupSettings(mode);
+      setSettingsState(updated);
+      setMode(updated.mode === "unconfigured" ? "" : updated.mode);
+      setFeedbackTone("success");
+      setFeedback(t("Backup-Strategie wurde gespeichert."));
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "";
+      if (message === "Admin login required") {
+        setAuth({ ...auth, authenticated: false });
+      }
+      setFeedbackTone("critical");
+      setFeedback(
+        message === "Admin login required"
+          ? t("Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.")
+          : message || t("Backup-Strategie konnte nicht gespeichert werden."),
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runtime = settingsState?.runtime;
+  const runtimeTone =
+    mode !== "integrated"
+      ? ("neutral" as const)
+      : runtime?.state === "success"
+        ? ("success" as const)
+        : runtime?.state === "error"
+          ? ("critical" as const)
+          : runtime?.state === "running" || runtime?.state === "restoring"
+            ? ("info" as const)
+            : ("neutral" as const);
+
+  return (
+    <section className="surface backup-settings">
+      <div className="settings-title connection-title">
+        <span className="settings-icon">
+          <HardDriveDownload aria-hidden="true" />
+        </span>
+        <div>
+          <h3>{t("Backup & Wiederherstellung")}</h3>
+          <p>
+            {t(
+              "Lege fest, ob DMARC Control integrierte Dumps erstellt oder eine externe Sicherung verantwortlich ist.",
+            )}
+          </p>
+        </div>
+        <StatusPill tone={runtimeTone}>
+          {mode !== "integrated"
+            ? t("Integrierte Sicherung inaktiv")
+            : runtime?.state === "success"
+              ? t("Letztes Backup erfolgreich")
+              : runtime?.state === "error"
+                ? t("Backupfehler")
+                : runtime?.state === "running"
+                  ? t("Backup läuft")
+                  : runtime?.state === "restoring"
+                    ? t("Wiederherstellung läuft")
+                    : t("Integrierte Sicherung aktiv")}
+        </StatusPill>
+      </div>
+
+      {loading && !settingsState ? (
+        <LoadingState label={t("Backup-Status wird geladen")} />
+      ) : (
+        <form className="backup-settings-form" onSubmit={save}>
+          <BackupModeSelector value={mode} onChange={setMode} disabled={saving} />
+
+          <div className="settings-note">
+            <Info aria-hidden="true" />
+            <span>
+              {t(
+                "Eine Containersicherung allein genügt nicht. Externe Sicherungen müssen die persistenten data-Verzeichnisse und die Konfiguration anwendungskonsistent erfassen.",
+              )}
+            </span>
+          </div>
+
+          {mode === "integrated" && settingsState?.recovery_key_ready && (
+            <div className="backup-runtime-grid">
+              <div>
+                <span>{t("Letzter Erfolg")}</span>
+                <strong>
+                  {runtime?.last_success_at
+                    ? formatDate(runtime.last_success_at, true)
+                    : t("Noch kein erfolgreiches Backup")}
+                </strong>
+              </div>
+              <div>
+                <span>{t("Nächster Lauf")}</span>
+                <strong>
+                  {runtime?.next_run_at
+                    ? formatDate(runtime.next_run_at, true)
+                    : t("Wird geplant")}
+                </strong>
+              </div>
+              <div>
+                <span>{t("Recovery-Key-Fingerprint")}</span>
+                <strong>{settingsState.recovery_key_fingerprint}</strong>
+              </div>
+            </div>
+          )}
+
+          {mode === "integrated" &&
+            settingsState &&
+            !settingsState.recovery_key_ready && (
+              <div className="inline-warning">
+                <TriangleAlert aria-hidden="true" />
+                <span>
+                  {t(
+                    "Der Recovery-Key fehlt. Er wird nicht automatisch ersetzt, damit vorhandene Backups nicht unbemerkt unlesbar werden.",
+                  )}
+                </span>
+              </div>
+            )}
+
+          {runtime?.message && (
+            <div className={runtime.state === "error" ? "inline-warning" : "settings-note"}>
+              {runtime.state === "error" ? (
+                <TriangleAlert aria-hidden="true" />
+              ) : (
+                <Info aria-hidden="true" />
+              )}
+              <span>{runtime.message}</span>
+            </div>
+          )}
+
+          {!auth.authenticated && (
+            <div className="settings-note">
+              <LockKeyhole aria-hidden="true" />
+              <span>
+                {t(
+                  "Melde dich im Bereich Administration an, um die Backup-Strategie zu ändern.",
+                )}
+              </span>
+            </div>
+          )}
+
+          <button
+            className="button button-primary"
+            type="submit"
+            disabled={saving || !auth.authenticated || !mode || mode === settingsState?.mode}
+          >
+            <Save aria-hidden="true" />
+            {saving ? t("Wird gespeichert …") : t("Backup-Strategie speichern")}
+          </button>
+
+          {feedback && (
+            <div className="settings-feedback" aria-live="polite">
+              <StatusPill tone={feedbackTone}>{feedback}</StatusPill>
+            </div>
+          )}
+        </form>
+      )}
+    </section>
+  );
+}
+
 function SettingsView({
   color,
   customColor,
@@ -2871,6 +3300,11 @@ function SettingsView({
               ? t("GUI-verwaltet")
               : t("Bestehende Konfiguration"),
           }
+        : settingsSection === "backup"
+          ? {
+              tone: "neutral" as const,
+              label: t("Backup-Strategie"),
+            }
         : {
             tone: auth.authenticated
               ? ("success" as const)
@@ -2885,7 +3319,7 @@ function SettingsView({
       <SectionHeader
         title={t("Einstellungen")}
         subtitle={t(
-          "Darstellung, Domains, Benachrichtigungen, Postfachanbindung und geschützte Administration",
+          "Darstellung, Domains, Benachrichtigungen, Postfachanbindung, Backup und geschützte Administration",
         )}
         action={
           <StatusPill tone={sectionStatus.tone}>
@@ -2967,6 +3401,19 @@ function SettingsView({
           </button>
           <button
             type="button"
+            className={classNames(settingsSection === "backup" && "active")}
+            aria-current={settingsSection === "backup" ? "page" : undefined}
+            onClick={() => setSettingsSection("backup")}
+          >
+            <HardDriveDownload aria-hidden="true" />
+            <span>
+              <strong>{t("Backup & Wiederherstellung")}</strong>
+              <small>{t("Dumps oder externe Sicherung")}</small>
+            </span>
+            <ChevronRight aria-hidden="true" />
+          </button>
+          <button
+            type="button"
             className={classNames(
               settingsSection === "administration" && "active",
             )}
@@ -3037,6 +3484,13 @@ function SettingsView({
             setAuth={setAuth}
             onStateChange={setMailboxSummary}
           />
+        </div>
+
+        <div
+          className="settings-backup-slot"
+          hidden={settingsSection !== "backup"}
+        >
+          <BackupSettingsPanel auth={auth} setAuth={setAuth} />
         </div>
 
         <section

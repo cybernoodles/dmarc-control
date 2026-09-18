@@ -9,6 +9,7 @@ data/dashboard/*
 !data/dashboard/.gitkeep
 data/parser-control/*
 !data/parser-control/.gitkeep
+backups/
 dashboard/frontend/node_modules/
 dashboard/frontend/dist/
 dashboard/frontend/*.tsbuildinfo

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import logging
 import os
@@ -179,6 +180,36 @@ class InitialSetupRequest(BaseModel):
         min_length=PASSWORD_MIN_LENGTH,
         max_length=PASSWORD_MAX_LENGTH,
     )
+    backup_mode: Literal["integrated", "external", "none"]
+
+
+class BackupSetupRequest(BaseModel):
+    admin_password: str = Field(
+        min_length=1,
+        max_length=PASSWORD_MAX_LENGTH,
+    )
+    mode: Literal["integrated", "external", "none"]
+
+
+class BackupSettingsUpdate(BaseModel):
+    mode: Literal["integrated", "external", "none"]
+
+
+class BackupRuntimeStatusUpdate(BaseModel):
+    state: Literal[
+        "disabled",
+        "waiting",
+        "running",
+        "success",
+        "error",
+        "restoring",
+    ]
+    message: str | None = Field(default=None, max_length=500)
+    backup_id: str | None = Field(default=None, max_length=120)
+    last_success_at: str | None = Field(default=None, max_length=80)
+    next_run_at: str | None = Field(default=None, max_length=80)
+    schedule: str | None = Field(default=None, max_length=120)
+    retention_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class ReadLoginRequest(BaseModel):
@@ -359,6 +390,7 @@ def auth_status_payload(request: Request) -> dict:
     )
     return {
         "setup_required": setup_required,
+        "backup_setup_required": not store.backup_configured(),
         "admin_configured": store.admin_configured(),
         "read_authenticated": read_authenticated,
         "read_username": store.read_username() if read_authenticated else None,
@@ -367,6 +399,60 @@ def auth_status_payload(request: Request) -> dict:
             if setup_required or not read_authenticated
             else is_admin_authenticated(request)
         ),
+    }
+
+
+def ensure_backup_encryption_key() -> str:
+    key_path = settings.backup_encryption_key_path
+    try:
+        key = key_path.read_bytes()
+    except FileNotFoundError:
+        key_path.parent.mkdir(parents=True, exist_ok=True)
+        key = secrets.token_bytes(32)
+        try:
+            descriptor = os.open(
+                key_path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+        except FileExistsError:
+            key = key_path.read_bytes()
+        else:
+            with os.fdopen(descriptor, "wb") as key_file:
+                key_file.write(key)
+    if len(key) != 32:
+        raise HTTPException(
+            status_code=500,
+            detail="Backup encryption key has an invalid length",
+        )
+    return hashlib.sha256(key).hexdigest()[:16]
+
+
+def backup_encryption_key_fingerprint() -> str | None:
+    try:
+        key = settings.backup_encryption_key_path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Backup encryption key cannot be read: {exc}",
+        ) from exc
+    if len(key) != 32:
+        raise HTTPException(
+            status_code=500,
+            detail="Backup encryption key has an invalid length",
+        )
+    return hashlib.sha256(key).hexdigest()[:16]
+
+
+def public_backup_settings(current: dict | None = None) -> dict:
+    stored = current if current is not None else store.backup_settings()
+    fingerprint = backup_encryption_key_fingerprint()
+    return {
+        **stored,
+        "recovery_key_ready": fingerprint is not None,
+        "recovery_key_fingerprint": fingerprint,
     }
 
 
@@ -1078,6 +1164,8 @@ def expected_provider_pass_suppression_is_current(alert: dict) -> bool:
 
 
 async def dispatch_notification_cycle() -> None:
+    if settings.backup_lock_file.exists():
+        return
     current = store.notification_settings()
     if not current or not current["settings"].get("enabled"):
         return
@@ -1388,18 +1476,24 @@ async def setup_access(
                 status_code=401,
                 detail="Invalid admin password",
             )
+        if update.backup_mode == "integrated":
+            ensure_backup_encryption_key()
         saved = store.set_initial_read_credentials(
             expected_admin_hash=admin_password_hash,
             read_username=read_username,
             read_username_normalized=read_username_normalized,
             read_password_hash=hash_password(update.read_password),
+            backup_mode=update.backup_mode,
         )
     else:
+        if update.backup_mode == "integrated":
+            ensure_backup_encryption_key()
         saved = store.set_initial_credentials(
             admin_password_hash=hash_password(update.admin_password),
             read_username=read_username,
             read_username_normalized=read_username_normalized,
             read_password_hash=hash_password(update.read_password),
+            backup_mode=update.backup_mode,
         )
     if not saved:
         raise HTTPException(
@@ -1411,9 +1505,51 @@ async def setup_access(
     set_admin_cookie(response, create_admin_session(store))
     return {
         "setup_required": False,
+        "backup_setup_required": False,
         "admin_configured": True,
         "read_authenticated": True,
         "read_username": read_username,
+        "authenticated": True,
+    }
+
+
+@app.post("/api/settings/backup/setup")
+async def setup_backup_strategy(
+    update: BackupSetupRequest,
+    request: Request,
+    response: Response,
+):
+    if not store.setup_complete():
+        raise HTTPException(status_code=409, detail="Initial setup required")
+    if store.backup_configured():
+        raise HTTPException(
+            status_code=409,
+            detail="Backup strategy is already configured",
+        )
+    password_hash = store.admin_password_hash()
+    if not password_hash or not verify_password(
+        update.admin_password,
+        password_hash,
+    ):
+        raise HTTPException(status_code=401, detail="Invalid admin password")
+    if update.mode == "integrated":
+        ensure_backup_encryption_key()
+    saved = store.set_backup_settings(
+        update.mode,
+        only_if_unconfigured=True,
+    )
+    if saved is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Backup strategy was configured concurrently",
+        )
+    set_admin_cookie(response, create_admin_session(store))
+    return {
+        "setup_required": False,
+        "backup_setup_required": False,
+        "admin_configured": True,
+        "read_authenticated": True,
+        "read_username": store.read_username(),
         "authenticated": True,
     }
 
@@ -1438,6 +1574,7 @@ async def login_read_user(
     set_read_cookie(response, create_read_session(store))
     return {
         "setup_required": False,
+        "backup_setup_required": not store.backup_configured(),
         "admin_configured": True,
         "read_authenticated": True,
         "read_username": store.read_username(),
@@ -1457,6 +1594,7 @@ async def logout_read_user(request: Request, response: Response):
     delete_session_cookie(response, SESSION_COOKIE)
     return {
         "setup_required": not store.setup_complete(),
+        "backup_setup_required": not store.backup_configured(),
         "admin_configured": store.admin_configured(),
         "read_authenticated": False,
         "read_username": None,
@@ -1474,6 +1612,7 @@ async def login_admin(update: PasswordRequest, response: Response):
     set_admin_cookie(response, create_admin_session(store))
     return {
         "setup_required": False,
+        "backup_setup_required": not store.backup_configured(),
         "admin_configured": True,
         "read_authenticated": True,
         "read_username": store.read_username(),
@@ -1522,6 +1661,7 @@ async def change_admin_password(
     set_admin_cookie(response, create_admin_session(store))
     return {
         "setup_required": False,
+        "backup_setup_required": not store.backup_configured(),
         "admin_configured": True,
         "read_authenticated": True,
         "read_username": store.read_username(),
@@ -1551,6 +1691,7 @@ async def update_read_credentials(
     set_read_cookie(response, create_read_session(store))
     return {
         "setup_required": False,
+        "backup_setup_required": not store.backup_configured(),
         "admin_configured": True,
         "read_authenticated": True,
         "read_username": read_username,
@@ -1587,6 +1728,23 @@ async def update_appearance_settings(
         "write_protected": True,
         "admin_configured": True,
     }
+
+
+@app.get("/api/settings/backup")
+async def backup_settings():
+    return public_backup_settings()
+
+
+@app.put("/api/settings/backup")
+async def update_backup_settings(
+    update: BackupSettingsUpdate,
+    request: Request,
+):
+    require_admin(request)
+    current = store.backup_settings()
+    if update.mode == "integrated" and current["mode"] != "integrated":
+        ensure_backup_encryption_key()
+    return public_backup_settings(store.set_backup_settings(update.mode))
 
 
 @app.get("/api/settings/mailbox")
@@ -1772,6 +1930,40 @@ async def update_parser_status(
 ):
     require_parser_control_token(parser_token)
     return store.set_parser_runtime_status(update.model_dump())
+
+
+@app.get("/api/internal/backup/config")
+async def internal_backup_configuration(
+    response: Response,
+    parser_token: str | None = Header(
+        default=None,
+        alias="X-Parser-Control-Token",
+    ),
+):
+    require_parser_control_token(parser_token)
+    response.headers["Cache-Control"] = "no-store"
+    current = store.backup_settings()
+    parser = store.mailbox_connection_state()["runtime"]
+    return {
+        "configured": current["configured"],
+        "mode": current["mode"],
+        "parser": parser,
+        "maintenance": settings.backup_lock_file.exists(),
+    }
+
+
+@app.post("/api/internal/backup/status")
+async def update_backup_runtime_status(
+    update: BackupRuntimeStatusUpdate,
+    parser_token: str | None = Header(
+        default=None,
+        alias="X-Parser-Control-Token",
+    ),
+):
+    require_parser_control_token(parser_token)
+    return store.set_backup_runtime_status(
+        update.model_dump(exclude_none=True)
+    )
 
 
 @app.get("/api/overview")

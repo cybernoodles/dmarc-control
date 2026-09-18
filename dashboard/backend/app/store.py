@@ -13,6 +13,7 @@ from .domain_monitoring import DomainMonitoringStore
 from .domain_services import DomainServiceStore
 
 DEFAULT_BRAND_COLOR = "#173f43"
+BACKUP_MODES = {"integrated", "external", "none"}
 
 
 class StateStore(
@@ -215,6 +216,27 @@ class StateStore(
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS backup_settings (
+                    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                    mode TEXT NOT NULL CHECK (
+                        mode IN ('integrated', 'external', 'none')
+                    ),
+                    configured_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS backup_runtime_status (
+                    singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+                    status_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
 
             self.initialize_recipient_deliveries(connection)
             self.initialize_evaluation_runs(connection)
@@ -235,6 +257,13 @@ class StateStore(
 
     def setup_complete(self) -> bool:
         return self.admin_configured() and self.read_configured()
+
+    def backup_configured(self) -> bool:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM backup_settings WHERE singleton_id = 1"
+            ).fetchone()
+        return row is not None
 
     def read_username(self) -> str | None:
         with self._lock, self._connect() as connection:
@@ -291,7 +320,10 @@ class StateStore(
         read_username: str,
         read_username_normalized: str,
         read_password_hash: str,
+        backup_mode: str,
     ) -> bool:
+        if backup_mode not in BACKUP_MODES:
+            raise ValueError("Unsupported backup mode")
         timestamp = datetime.now(UTC).isoformat()
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -328,6 +360,18 @@ class StateStore(
                     timestamp,
                 ),
             )
+            connection.execute(
+                """
+                INSERT INTO backup_settings (
+                    singleton_id, mode, configured_at, updated_at
+                )
+                VALUES (1, ?, ?, ?)
+                ON CONFLICT(singleton_id) DO UPDATE SET
+                    mode = excluded.mode,
+                    updated_at = excluded.updated_at
+                """,
+                (backup_mode, timestamp, timestamp),
+            )
         return True
 
     def set_initial_read_credentials(
@@ -337,7 +381,10 @@ class StateStore(
         read_username: str,
         read_username_normalized: str,
         read_password_hash: str,
+        backup_mode: str,
     ) -> bool:
+        if backup_mode not in BACKUP_MODES:
+            raise ValueError("Unsupported backup mode")
         timestamp = datetime.now(UTC).isoformat()
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
@@ -367,6 +414,19 @@ class StateStore(
                     expected_admin_hash,
                 ),
             )
+            if cursor.rowcount == 1:
+                connection.execute(
+                    """
+                    INSERT INTO backup_settings (
+                        singleton_id, mode, configured_at, updated_at
+                    )
+                    VALUES (1, ?, ?, ?)
+                    ON CONFLICT(singleton_id) DO UPDATE SET
+                        mode = excluded.mode,
+                        updated_at = excluded.updated_at
+                    """,
+                    (backup_mode, timestamp, timestamp),
+                )
         return cursor.rowcount == 1
 
     def replace_read_credentials(
@@ -887,6 +947,97 @@ class StateStore(
             "latest": dict(latest) if latest else None,
             "recipient_delivery": self.recipient_delivery_summary(),
         }
+
+    def backup_settings(self) -> dict[str, Any]:
+        with self._lock, self._connect() as connection:
+            configured = connection.execute(
+                """
+                SELECT mode, configured_at, updated_at
+                FROM backup_settings
+                WHERE singleton_id = 1
+                """
+            ).fetchone()
+            runtime = connection.execute(
+                """
+                SELECT status_json, updated_at
+                FROM backup_runtime_status
+                WHERE singleton_id = 1
+                """
+            ).fetchone()
+        return {
+            "configured": configured is not None,
+            "mode": configured["mode"] if configured else "unconfigured",
+            "configured_at": (
+                configured["configured_at"] if configured else None
+            ),
+            "updated_at": configured["updated_at"] if configured else None,
+            "runtime": (
+                {
+                    **json.loads(runtime["status_json"]),
+                    "updated_at": runtime["updated_at"],
+                }
+                if runtime
+                else None
+            ),
+        }
+
+    def set_backup_settings(
+        self,
+        mode: str,
+        *,
+        only_if_unconfigured: bool = False,
+    ) -> dict[str, Any] | None:
+        if mode not in BACKUP_MODES:
+            raise ValueError("Unsupported backup mode")
+        timestamp = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            if only_if_unconfigured:
+                cursor = connection.execute(
+                    """
+                    INSERT OR IGNORE INTO backup_settings (
+                        singleton_id, mode, configured_at, updated_at
+                    )
+                    VALUES (1, ?, ?, ?)
+                    """,
+                    (mode, timestamp, timestamp),
+                )
+                if cursor.rowcount != 1:
+                    return None
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO backup_settings (
+                        singleton_id, mode, configured_at, updated_at
+                    )
+                    VALUES (1, ?, ?, ?)
+                    ON CONFLICT(singleton_id) DO UPDATE SET
+                        mode = excluded.mode,
+                        updated_at = excluded.updated_at
+                    """,
+                    (mode, timestamp, timestamp),
+                )
+        return self.backup_settings()
+
+    def set_backup_runtime_status(
+        self,
+        status: dict[str, Any],
+    ) -> dict[str, Any]:
+        timestamp = datetime.now(UTC).isoformat()
+        payload = json.dumps(status, sort_keys=True, separators=(",", ":"))
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO backup_runtime_status (
+                    singleton_id, status_json, updated_at
+                )
+                VALUES (1, ?, ?)
+                ON CONFLICT(singleton_id) DO UPDATE SET
+                    status_json = excluded.status_json,
+                    updated_at = excluded.updated_at
+                """,
+                (payload, timestamp),
+            )
+        return {**status, "updated_at": timestamp}
 
     def alert_states(self) -> dict[str, dict[str, str]]:
         with self._lock, self._connect() as connection:

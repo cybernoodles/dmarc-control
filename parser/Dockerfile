@@ -1,4 +1,4 @@
-FROM ghcr.io/domainaware/parsedmarc:10.4.0@sha256:314afe30059030c1af20e10bf7051a816b16d00b309b5b799b189b0fc3aad65f
+FROM ghcr.io/domainaware/parsedmarc:11.0.2@sha256:33b704262fbd171b9462c2a66d51e44c761da02ffe65279d4fb9d85bab14f927
 
 USER root
 COPY supervisor.py /usr/local/lib/parsedmarc-supervisor.py

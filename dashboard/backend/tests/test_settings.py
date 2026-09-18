@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +26,120 @@ class PasswordHashTests(unittest.TestCase):
 
 
 class AdminSettingsApiTests(unittest.TestCase):
+    def test_existing_installation_requires_explicit_backup_strategy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            test_settings = Settings(
+                database_path=root / "dashboard.db",
+                backup_encryption_key_path=root / "backup.key",
+                parser_control_token_file=root / "control" / "control.token",
+            )
+            test_store = StateStore(test_settings.database_path)
+            self.assertTrue(
+                test_store.set_initial_credentials(
+                    admin_password_hash=hash_password(
+                        "existing-admin-password"
+                    ),
+                    read_username="dmarc-reader",
+                    read_username_normalized="dmarc-reader",
+                    read_password_hash=hash_password(
+                        "existing-read-password"
+                    ),
+                    backup_mode="external",
+                )
+            )
+            with sqlite3.connect(test_settings.database_path) as connection:
+                connection.execute("DELETE FROM backup_settings")
+
+            with (
+                patch.object(main, "settings", test_settings),
+                patch.object(main, "store", test_store),
+                TestClient(main.app) as client,
+            ):
+                initial = client.get("/api/auth/status")
+                login = client.post(
+                    "/api/auth/read-login",
+                    json={
+                        "username": "dmarc-reader",
+                        "password": "existing-read-password",
+                    },
+                )
+                wrong = client.post(
+                    "/api/settings/backup/setup",
+                    json={
+                        "admin_password": "wrong-password",
+                        "mode": "integrated",
+                    },
+                )
+                configured = client.post(
+                    "/api/settings/backup/setup",
+                    json={
+                        "admin_password": "existing-admin-password",
+                        "mode": "integrated",
+                    },
+                )
+                visible = client.get("/api/settings/backup")
+
+            self.assertFalse(initial.json()["setup_required"])
+            self.assertTrue(initial.json()["backup_setup_required"])
+            self.assertTrue(login.json()["backup_setup_required"])
+            self.assertEqual(wrong.status_code, 401)
+            self.assertEqual(configured.status_code, 200)
+            self.assertFalse(configured.json()["backup_setup_required"])
+            self.assertTrue(configured.json()["authenticated"])
+            self.assertEqual(visible.json()["mode"], "integrated")
+            self.assertTrue(visible.json()["recovery_key_ready"])
+            self.assertTrue(test_settings.backup_encryption_key_path.is_file())
+
+    def test_admin_can_change_backup_strategy_without_deleting_backups(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            test_settings = Settings(
+                database_path=root / "dashboard.db",
+                backup_encryption_key_path=root / "backup.key",
+            )
+            test_store = StateStore(test_settings.database_path)
+            with (
+                patch.object(main, "settings", test_settings),
+                patch.object(main, "store", test_store),
+                TestClient(main.app) as client,
+            ):
+                client.post(
+                    "/api/auth/setup",
+                    json={
+                        "admin_password": "initial-admin-password",
+                        "read_username": "dmarc-reader",
+                        "read_password": "initial-read-password",
+                        "backup_mode": "external",
+                    },
+                )
+                integrated = client.put(
+                    "/api/settings/backup",
+                    json={"mode": "integrated"},
+                )
+                test_settings.backup_encryption_key_path.unlink()
+                missing_key = client.get("/api/settings/backup")
+                unchanged = client.put(
+                    "/api/settings/backup",
+                    json={"mode": "integrated"},
+                )
+                client.post("/api/auth/logout")
+                denied = client.put(
+                    "/api/settings/backup",
+                    json={"mode": "none"},
+                )
+
+            self.assertEqual(integrated.status_code, 200)
+            self.assertEqual(integrated.json()["mode"], "integrated")
+            self.assertRegex(
+                integrated.json()["recovery_key_fingerprint"],
+                r"^[0-9a-f]{16}$",
+            )
+            self.assertFalse(missing_key.json()["recovery_key_ready"])
+            self.assertFalse(unchanged.json()["recovery_key_ready"])
+            self.assertFalse(test_settings.backup_encryption_key_path.exists())
+            self.assertEqual(denied.status_code, 401)
+
     def test_first_run_read_and_admin_sessions(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             test_settings = Settings(
@@ -48,6 +163,15 @@ class AdminSettingsApiTests(unittest.TestCase):
                         "admin_password": "too-short",
                         "read_username": "dmarc-reader",
                         "read_password": "also-too-short",
+                        "backup_mode": "external",
+                    },
+                )
+                missing_backup_mode = client.post(
+                    "/api/auth/setup",
+                    json={
+                        "admin_password": "initial-admin-password",
+                        "read_username": "dmarc-reader",
+                        "read_password": "initial-read-password",
                     },
                 )
                 setup = client.post(
@@ -56,6 +180,7 @@ class AdminSettingsApiTests(unittest.TestCase):
                         "admin_password": "initial-admin-password",
                         "read_username": "DMARC-Reader",
                         "read_password": "initial-read-password",
+                        "backup_mode": "external",
                     },
                 )
                 duplicate_setup = client.post(
@@ -64,6 +189,7 @@ class AdminSettingsApiTests(unittest.TestCase):
                         "admin_password": "different-admin-password",
                         "read_username": "another-reader",
                         "read_password": "different-read-password",
+                        "backup_mode": "external",
                     },
                 )
                 authenticated = client.get("/api/auth/status")
@@ -137,6 +263,7 @@ class AdminSettingsApiTests(unittest.TestCase):
                 initial.json(),
                 {
                     "setup_required": True,
+                    "backup_setup_required": True,
                     "admin_configured": False,
                     "read_authenticated": False,
                     "read_username": None,
@@ -145,6 +272,7 @@ class AdminSettingsApiTests(unittest.TestCase):
             )
             self.assertEqual(denied_before_setup.status_code, 401)
             self.assertEqual(short_password.status_code, 422)
+            self.assertEqual(missing_backup_mode.status_code, 422)
             self.assertEqual(setup.status_code, 201)
             setup_cookies = setup.headers.get_list("set-cookie")
             self.assertTrue(
@@ -223,6 +351,7 @@ class AdminSettingsApiTests(unittest.TestCase):
                         "admin_password": "wrong-admin-password",
                         "read_username": "dmarc-reader",
                         "read_password": "initial-read-password",
+                        "backup_mode": "external",
                     },
                 )
                 migrated = client.post(
@@ -231,6 +360,7 @@ class AdminSettingsApiTests(unittest.TestCase):
                         "admin_password": "existing-admin-password",
                         "read_username": "dmarc-reader",
                         "read_password": "initial-read-password",
+                        "backup_mode": "external",
                     },
                 )
 

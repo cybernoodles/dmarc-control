@@ -193,6 +193,14 @@ the overview. Parser logs are available with:
 docker compose logs -f parsedmarc
 ```
 
+## Container releases
+
+Version tags publish the dashboard and parser/supervisor as multi-architecture
+images to GitHub Container Registry. The parser image retains the DMARC Control
+supervisor; it is not interchangeable with the bare upstream parsedmarc image.
+See [Container releases](docs/CONTAINER-RELEASES.md) for the release and
+digest-pinning procedure.
+
 ## Optional Grafana
 
 Grafana can be used as the primary analytics view, but it does not replace the
