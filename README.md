@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="#standard-installation-web-ui">Installation</a> ·
+  <a href="#release-installation-web-ui">Installation</a> ·
   <a href="#post-installation">Post-installation</a> ·
   <a href="#optional-grafana">Grafana</a> ·
   <a href="#operations">Operations</a>
@@ -62,14 +62,17 @@ Microsoft 365 assessment adds context; it is not an allowlist. A confirmed or
 automatically expected provider can calm a fully DMARC-passing new-source
 event, but DMARC failures remain critical.
 
-## Standard installation: web UI
+## Release installation: web UI
 
-Grafana is not required for the standard installation.
+Use the published, digest-pinned images for a normal deployment. This path
+works with both Dockge and Docker Compose, requires only the release Compose
+file and `.env`, and does not build or clone the repository. Grafana is not
+part of this deployment profile.
 
 ### Requirements
 
-- A Linux host with Docker Engine and Docker Compose v2
-- Permission to create the persistent data directories with the required UIDs
+- A Linux host with Docker Engine and Docker Compose v2, or Dockge
+- Permission to create the bind-mount directories with the required UIDs
 - TCP port `3030` available for the web UI
 - `vm.max_map_count=262144` for OpenSearch
 
@@ -80,48 +83,89 @@ sudo sysctl -w vm.max_map_count=262144
 echo "vm.max_map_count=262144" | sudo tee /etc/sysctl.d/99-opensearch.conf
 ```
 
-### Prepare the project
+### Add the Compose file and environment
 
-```bash
-git clone https://github.com/cybernoodles/dmarc-control.git
-cd dmarc-control
-cp .env.example .env
-```
+For Dockge, create a stack and paste the contents of
+[`docker-compose.release.yml`](docker-compose.release.yml) as `compose.yaml`.
+Paste [`.env.release.example`](.env.release.example) as the stack's `.env` or
+into Dockge's environment editor. For standard Docker Compose, save those two
+files together and use `docker-compose.release.yml` explicitly.
 
-Edit `.env` and replace `OPENSEARCH_ADMIN_PASSWORD` with a strong bootstrap
-password. Keep these values empty for the standard installation:
+Set the four absolute host paths and replace `OPENSEARCH_ADMIN_PASSWORD` with
+a strong bootstrap password. This Dockge layout keeps definitions and data
+separate:
 
 ```dotenv
-COMPOSE_PROFILES=
-GRAFANA_ADMIN_PASSWORD=
+DMARC_DATA_ROOT=/opt/dmarc-control
+DMARC_BACKUP_ROOT=/opt/dmarc-control/backups
+DMARC_STACK_CONFIG_ROOT=/opt/stacks/dmarc-control
+DMARC_STACK_COMPOSE_FILE=/opt/stacks/dmarc-control/compose.yaml
+OPENSEARCH_ADMIN_PASSWORD=REPLACE_WITH_A_LONG_RANDOM_PASSWORD
 ```
 
 Do not commit `.env`; it is installation-specific and may contain secrets.
+`DMARC_STACK_CONFIG_ROOT` and `DMARC_STACK_COMPOSE_FILE` must name the actual
+files managed by Dockge (or Docker Compose). The backup service reads these
+files read-only and includes them in the encrypted control backup; do not point
+them at copied placeholder files.
 
-### Prepare persistent storage
+### Prepare bind mounts before the first deploy
+
+Docker creates a missing bind-mount source directory as `root:root`. That
+prevents OpenSearch (UID `1000`) and the dashboard, parser-control and backup
+services (UID `10001`) from writing their persistent data. Create the paths
+and ownership before selecting **Deploy** in Dockge or calling Compose:
 
 ```bash
-mkdir -p data/opensearch data/dashboard data/parser-control dmarc-reports
-sudo chown 1000:1000 data/opensearch
-sudo chown 10001:10001 data/dashboard data/parser-control
+sudo install -d -o 1000 -g 1000 -m 0750 /opt/dmarc-control/data/opensearch
+sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/dashboard
+sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/parser-control
+sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/backups
+sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/config
+sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/dmarc-reports
+
+sudo chown -R 1000:1000 /opt/dmarc-control/data/opensearch
+sudo chown -R 10001:10001 /opt/dmarc-control/data/dashboard /opt/dmarc-control/data/parser-control /opt/dmarc-control/backups
+sudo chmod -R u+rwX,g+rwX /opt/dmarc-control/backups
+
+sudo chown root:10001 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
+sudo chmod 0640 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
 ```
 
-OpenSearch runs as UID `1000`. DMARC Control and its parser-control files use
-UID `10001`. Incorrect ownership can prevent service startup or persistent
-writes.
+For another directory layout, replace `/opt/dmarc-control` and
+`/opt/stacks/dmarc-control` consistently in both `.env` and these commands.
+The `config/` directory may remain empty for a new UI-managed mailbox setup.
+
+### Authenticate private release images
+
+Until the images are made public, authenticate the Docker user that pulls them:
+
+```bash
+printf '%s' "$GHCR_PULL_TOKEN" | docker login ghcr.io -u cybernoodles --password-stdin
+```
+
+For Dockge, make this credential available inside the Dockge container by
+adding the following read-only mount to Dockge's own Compose file and
+recreating Dockge:
+
+```yaml
+- /root/.docker:/root/.docker:ro
+```
 
 ### Start the stack
 
+`dmarc-net` is defined in the release Compose file and Docker creates it on
+the first deployment. No manual network creation is required.
+
+In Dockge, select **Deploy**. With standard Docker Compose:
+
 ```bash
-docker compose up -d --build --remove-orphans
-docker compose ps
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+docker compose -f docker-compose.release.yml ps
 ```
 
 Open `http://HOSTNAME_OR_IP:3030`.
-
-For Dockge, use the repository root as the stack directory because Compose
-resolves all relative paths from the Compose file location. See
-[Dashboard and operations](docs/CUSTOM-DASHBOARD.md) for deployment notes.
 
 ### Complete first-time setup
 
@@ -134,6 +178,18 @@ Both passwords must contain at least 12 characters. The dashboard is available
 after setup, but report ingestion remains idle until a mailbox connection has
 been tested and activated. On a clean installation, `docker compose ps` may
 show `parsedmarc` as unhealthy until that activation; this is expected.
+
+## Build from source
+
+The repository's `docker-compose.yml` remains available for local development
+and source-based deployments. It uses local `build:` definitions instead of
+the published images. Clone the repository, create `.env` from `.env.example`,
+prepare its relative `data/`, `config/`, `dmarc-reports/` and `backups/` paths
+with the same UID ownership rules above, then run:
+
+```bash
+docker compose up -d --build --remove-orphans
+```
 
 ## Post-installation
 
@@ -252,6 +308,16 @@ Installations created with older Docker volumes may require a one-time data
 migration. Read [Migration to portable data](docs/MIGRATION-TO-PORTABLE-DATA.md)
 first. If the installation still uses the old volumes, stop and migrate it
 before running the Compose update below.
+
+For a release-image installation, update the image references to the intended
+digest-pinned release, then run:
+
+```bash
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+For a source-based installation, update the repository and rebuild:
 
 ```bash
 git pull --ff-only
