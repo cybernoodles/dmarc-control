@@ -1,0 +1,164 @@
+---
+# DMARC Control 2.2.1 – deployment from immutable GHCR release images.
+#
+# Private-image test setup:
+#   printf '%s' "$GHCR_PULL_TOKEN" | docker login ghcr.io -u cybernoodles --password-stdin
+#   docker compose -f docker-compose.release.yml pull
+#   docker compose -f docker-compose.release.yml up -d
+#
+# The token is deliberately NOT stored in .env or this file. Docker retains the
+# registry credential in its configured credential store. All application
+# configuration remains in .env and config/ as with the local-build compose.
+#
+# Host prerequisite: vm.max_map_count >= 262144 for OpenSearch.
+
+name: dmarc-control
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.19.6@sha256:8690b204fe914c60ca76d451ac73bc0481e034d32d3779944c8caca56a2b003f
+    container_name: dmarc-opensearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_ADMIN_PASSWORD}
+      - search.insights.top_queries.latency.enabled=${OPENSEARCH_QUERY_INSIGHTS_ENABLED:-false}
+      - search.insights.top_queries.cpu.enabled=${OPENSEARCH_QUERY_INSIGHTS_ENABLED:-false}
+      - search.insights.top_queries.memory.enabled=${OPENSEARCH_QUERY_INSIGHTS_ENABLED:-false}
+      - plugins.security.ssl.http.enabled=false
+      - plugins.security.disabled=true
+      - path.repo=/mnt/snapshots
+    volumes:
+      - ./data/opensearch:/usr/share/opensearch/data
+      - ${DMARC_BACKUP_ROOT:-./backups}/opensearch:/mnt/snapshots
+    group_add:
+      - "10001"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+    networks:
+      - dmarc-net
+
+  dashboard:
+    image: ghcr.io/cybernoodles/dmarc-control-dashboard:2.2.1@sha256:974b59d85ad50675c9a10cdce42de5e4c76a6cc7d06eb3e8e9a2efd33a83149b
+    container_name: dmarc-dashboard
+    restart: unless-stopped
+    ports:
+      - "3030:8000"
+    environment:
+      - OPENSEARCH_URL=http://opensearch:9200
+      - DMARC_AGGREGATE_INDEX=dmarc_aggregate-*
+      - DMARC_FORENSIC_INDEX=dmarc_failure-*
+      - DASHBOARD_DATABASE_PATH=/app/data/dashboard.db
+      - DASHBOARD_BACKUP_KEY_PATH=/app/data/backup.key
+      - BACKUP_MAINTENANCE_LOCK_FILE=/app/parser-control/backup.lock
+      - STALE_REPORT_DAYS=3
+      - NEW_HOST_WINDOW_DAYS=7
+      - DOMAIN_DNS_REFRESH_SECONDS=${DOMAIN_DNS_REFRESH_SECONDS:-3600}
+    volumes:
+      - ./data/dashboard:/app/data
+      - ./data/parser-control:/app/parser-control
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    networks:
+      - dmarc-net
+
+  backup:
+    image: ghcr.io/cybernoodles/dmarc-control-backup:2.2.1@sha256:12371b6c8f97c620af118c9bafdcf1993f1ac83937e30dcf480f17f85a133bfe
+    container_name: dmarc-backup
+    restart: unless-stopped
+    environment:
+      - OPENSEARCH_URL=http://opensearch:9200
+      - DASHBOARD_URL=http://dashboard:8000
+      - DASHBOARD_DATA_ROOT=/dashboard-data
+      - PARSER_CONTROL_ROOT=/run/parser-control
+      - STACK_CONFIG_ROOT=/stack-config
+      - BACKUP_ROOT=/backups
+      - BACKUP_SCHEDULE=${DMARC_BACKUP_SCHEDULE:-0 2 * * *}
+      - BACKUP_RETENTION_DAYS=${DMARC_BACKUP_RETENTION_DAYS:-30}
+      - BACKUP_POLL_SECONDS=${DMARC_BACKUP_POLL_SECONDS:-30}
+      - BACKUP_PARSER_PAUSE_TIMEOUT=${DMARC_BACKUP_PARSER_PAUSE_TIMEOUT:-60}
+      - DMARC_CONTROL_RELEASE=2.2.1
+    volumes:
+      - ${DMARC_BACKUP_ROOT:-./backups}:/backups
+      - ./data/dashboard:/dashboard-data
+      - ./data/parser-control:/run/parser-control
+      - ./.env:/stack-config/.env:ro
+      - ./docker-compose.release.yml:/stack-config/docker-compose.yml:ro
+      - ./config:/stack-config/config:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "dmarc-backup", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - dmarc-net
+
+  parsedmarc:
+    image: ghcr.io/cybernoodles/dmarc-control-parser:2.2.1@sha256:9f6964e0edd038dc7ce3fad70828705550ce65ff788bc10de7d82e7417fb3032
+    container_name: dmarc-parser
+    restart: unless-stopped
+    environment:
+      - PARSER_CONTROL_API=http://dashboard:8000/api/internal/parser
+      - PARSER_CONTROL_TOKEN_FILE=/run/parser-control/control.token
+      - BACKUP_MAINTENANCE_LOCK_FILE=/run/parser-control/backup.lock
+      - PARSER_LEGACY_CONFIG=/legacy/parsedmarc.ini
+      - PARSER_SAVE_AGGREGATE=True
+      - PARSER_SAVE_FAILURE=${PARSEDMARC_SAVE_FAILURE:-False}
+      - PARSER_SAVE_SMTP_TLS=False
+      - PARSER_OPENSEARCH_HOSTS=opensearch:9200
+      - PARSER_OPENSEARCH_SSL=False
+      - PARSER_OPENSEARCH_MONTHLY_INDEXES=${PARSER_OPENSEARCH_MONTHLY_INDEXES:-True}
+    volumes:
+      - ./config:/legacy:ro
+      - ./data/parser-control:/run/parser-control:ro
+      - ./dmarc-reports:/input:ro
+    group_add:
+      - "10001"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy
+    networks:
+      - dmarc-net
+
+networks:
+  dmarc-net:
+    driver: bridge
