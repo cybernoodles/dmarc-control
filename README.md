@@ -199,7 +199,8 @@ Version tags publish the dashboard and parser/supervisor as multi-architecture
 images to GitHub Container Registry. The parser image retains the DMARC Control
 supervisor; it is not interchangeable with the bare upstream parsedmarc image.
 See [Container releases](docs/CONTAINER-RELEASES.md) for the release and
-digest-pinning procedure.
+digest-pinning procedure, including the mandatory bind-mount preparation for
+Dockge and standalone Docker Compose deployments.
 
 ## Optional Grafana
 

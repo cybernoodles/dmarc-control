@@ -7,8 +7,9 @@
 #   docker compose -f docker-compose.release.yml up -d
 #
 # The token is deliberately NOT stored in .env or this file. Docker retains the
-# registry credential in its configured credential store. All application
-# configuration remains in .env and config/ as with the local-build compose.
+# registry credential in its configured credential store. Set the absolute host
+# paths in .env.release.example before the first deployment, then create the
+# documented directories with their required ownership.
 #
 # Host prerequisite: vm.max_map_count >= 262144 for OpenSearch.
 
@@ -21,7 +22,10 @@ services:
     restart: unless-stopped
     environment:
       - discovery.type=single-node
-      - bootstrap.memory_lock=true
+      # Memory locking is intentionally disabled for portability to rootless
+      # Docker and constrained hosts. The unlimited MEMLOCK rlimit is not
+      # available there and prevents the container from starting.
+      - bootstrap.memory_lock=false
       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_ADMIN_PASSWORD}
       - search.insights.top_queries.latency.enabled=${OPENSEARCH_QUERY_INSIGHTS_ENABLED:-false}
@@ -31,14 +35,11 @@ services:
       - plugins.security.disabled=true
       - path.repo=/mnt/snapshots
     volumes:
-      - ./data/opensearch:/usr/share/opensearch/data
-      - ${DMARC_BACKUP_ROOT:-./backups}/opensearch:/mnt/snapshots
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/opensearch:/usr/share/opensearch/data
+      - ${DMARC_BACKUP_ROOT:?DMARC_BACKUP_ROOT must be set}/opensearch:/mnt/snapshots
     group_add:
       - "10001"
     ulimits:
-      memlock:
-        soft: -1
-        hard: -1
       nofile:
         soft: 65536
         hard: 65536
@@ -67,8 +68,8 @@ services:
       - NEW_HOST_WINDOW_DAYS=7
       - DOMAIN_DNS_REFRESH_SECONDS=${DOMAIN_DNS_REFRESH_SECONDS:-3600}
     volumes:
-      - ./data/dashboard:/app/data
-      - ./data/parser-control:/app/parser-control
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/dashboard:/app/data
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/parser-control:/app/parser-control
     read_only: true
     tmpfs:
       - /tmp
@@ -99,12 +100,13 @@ services:
       - BACKUP_PARSER_PAUSE_TIMEOUT=${DMARC_BACKUP_PARSER_PAUSE_TIMEOUT:-60}
       - DMARC_CONTROL_RELEASE=2.2.1
     volumes:
-      - ${DMARC_BACKUP_ROOT:-./backups}:/backups
-      - ./data/dashboard:/dashboard-data
-      - ./data/parser-control:/run/parser-control
-      - ./.env:/stack-config/.env:ro
-      - ./docker-compose.release.yml:/stack-config/docker-compose.yml:ro
-      - ./config:/stack-config/config:ro
+      - ${DMARC_BACKUP_ROOT:?DMARC_BACKUP_ROOT must be set}:/backups
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/dashboard:/dashboard-data
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/parser-control:/run/parser-control
+      # These sources are the actual Dockge/Compose stack files, not copies.
+      - ${DMARC_STACK_CONFIG_ROOT:?DMARC_STACK_CONFIG_ROOT must be set}/.env:/stack-config/.env:ro
+      - ${DMARC_STACK_COMPOSE_FILE:?DMARC_STACK_COMPOSE_FILE must be set}:/stack-config/docker-compose.yml:ro
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/config:/stack-config/config:ro
     read_only: true
     tmpfs:
       - /tmp
@@ -142,9 +144,9 @@ services:
       - PARSER_OPENSEARCH_SSL=False
       - PARSER_OPENSEARCH_MONTHLY_INDEXES=${PARSER_OPENSEARCH_MONTHLY_INDEXES:-True}
     volumes:
-      - ./config:/legacy:ro
-      - ./data/parser-control:/run/parser-control:ro
-      - ./dmarc-reports:/input:ro
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/config:/legacy:ro
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/dmarc-reports:/input:ro
+      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/parser-control:/run/parser-control:ro
     group_add:
       - "10001"
     security_opt:
@@ -161,4 +163,5 @@ services:
 
 networks:
   dmarc-net:
+    name: dmarc-net
     driver: bridge

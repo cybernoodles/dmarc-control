@@ -17,16 +17,16 @@ service.
 ## Create a release
 
 Run the full test suite before creating a tag. A pushed annotated version tag
-such as `v1.4.0` starts `.github/workflows/publish-images.yml`:
+such as `v2.2.1` starts `.github/workflows/publish-images.yml`:
 
 ```bash
-git tag -a v1.4.0 -m "DMARC Control 1.4.0"
-git push origin v1.4.0
+git tag -a v2.2.1 -m "DMARC Control 2.2.1"
+git push origin v2.2.1
 ```
 
 The workflow runs the frontend and backend tests, then builds and publishes
-both images for `linux/amd64` and `linux/arm64`. Each image receives the
-version tag (`1.4.0`), the minor tag (`1.4`), and an immutable commit tag.
+all three images for `linux/amd64` and `linux/arm64`. Each image receives the
+version tag (`2.2.1`), the minor tag (`2.2`), and an immutable commit tag.
 It also attaches a build provenance record and SBOM.
 
 The first published packages must be made public in their GitHub Package
@@ -52,6 +52,51 @@ backup:
 
 The published parser image includes the project's supervisor; it must not be
 replaced with the bare `ghcr.io/domainaware/parsedmarc` image.
+
+## Deploy with Dockge or Docker Compose
+
+`docker-compose.release.yml` is the ready-to-paste, digest-pinned production
+reference. It contains no `build:` entries and creates `dmarc-net`
+automatically. Copy its contents into Dockge as `compose.yaml`, copy
+`.env.release.example` into the Dockge environment editor or `.env`, and set
+the four absolute-path values at the top of that file.
+
+For a standard Docker Compose deployment, keep the Compose file and `.env` in
+any directory, set the same values to the actual absolute locations, and run
+Compose with `-f docker-compose.release.yml`.
+
+Before the first deployment, create the bind-mount paths. Docker creates a
+missing bind-mount source as `root:root`; that prevents the non-root services
+from starting. The following Dockge example separates stack definitions from
+persistent data:
+
+```bash
+sudo install -d -o 1000 -g 1000 -m 0750 /opt/dmarc-control/data/opensearch
+sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/dashboard
+sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/parser-control
+sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/backups
+sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/config
+sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/dmarc-reports
+
+sudo chown -R 1000:1000 /opt/dmarc-control/data/opensearch
+sudo chown -R 10001:10001 /opt/dmarc-control/data/dashboard /opt/dmarc-control/data/parser-control
+sudo chown -R 10001:10001 /opt/dmarc-control/backups
+sudo chmod -R u+rwX,g+rwX /opt/dmarc-control/backups
+
+sudo chown root:10001 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
+sudo chmod 0640 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
+sudo sysctl -w vm.max_map_count=262144
+```
+
+The `config/` directory may stay empty for a new GUI-managed mailbox setup.
+The parser becomes healthy after the administrator has tested and activated a
+mailbox connection in the dashboard. If using a legacy `parsedmarc.ini`, place
+it in `DMARC_DATA_ROOT/config/` before deployment; it must be readable by
+group `10001`.
+
+For private GHCR packages, authenticate the Docker user that performs the
+pull. Dockge needs access to that Docker credential configuration too; mount
+`/root/.docker:/root/.docker:ro` into the Dockge service and recreate Dockge.
 
 Once all three release digests are available, the production Compose file can
 replace its remaining `build:` blocks with these pinned image references.
