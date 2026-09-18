@@ -30,8 +30,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: dashboard/frontend/pnpm-lock.yaml
 
       - name: Test and build frontend
         working-directory: dashboard/frontend
