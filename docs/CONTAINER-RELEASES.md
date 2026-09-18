@@ -74,7 +74,11 @@ persistent data:
 sudo install -d -o 1000 -g 1000 -m 0750 /opt/dmarc-control/data/opensearch
 sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/dashboard
 sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/parser-control
-sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/backups
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/opensearch
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/opensearch/repository
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/manifests
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/control
 sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/config
 sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/dmarc-reports
 
@@ -87,6 +91,12 @@ sudo chown root:10001 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/c
 sudo chmod 0640 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
 sudo sysctl -w vm.max_map_count=262144
 ```
+
+`install -d` creates the directories with their owner, group and mode in a
+single step; `mkdir -p` only creates them. The backup tree uses `2770` so new
+snapshot files inherit group `10001`, which OpenSearch receives as a
+supplementary group. The recursive `chown` and `chmod` lines are also the safe
+repair procedure for a tree that already exists with incorrect ownership.
 
 The `config/` directory may stay empty for a new GUI-managed mailbox setup.
 The parser becomes healthy after the administrator has tested and activated a

@@ -120,7 +120,11 @@ and ownership before selecting **Deploy** in Dockge or calling Compose:
 sudo install -d -o 1000 -g 1000 -m 0750 /opt/dmarc-control/data/opensearch
 sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/dashboard
 sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/parser-control
-sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/backups
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/opensearch
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/opensearch/repository
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/manifests
+sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/control
 sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/config
 sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/dmarc-reports
 
@@ -131,6 +135,14 @@ sudo chmod -R u+rwX,g+rwX /opt/dmarc-control/backups
 sudo chown root:10001 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
 sudo chmod 0640 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
 ```
+
+`install -d` is intentional: unlike `mkdir -p`, it creates each directory with
+the required owner, group and mode. The backup tree uses mode `2770`; the
+leading `2` sets the setgid bit, so new snapshot files retain group `10001`.
+OpenSearch receives that group through the Compose `group_add` setting and can
+therefore write its snapshot repository. The subsequent recursive `chown` and
+`chmod` commands are harmless on a new host and repair an existing tree that
+was previously created with the wrong ownership.
 
 For another directory layout, replace `/opt/dmarc-control` and
 `/opt/stacks/dmarc-control` consistently in both `.env` and these commands.
