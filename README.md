@@ -62,6 +62,46 @@ Microsoft 365 assessment adds context; it is not an allowlist. A confirmed or
 automatically expected provider can calm a fully DMARC-passing new-source
 event, but DMARC failures remain critical.
 
+## Screenshots
+
+All screenshots use anonymised report data and show the standard dark user
+interface.
+
+### Overview
+
+The overview brings report volume, DMARC pass rate, critical sources, the
+current authentication alignment, and trends together in one place.
+
+![DMARC Control overview with pass rate, critical sources, and report trend](docs/assets/screenshots/overview.png)
+
+### Sending Hosts
+
+Technical sending sources can be reviewed, classified, and inspected with
+their authentication result and message volume.
+
+![DMARC Control Sending Hosts inventory](docs/assets/screenshots/sending-hosts.png)
+
+### Alerts
+
+The alert centre groups detectable DMARC events and records their triage state
+and delivery status.
+
+![DMARC Control alert centre](docs/assets/screenshots/alerts.png)
+
+### Forensics
+
+When forensic/RUF processing is explicitly enabled, the forensic view exposes
+minimised failure metadata without displaying message content.
+
+![DMARC Control forensic report summary](docs/assets/screenshots/forensics.png)
+
+### Mailbox connection
+
+The web UI manages a Microsoft 365 or IMAP report mailbox, including a
+connection test before activation.
+
+![DMARC Control managed Microsoft 365 mailbox connection](docs/assets/screenshots/mailbox-connection.png)
+
 ## Release installation: web UI
 
 Use the published, digest-pinned images for a normal Docker Compose deployment.
