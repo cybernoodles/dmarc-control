@@ -1,8 +1,8 @@
 <p align="center">
   <img
-    src="./docs/assets/logo-restart/alternatives/dmarc-control-gate-precision.png"
-    alt="DMARC Control logo"
-    width="240"
+    src="./docs/assets/brand/dmarc-control-dashboard-mark.svg"
+    alt="DMARC Control dashboard mark"
+    width="128"
   >
 </p>
 
