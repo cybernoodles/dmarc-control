@@ -1,7 +1,12 @@
-<h1 align="center">
-  <img src="./docs/assets/brand/dmarc-control-dashboard-mark.svg" alt="" width="40">
-  DMARC Control
-</h1>
+<p align="center">
+  <img
+    src="./docs/assets/brand/dmarc-control-dashboard-mark.svg"
+    alt="DMARC Control dashboard mark"
+    width="128"
+  >
+</p>
+
+<h1 align="center">DMARC Control</h1>
 
 <p align="center">
   <strong>Understand DMARC reports, control sending sources, and act on risk.</strong>
