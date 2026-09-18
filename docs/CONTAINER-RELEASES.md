@@ -106,7 +106,8 @@ mailbox connection in the dashboard. If using a legacy `parsedmarc.ini`, place
 it in `DMARC_DEPLOYMENT_ROOT/config/` before deployment; it must be readable by
 group `10001`.
 
-For private GHCR packages, authenticate the Docker user that performs the pull.
+The published GHCR packages are public; no registry authentication is required
+to pull a release image.
 
 Use the supplied release Compose file for a production deployment. The
 repository's source Compose file intentionally retains its local `build:`

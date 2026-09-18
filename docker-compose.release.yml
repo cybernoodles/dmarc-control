@@ -1,13 +1,7 @@
 ---
 # DMARC Control 2.2.1 – deployment from immutable GHCR release images.
 #
-# Private-image test setup:
-#   printf '%s' "$GHCR_PULL_TOKEN" | docker login ghcr.io -u cybernoodles --password-stdin
-#   docker compose pull
-#   docker compose up -d
-#
-# The token is deliberately NOT stored in .env or this file. Docker retains the
-# registry credential in its configured credential store. Set
+# The release images are public; no registry token is required. Set
 # DMARC_DEPLOYMENT_ROOT in .env before the first deployment, then create the
 # documented directories with their required ownership. Save this file as
 # docker-compose.yml in that directory.

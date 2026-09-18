@@ -141,14 +141,6 @@ was previously created with the wrong ownership.
 
 The `config/` directory may remain empty for a new UI-managed mailbox setup.
 
-### Authenticate private release images
-
-Until the images are made public, authenticate the Docker user that pulls them:
-
-```bash
-printf '%s' "$GHCR_PULL_TOKEN" | docker login ghcr.io -u cybernoodles --password-stdin
-```
-
 ### Start the stack
 
 `dmarc-net` is defined in the release Compose file and Docker creates it on
