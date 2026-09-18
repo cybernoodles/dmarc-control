@@ -3,13 +3,14 @@
 #
 # Private-image test setup:
 #   printf '%s' "$GHCR_PULL_TOKEN" | docker login ghcr.io -u cybernoodles --password-stdin
-#   docker compose -f docker-compose.release.yml pull
-#   docker compose -f docker-compose.release.yml up -d
+#   docker compose pull
+#   docker compose up -d
 #
 # The token is deliberately NOT stored in .env or this file. Docker retains the
-# registry credential in its configured credential store. Set the absolute host
-# paths in .env.release.example before the first deployment, then create the
-# documented directories with their required ownership.
+# registry credential in its configured credential store. Set
+# DMARC_DEPLOYMENT_ROOT in .env before the first deployment, then create the
+# documented directories with their required ownership. Save this file as
+# docker-compose.yml in that directory.
 #
 # Host prerequisite: vm.max_map_count >= 262144 for OpenSearch.
 
@@ -35,8 +36,8 @@ services:
       - plugins.security.disabled=true
       - path.repo=/mnt/snapshots
     volumes:
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/opensearch:/usr/share/opensearch/data
-      - ${DMARC_BACKUP_ROOT:?DMARC_BACKUP_ROOT must be set}/opensearch:/mnt/snapshots
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/data/opensearch:/usr/share/opensearch/data
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/backups/opensearch:/mnt/snapshots
     group_add:
       - "10001"
     ulimits:
@@ -68,8 +69,8 @@ services:
       - NEW_HOST_WINDOW_DAYS=7
       - DOMAIN_DNS_REFRESH_SECONDS=${DOMAIN_DNS_REFRESH_SECONDS:-3600}
     volumes:
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/dashboard:/app/data
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/parser-control:/app/parser-control
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/data/dashboard:/app/data
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/data/parser-control:/app/parser-control
     read_only: true
     tmpfs:
       - /tmp
@@ -100,13 +101,11 @@ services:
       - BACKUP_PARSER_PAUSE_TIMEOUT=${DMARC_BACKUP_PARSER_PAUSE_TIMEOUT:-60}
       - DMARC_CONTROL_RELEASE=2.2.1
     volumes:
-      - ${DMARC_BACKUP_ROOT:?DMARC_BACKUP_ROOT must be set}:/backups
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/dashboard:/dashboard-data
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/parser-control:/run/parser-control
-      # These sources are the actual Dockge/Compose stack files, not copies.
-      - ${DMARC_STACK_CONFIG_ROOT:?DMARC_STACK_CONFIG_ROOT must be set}/.env:/stack-config/.env:ro
-      - ${DMARC_STACK_COMPOSE_FILE:?DMARC_STACK_COMPOSE_FILE must be set}:/stack-config/docker-compose.yml:ro
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/config:/stack-config/config:ro
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/backups:/backups
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/data/dashboard:/dashboard-data
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/data/parser-control:/run/parser-control
+      # The deployment directory contains .env, docker-compose.yml and config/.
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}:/stack-config:ro
     read_only: true
     tmpfs:
       - /tmp
@@ -144,9 +143,9 @@ services:
       - PARSER_OPENSEARCH_SSL=False
       - PARSER_OPENSEARCH_MONTHLY_INDEXES=${PARSER_OPENSEARCH_MONTHLY_INDEXES:-True}
     volumes:
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/config:/legacy:ro
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/dmarc-reports:/input:ro
-      - ${DMARC_DATA_ROOT:?DMARC_DATA_ROOT must be set}/data/parser-control:/run/parser-control:ro
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/config:/legacy:ro
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/dmarc-reports:/input:ro
+      - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/data/parser-control:/run/parser-control:ro
     group_add:
       - "10001"
     security_opt:

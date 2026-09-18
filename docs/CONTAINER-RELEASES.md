@@ -53,42 +53,44 @@ backup:
 The published parser image includes the project's supervisor; it must not be
 replaced with the bare `ghcr.io/domainaware/parsedmarc` image.
 
-## Deploy with Dockge or Docker Compose
+## Deploy with Docker Compose
 
 `docker-compose.release.yml` is the ready-to-paste, digest-pinned production
 reference. It contains no `build:` entries and creates `dmarc-net`
-automatically. Copy its contents into Dockge as `compose.yaml`, copy
-`.env.release.example` into the Dockge environment editor or `.env`, and set
-the four absolute-path values at the top of that file.
+automatically. Save it as `docker-compose.yml` next to `.env` in one chosen
+deployment directory. Set `DMARC_DEPLOYMENT_ROOT` in `.env` to that directory's
+absolute path.
 
-For a standard Docker Compose deployment, keep the Compose file and `.env` in
-any directory, set the same values to the actual absolute locations, and run
-Compose with `-f docker-compose.release.yml`.
+The deployment directory contains `.env`, `docker-compose.yml`, `data/`,
+`backups/`, `config/` and `dmarc-reports/`. It is the sole source for every
+bind mount and for the encrypted configuration copy created by the backup
+service.
 
 Before the first deployment, create the bind-mount paths. Docker creates a
 missing bind-mount source as `root:root`; that prevents the non-root services
-from starting. The following Dockge example separates stack definitions from
-persistent data:
+from starting. Set the following shell variable to the exact same absolute
+path used for `DMARC_DEPLOYMENT_ROOT` in `.env`:
 
 ```bash
-sudo install -d -o 1000 -g 1000 -m 0750 /opt/dmarc-control/data/opensearch
-sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/dashboard
-sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/parser-control
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/opensearch
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/opensearch/repository
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/manifests
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/control
-sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/config
-sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/dmarc-reports
+export DMARC_DEPLOYMENT_ROOT=__REPLACE_WITH_YOUR_ABSOLUTE_DMARCREAD_DIRECTORY__
 
-sudo chown -R 1000:1000 /opt/dmarc-control/data/opensearch
-sudo chown -R 10001:10001 /opt/dmarc-control/data/dashboard /opt/dmarc-control/data/parser-control
-sudo chown -R 10001:10001 /opt/dmarc-control/backups
-sudo chmod -R u+rwX,g+rwX /opt/dmarc-control/backups
+sudo install -d -o 1000 -g 1000 -m 0750 "$DMARC_DEPLOYMENT_ROOT/data/opensearch"
+sudo install -d -o 10001 -g 10001 -m 0770 "$DMARC_DEPLOYMENT_ROOT/data/dashboard"
+sudo install -d -o 10001 -g 10001 -m 0770 "$DMARC_DEPLOYMENT_ROOT/data/parser-control"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups/opensearch"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups/opensearch/repository"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups/manifests"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups/control"
+sudo install -d -o root -g 10001 -m 0750 "$DMARC_DEPLOYMENT_ROOT/config"
+sudo install -d -o root -g 10001 -m 0750 "$DMARC_DEPLOYMENT_ROOT/dmarc-reports"
 
-sudo chown root:10001 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
-sudo chmod 0640 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
+sudo chown -R 1000:1000 "$DMARC_DEPLOYMENT_ROOT/data/opensearch"
+sudo chown -R 10001:10001 "$DMARC_DEPLOYMENT_ROOT/data/dashboard" "$DMARC_DEPLOYMENT_ROOT/data/parser-control" "$DMARC_DEPLOYMENT_ROOT/backups"
+sudo chmod -R u+rwX,g+rwX "$DMARC_DEPLOYMENT_ROOT/backups"
+
+sudo chown root:10001 "$DMARC_DEPLOYMENT_ROOT/.env" "$DMARC_DEPLOYMENT_ROOT/docker-compose.yml"
+sudo chmod 0640 "$DMARC_DEPLOYMENT_ROOT/.env" "$DMARC_DEPLOYMENT_ROOT/docker-compose.yml"
 sudo sysctl -w vm.max_map_count=262144
 ```
 
@@ -101,12 +103,11 @@ repair procedure for a tree that already exists with incorrect ownership.
 The `config/` directory may stay empty for a new GUI-managed mailbox setup.
 The parser becomes healthy after the administrator has tested and activated a
 mailbox connection in the dashboard. If using a legacy `parsedmarc.ini`, place
-it in `DMARC_DATA_ROOT/config/` before deployment; it must be readable by
+it in `DMARC_DEPLOYMENT_ROOT/config/` before deployment; it must be readable by
 group `10001`.
 
-For private GHCR packages, authenticate the Docker user that performs the
-pull. Dockge needs access to that Docker credential configuration too; mount
-`/root/.docker:/root/.docker:ro` into the Dockge service and recreate Dockge.
+For private GHCR packages, authenticate the Docker user that performs the pull.
 
-Once all three release digests are available, the production Compose file can
-replace its remaining `build:` blocks with these pinned image references.
+Use the supplied release Compose file for a production deployment. The
+repository's source Compose file intentionally retains its local `build:`
+definitions for development.

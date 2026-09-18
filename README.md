@@ -64,14 +64,13 @@ event, but DMARC failures remain critical.
 
 ## Release installation: web UI
 
-Use the published, digest-pinned images for a normal deployment. This path
-works with both Dockge and Docker Compose, requires only the release Compose
-file and `.env`, and does not build or clone the repository. Grafana is not
-part of this deployment profile.
+Use the published, digest-pinned images for a normal Docker Compose deployment.
+It requires only the Compose file and `.env`, and does not build or clone the
+repository. Grafana is not part of this deployment profile.
 
 ### Requirements
 
-- A Linux host with Docker Engine and Docker Compose v2, or Dockge
+- A Linux host with Docker Engine and Docker Compose v2
 - Permission to create the bind-mount directories with the required UIDs
 - TCP port `3030` available for the web UI
 - `vm.max_map_count=262144` for OpenSearch
@@ -85,55 +84,51 @@ echo "vm.max_map_count=262144" | sudo tee /etc/sysctl.d/99-opensearch.conf
 
 ### Add the Compose file and environment
 
-For Dockge, create a stack and paste the contents of
-[`docker-compose.release.yml`](docker-compose.release.yml) as `compose.yaml`.
-Paste [`.env.release.example`](.env.release.example) as the stack's `.env` or
-into Dockge's environment editor. For standard Docker Compose, save those two
-files together and use `docker-compose.release.yml` explicitly.
-
-Set the four absolute host paths and replace `OPENSEARCH_ADMIN_PASSWORD` with
-a strong bootstrap password. This Dockge layout keeps definitions and data
-separate:
+Create a deployment directory of your choice. Save the contents of
+[`docker-compose.release.yml`](docker-compose.release.yml) there as
+`docker-compose.yml`, and save [`.env.release.example`](.env.release.example)
+there as `.env`. Set the required absolute directory placeholder and replace
+`OPENSEARCH_ADMIN_PASSWORD` with a strong bootstrap password:
 
 ```dotenv
-DMARC_DATA_ROOT=/opt/dmarc-control
-DMARC_BACKUP_ROOT=/opt/dmarc-control/backups
-DMARC_STACK_CONFIG_ROOT=/opt/stacks/dmarc-control
-DMARC_STACK_COMPOSE_FILE=/opt/stacks/dmarc-control/compose.yaml
+DMARC_DEPLOYMENT_ROOT=__REPLACE_WITH_YOUR_ABSOLUTE_DMARCREAD_DIRECTORY__
 OPENSEARCH_ADMIN_PASSWORD=REPLACE_WITH_A_LONG_RANDOM_PASSWORD
 ```
 
 Do not commit `.env`; it is installation-specific and may contain secrets.
-`DMARC_STACK_CONFIG_ROOT` and `DMARC_STACK_COMPOSE_FILE` must name the actual
-files managed by Dockge (or Docker Compose). The backup service reads these
-files read-only and includes them in the encrypted control backup; do not point
-them at copied placeholder files.
+The deployment directory is the single source of truth. It contains `.env`,
+`docker-compose.yml`, `data/`, `backups/`, `config/` and `dmarc-reports/`.
+The backup service reads the deployment configuration from this directory and
+includes it in the encrypted control backup.
 
 ### Prepare bind mounts before the first deploy
 
 Docker creates a missing bind-mount source directory as `root:root`. That
 prevents OpenSearch (UID `1000`) and the dashboard, parser-control and backup
 services (UID `10001`) from writing their persistent data. Create the paths
-and ownership before selecting **Deploy** in Dockge or calling Compose:
+and ownership before calling Compose. Set the shell variable to the same
+absolute path used in `.env`:
 
 ```bash
-sudo install -d -o 1000 -g 1000 -m 0750 /opt/dmarc-control/data/opensearch
-sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/dashboard
-sudo install -d -o 10001 -g 10001 -m 0770 /opt/dmarc-control/data/parser-control
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/opensearch
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/opensearch/repository
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/manifests
-sudo install -d -o 10001 -g 10001 -m 2770 /opt/dmarc-control/backups/control
-sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/config
-sudo install -d -o root -g 10001 -m 0750 /opt/dmarc-control/dmarc-reports
+export DMARC_DEPLOYMENT_ROOT=__REPLACE_WITH_YOUR_ABSOLUTE_DMARCREAD_DIRECTORY__
 
-sudo chown -R 1000:1000 /opt/dmarc-control/data/opensearch
-sudo chown -R 10001:10001 /opt/dmarc-control/data/dashboard /opt/dmarc-control/data/parser-control /opt/dmarc-control/backups
-sudo chmod -R u+rwX,g+rwX /opt/dmarc-control/backups
+sudo install -d -o 1000 -g 1000 -m 0750 "$DMARC_DEPLOYMENT_ROOT/data/opensearch"
+sudo install -d -o 10001 -g 10001 -m 0770 "$DMARC_DEPLOYMENT_ROOT/data/dashboard"
+sudo install -d -o 10001 -g 10001 -m 0770 "$DMARC_DEPLOYMENT_ROOT/data/parser-control"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups/opensearch"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups/opensearch/repository"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups/manifests"
+sudo install -d -o 10001 -g 10001 -m 2770 "$DMARC_DEPLOYMENT_ROOT/backups/control"
+sudo install -d -o root -g 10001 -m 0750 "$DMARC_DEPLOYMENT_ROOT/config"
+sudo install -d -o root -g 10001 -m 0750 "$DMARC_DEPLOYMENT_ROOT/dmarc-reports"
 
-sudo chown root:10001 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
-sudo chmod 0640 /opt/stacks/dmarc-control/.env /opt/stacks/dmarc-control/compose.yaml
+sudo chown -R 1000:1000 "$DMARC_DEPLOYMENT_ROOT/data/opensearch"
+sudo chown -R 10001:10001 "$DMARC_DEPLOYMENT_ROOT/data/dashboard" "$DMARC_DEPLOYMENT_ROOT/data/parser-control" "$DMARC_DEPLOYMENT_ROOT/backups"
+sudo chmod -R u+rwX,g+rwX "$DMARC_DEPLOYMENT_ROOT/backups"
+
+sudo chown root:10001 "$DMARC_DEPLOYMENT_ROOT/.env" "$DMARC_DEPLOYMENT_ROOT/docker-compose.yml"
+sudo chmod 0640 "$DMARC_DEPLOYMENT_ROOT/.env" "$DMARC_DEPLOYMENT_ROOT/docker-compose.yml"
 ```
 
 `install -d` is intentional: unlike `mkdir -p`, it creates each directory with
@@ -144,8 +139,6 @@ therefore write its snapshot repository. The subsequent recursive `chown` and
 `chmod` commands are harmless on a new host and repair an existing tree that
 was previously created with the wrong ownership.
 
-For another directory layout, replace `/opt/dmarc-control` and
-`/opt/stacks/dmarc-control` consistently in both `.env` and these commands.
 The `config/` directory may remain empty for a new UI-managed mailbox setup.
 
 ### Authenticate private release images
@@ -156,25 +149,18 @@ Until the images are made public, authenticate the Docker user that pulls them:
 printf '%s' "$GHCR_PULL_TOKEN" | docker login ghcr.io -u cybernoodles --password-stdin
 ```
 
-For Dockge, make this credential available inside the Dockge container by
-adding the following read-only mount to Dockge's own Compose file and
-recreating Dockge:
-
-```yaml
-- /root/.docker:/root/.docker:ro
-```
-
 ### Start the stack
 
 `dmarc-net` is defined in the release Compose file and Docker creates it on
 the first deployment. No manual network creation is required.
 
-In Dockge, select **Deploy**. With standard Docker Compose:
+Change into the deployment directory and start the stack:
 
 ```bash
-docker compose -f docker-compose.release.yml pull
-docker compose -f docker-compose.release.yml up -d
-docker compose -f docker-compose.release.yml ps
+cd "$DMARC_DEPLOYMENT_ROOT"
+docker compose pull
+docker compose up -d
+docker compose ps
 ```
 
 Open `http://HOSTNAME_OR_IP:3030`.
@@ -268,7 +254,7 @@ images to GitHub Container Registry. The parser image retains the DMARC Control
 supervisor; it is not interchangeable with the bare upstream parsedmarc image.
 See [Container releases](docs/CONTAINER-RELEASES.md) for the release and
 digest-pinning procedure, including the mandatory bind-mount preparation for
-Dockge and standalone Docker Compose deployments.
+standalone Docker Compose deployments.
 
 ## Optional Grafana
 
@@ -349,7 +335,7 @@ docker compose logs --tail=100 dashboard parsedmarc opensearch
 | Document | Purpose |
 |---|---|
 | [Microsoft 365 mailbox integration](docs/M365.md) | Dedicated mailbox, Graph permissions, and Exchange Application RBAC |
-| [Dashboard and operations](docs/CUSTOM-DASHBOARD.md) | Architecture, APIs, alerting behaviour, and Dockge notes |
+| [Dashboard and operations](docs/CUSTOM-DASHBOARD.md) | Architecture, APIs, alerting behaviour, and deployment notes |
 | [Backup and restore](docs/BACKUP-RESTORE.md) | Data ownership, consistency requirements, and recovery order |
 | [Migration to portable data](docs/MIGRATION-TO-PORTABLE-DATA.md) | Moving older Docker volumes into the current bind-mount layout |
 

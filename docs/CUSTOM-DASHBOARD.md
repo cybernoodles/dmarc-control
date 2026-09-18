@@ -576,32 +576,25 @@ OpenSearch-Abfragen erzeugt. Risikobewertung und Host-Textsuche erfolgen auf
 dem vollständig gelesenen Ergebnis, bevor eine Seite ausgegeben wird. Die API
 akzeptiert keine frei eingebbare Query-DSL.
 
-## Deployment mit Dockge
+## Deployment directory
 
-Dockge legt jeden Stack in einem eigenen Verzeichnis unter seinem
-konfigurierten Stacks-Verzeichnis ab, beispielsweise:
+For a release deployment, keep `docker-compose.yml`, `.env`, `data/`,
+`backups/`, `config/` and `dmarc-reports/` together in the directory specified
+by `DMARC_DEPLOYMENT_ROOT`. The release Compose file uses absolute bind mounts
+from that one location. Prepare every required directory and its ownership
+before the first start as described in [Container releases](CONTAINER-RELEASES.md).
 
-```text
-DOCKGE_STACKS_DIRECTORY/dmarc-control
-```
+For a source deployment, the repository root remains the deployment directory.
+It additionally contains the `dashboard/`, `parser/` and `backup/` build
+contexts.
 
-Die Compose-Datei, `.env`, `dashboard/`, `parser/`, `backup/`, `config/`,
-`data/` und standardmäßig `backups/` müssen gemeinsam in diesem
-Projektverzeichnis liegen. Relative Pfade werden von Compose gegen den
-Speicherort der Compose-Datei aufgelöst. `DMARC_BACKUP_ROOT` kann das
-Backup-Verzeichnis bewusst auf ein getrenntes Dateisystem verlegen.
+When migrating an existing installation, an existing
+`config/parsedmarc.ini` can remain as a legacy fallback. The supervisor starts
+exactly one parsedmarc child from it until a tested and activated GUI revision
+replaces it.
 
-Soll Grafana aktiviert werden, muss die lokale `.env`
-`COMPOSE_PROFILES=grafana` und ein gesetztes `GRAFANA_ADMIN_PASSWORD`
-enthalten. Installationen ohne Grafana lassen beide Werte leer.
-
-Bei der Migration einer bestehenden Installation kann eine vorhandene
-`config/parsedmarc.ini` zunächst als Legacy-Fallback eingebunden bleiben. Der
-Supervisor startet damit genau einen parsedmarc-Kindprozess. Erst eine später
-in der GUI getestete und aktivierte Revision ersetzt diese Konfiguration.
-
-Das Dashboard ist nach dem Start unter `http://HOSTNAME_OR_IP:3030`
-erreichbar. Port `3020` wird nur bei aktiviertem Grafana-Profil veröffentlicht.
+The dashboard is available at `http://HOSTNAME_OR_IP:3030`. Port `3020` is
+only published by the optional Grafana profile in the source Compose file.
 
 ## Lokale Prüfungen
 
