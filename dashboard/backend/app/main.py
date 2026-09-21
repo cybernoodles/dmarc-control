@@ -15,11 +15,13 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .auth import (
+    DUMMY_PASSWORD_HASH,
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
     READ_SESSION_COOKIE,
@@ -53,8 +55,8 @@ from .notifications import (
 )
 from .service import DashboardService
 from .store import StateStore
+from .version import VERSION
 
-VERSION = "2.0.0"
 NOTIFICATION_VAULT_AAD = b"dmarc-control-notifications-v1"
 logger = logging.getLogger(__name__)
 
@@ -378,9 +380,15 @@ def normalized_read_username(username: str) -> tuple[str, str]:
     if not cleaned or any(character.isspace() for character in cleaned):
         raise HTTPException(
             status_code=422,
-            detail="Read username must not contain whitespace",
+            detail="Operator username must not contain whitespace",
         )
     return cleaned, cleaned.casefold()
+
+
+def login_client_ip(request: Request) -> str:
+    # Forwarding headers are client-controlled without an explicit trusted
+    # proxy configuration, so only the peer address participates in limits.
+    return request.client.host if request.client is not None else ""
 
 
 def auth_status_payload(request: Request) -> dict:
@@ -888,7 +896,7 @@ def public_notification_status(current: dict | None = None) -> dict:
 
 def public_evaluation_error(exc: Exception) -> str:
     # OpenSearch/transport exceptions may contain endpoints, credentials or body
-    # fragments. Read users receive only fixed, actionable error categories.
+    # fragments. Operators receive only fixed, actionable error categories.
     if isinstance(exc, OpenSearchError):
         return "Die Reportdaten konnten nicht vollständig ausgewertet werden. Bitte OpenSearch-Verbindung und Daten prüfen."
     if isinstance(exc, (NotificationDeliveryError, ConnectionSecretError, HTTPException)):
@@ -1315,6 +1323,8 @@ async def security_headers(request, call_next):
     if read_login_required:
         response = JSONResponse(
             status_code=401,
+            # Keep the technical legacy string for browser tabs that were
+            # already open before the Operator terminology change.
             content={"detail": "Read login required"},
         )
     else:
@@ -1339,6 +1349,28 @@ async def security_headers(request, call_next):
 @app.exception_handler(OpenSearchError)
 async def opensearch_error_handler(_request, exc: OpenSearchError):
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    _request: Request,
+    exc: RequestValidationError,
+):
+    # FastAPI's default response can echo invalid input (including passwords).
+    # Keep the compatible detail list but retain only public error metadata.
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {
+                    "type": error.get("type", "value_error"),
+                    "loc": list(error.get("loc", ())),
+                    "msg": error.get("msg", "Invalid request"),
+                }
+                for error in exc.errors()
+            ]
+        },
+    )
 
 
 @app.get("/api/health")
@@ -1458,9 +1490,10 @@ async def auth_status(request: Request):
 @app.post("/api/auth/setup", status_code=201)
 async def setup_access(
     update: InitialSetupRequest,
+    request: Request,
     response: Response,
 ):
-    if store.read_configured():
+    if await asyncio.to_thread(store.read_configured):
         raise HTTPException(
             status_code=409,
             detail="Initial setup is already complete",
@@ -1469,30 +1502,54 @@ async def setup_access(
     read_username, read_username_normalized = normalized_read_username(
         update.read_username
     )
-    admin_password_hash = store.admin_password_hash()
+    admin_password_hash = await asyncio.to_thread(store.admin_password_hash)
     if admin_password_hash:
-        if not verify_password(update.admin_password, admin_password_hash):
+        authentication = await asyncio.to_thread(
+            store.authenticate_login,
+            account="admin",
+            client_ip=login_client_ip(request),
+            username_normalized="admin",
+            password=update.admin_password,
+            dummy_password_hash=DUMMY_PASSWORD_HASH,
+            verify=verify_password,
+        )
+        if authentication.status == "throttled":
+            raise HTTPException(
+                status_code=429,
+                detail="Too many login attempts",
+                headers={"Retry-After": str(authentication.retry_after)},
+            )
+        if authentication.status != "authenticated":
             raise HTTPException(
                 status_code=401,
                 detail="Invalid admin password",
             )
         if update.backup_mode == "integrated":
-            ensure_backup_encryption_key()
-        saved = store.set_initial_read_credentials(
+            await asyncio.to_thread(ensure_backup_encryption_key)
+        read_password_hash = await asyncio.to_thread(
+            hash_password, update.read_password,
+        )
+        saved = await asyncio.to_thread(
+            store.set_initial_read_credentials,
             expected_admin_hash=admin_password_hash,
             read_username=read_username,
             read_username_normalized=read_username_normalized,
-            read_password_hash=hash_password(update.read_password),
+            read_password_hash=read_password_hash,
             backup_mode=update.backup_mode,
         )
     else:
         if update.backup_mode == "integrated":
-            ensure_backup_encryption_key()
-        saved = store.set_initial_credentials(
-            admin_password_hash=hash_password(update.admin_password),
+            await asyncio.to_thread(ensure_backup_encryption_key)
+        admin_password_hash, read_password_hash = await asyncio.gather(
+            asyncio.to_thread(hash_password, update.admin_password),
+            asyncio.to_thread(hash_password, update.read_password),
+        )
+        saved = await asyncio.to_thread(
+            store.set_initial_credentials,
+            admin_password_hash=admin_password_hash,
             read_username=read_username,
             read_username_normalized=read_username_normalized,
-            read_password_hash=hash_password(update.read_password),
+            read_password_hash=read_password_hash,
             backup_mode=update.backup_mode,
         )
     if not saved:
@@ -1501,8 +1558,12 @@ async def setup_access(
             detail="Initial setup was completed concurrently",
         )
 
-    set_read_cookie(response, create_read_session(store))
-    set_admin_cookie(response, create_admin_session(store))
+    read_session, admin_session = await asyncio.gather(
+        asyncio.to_thread(create_read_session, store),
+        asyncio.to_thread(create_admin_session, store),
+    )
+    set_read_cookie(response, read_session)
+    set_admin_cookie(response, admin_session)
     return {
         "setup_required": False,
         "backup_setup_required": False,
@@ -1519,22 +1580,34 @@ async def setup_backup_strategy(
     request: Request,
     response: Response,
 ):
-    if not store.setup_complete():
+    if not await asyncio.to_thread(store.setup_complete):
         raise HTTPException(status_code=409, detail="Initial setup required")
-    if store.backup_configured():
+    if await asyncio.to_thread(store.backup_configured):
         raise HTTPException(
             status_code=409,
             detail="Backup strategy is already configured",
         )
-    password_hash = store.admin_password_hash()
-    if not password_hash or not verify_password(
-        update.admin_password,
-        password_hash,
-    ):
+    authentication = await asyncio.to_thread(
+        store.authenticate_login,
+        account="admin",
+        client_ip=login_client_ip(request),
+        username_normalized="admin",
+        password=update.admin_password,
+        dummy_password_hash=DUMMY_PASSWORD_HASH,
+        verify=verify_password,
+    )
+    if authentication.status == "throttled":
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts",
+            headers={"Retry-After": str(authentication.retry_after)},
+        )
+    if authentication.status != "authenticated":
         raise HTTPException(status_code=401, detail="Invalid admin password")
     if update.mode == "integrated":
-        ensure_backup_encryption_key()
-    saved = store.set_backup_settings(
+        await asyncio.to_thread(ensure_backup_encryption_key)
+    saved = await asyncio.to_thread(
+        store.set_backup_settings,
         update.mode,
         only_if_unconfigured=True,
     )
@@ -1543,13 +1616,13 @@ async def setup_backup_strategy(
             status_code=409,
             detail="Backup strategy was configured concurrently",
         )
-    set_admin_cookie(response, create_admin_session(store))
+    set_admin_cookie(response, await asyncio.to_thread(create_admin_session, store))
     return {
         "setup_required": False,
         "backup_setup_required": False,
         "admin_configured": True,
         "read_authenticated": True,
-        "read_username": store.read_username(),
+        "read_username": await asyncio.to_thread(store.read_username),
         "authenticated": True,
     }
 
@@ -1560,25 +1633,45 @@ async def login_read_user(
     request: Request,
     response: Response,
 ):
-    if not store.setup_complete():
-        raise HTTPException(status_code=409, detail="Initial setup required")
     _read_username, read_username_normalized = normalized_read_username(
         update.username
     )
-    password_hash = store.read_password_hash(read_username_normalized)
-    if not password_hash or not verify_password(update.password, password_hash):
+    result = await asyncio.to_thread(
+        store.authenticate_login,
+        account="read",
+        client_ip=login_client_ip(request),
+        username_normalized=read_username_normalized,
+        password=update.password,
+        dummy_password_hash=DUMMY_PASSWORD_HASH,
+        verify=verify_password,
+    )
+    if result.status == "setup_required":
+        raise HTTPException(status_code=409, detail="Initial setup required")
+    if result.status == "throttled":
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts",
+            headers={"Retry-After": str(result.retry_after)},
+        )
+    if result.status != "authenticated":
         raise HTTPException(
             status_code=401,
             detail="Invalid read credentials",
         )
-    set_read_cookie(response, create_read_session(store))
+    read_session = await asyncio.to_thread(create_read_session, store)
+    backup_configured, read_username, admin_authenticated = await asyncio.gather(
+        asyncio.to_thread(store.backup_configured),
+        asyncio.to_thread(store.read_username),
+        asyncio.to_thread(is_admin_authenticated, request),
+    )
+    set_read_cookie(response, read_session)
     return {
         "setup_required": False,
-        "backup_setup_required": not store.backup_configured(),
+        "backup_setup_required": not backup_configured,
         "admin_configured": True,
         "read_authenticated": True,
-        "read_username": store.read_username(),
-        "authenticated": is_admin_authenticated(request),
+        "read_username": read_username,
+        "authenticated": admin_authenticated,
     }
 
 
@@ -1603,19 +1696,42 @@ async def logout_read_user(request: Request, response: Response):
 
 
 @app.post("/api/auth/login")
-async def login_admin(update: PasswordRequest, response: Response):
-    password_hash = store.admin_password_hash()
-    if not password_hash:
+async def login_admin(
+    update: PasswordRequest,
+    request: Request,
+    response: Response,
+):
+    result = await asyncio.to_thread(
+        store.authenticate_login,
+        account="admin",
+        client_ip=login_client_ip(request),
+        username_normalized="admin",
+        password=update.password,
+        dummy_password_hash=DUMMY_PASSWORD_HASH,
+        verify=verify_password,
+    )
+    if result.status == "setup_required":
         raise HTTPException(status_code=409, detail="Admin setup required")
-    if not verify_password(update.password, password_hash):
+    if result.status == "throttled":
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts",
+            headers={"Retry-After": str(result.retry_after)},
+        )
+    if result.status != "authenticated":
         raise HTTPException(status_code=401, detail="Invalid admin password")
-    set_admin_cookie(response, create_admin_session(store))
+    admin_session = await asyncio.to_thread(create_admin_session, store)
+    backup_configured, read_username = await asyncio.gather(
+        asyncio.to_thread(store.backup_configured),
+        asyncio.to_thread(store.read_username),
+    )
+    set_admin_cookie(response, admin_session)
     return {
         "setup_required": False,
-        "backup_setup_required": not store.backup_configured(),
+        "backup_setup_required": not backup_configured,
         "admin_configured": True,
         "read_authenticated": True,
-        "read_username": store.read_username(),
+        "read_username": read_username,
         "authenticated": True,
     }
 
@@ -1635,36 +1751,42 @@ async def change_admin_password(
     request: Request,
     response: Response,
 ):
-    require_admin(request)
-    password_hash = store.admin_password_hash()
-    if not password_hash or not verify_password(
-        update.current_password,
-        password_hash,
+    await asyncio.to_thread(require_admin, request)
+    password_hash = await asyncio.to_thread(store.admin_password_hash)
+    if not password_hash or not await asyncio.to_thread(
+        verify_password, update.current_password, password_hash,
     ):
         raise HTTPException(
             status_code=403,
             detail="Current admin password is invalid",
         )
-    if verify_password(update.new_password, password_hash):
+    if await asyncio.to_thread(verify_password, update.new_password, password_hash):
         raise HTTPException(
             status_code=422,
             detail="New password must be different",
         )
-    if not store.replace_admin_password(
+    replacement_hash = await asyncio.to_thread(hash_password, update.new_password)
+    if not await asyncio.to_thread(
+        store.replace_admin_password,
         expected_hash=password_hash,
-        password_hash=hash_password(update.new_password),
+        password_hash=replacement_hash,
     ):
         raise HTTPException(
             status_code=409,
             detail="Admin password changed concurrently",
         )
-    set_admin_cookie(response, create_admin_session(store))
+    admin_session = await asyncio.to_thread(create_admin_session, store)
+    backup_configured, read_username = await asyncio.gather(
+        asyncio.to_thread(store.backup_configured),
+        asyncio.to_thread(store.read_username),
+    )
+    set_admin_cookie(response, admin_session)
     return {
         "setup_required": False,
-        "backup_setup_required": not store.backup_configured(),
+        "backup_setup_required": not backup_configured,
         "admin_configured": True,
         "read_authenticated": True,
-        "read_username": store.read_username(),
+        "read_username": read_username,
         "authenticated": True,
     }
 
@@ -1675,23 +1797,27 @@ async def update_read_credentials(
     request: Request,
     response: Response,
 ):
-    require_admin(request)
+    await asyncio.to_thread(require_admin, request)
     read_username, read_username_normalized = normalized_read_username(
         update.username
     )
-    if not store.replace_read_credentials(
+    password_hash = await asyncio.to_thread(hash_password, update.password)
+    if not await asyncio.to_thread(
+        store.replace_read_credentials,
         read_username=read_username,
         read_username_normalized=read_username_normalized,
-        password_hash=hash_password(update.password),
+        password_hash=password_hash,
     ):
         raise HTTPException(
             status_code=409,
-            detail="Read user is not configured",
+            detail="Operator is not configured",
         )
-    set_read_cookie(response, create_read_session(store))
+    read_session = await asyncio.to_thread(create_read_session, store)
+    backup_configured = await asyncio.to_thread(store.backup_configured)
+    set_read_cookie(response, read_session)
     return {
         "setup_required": False,
-        "backup_setup_required": not store.backup_configured(),
+        "backup_setup_required": not backup_configured,
         "admin_configured": True,
         "read_authenticated": True,
         "read_username": read_username,

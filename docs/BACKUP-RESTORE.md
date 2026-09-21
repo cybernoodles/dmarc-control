@@ -34,7 +34,7 @@ Administrator -> DMARC Control -> SQLite + connection.key
 | Ebene | Inhalt | Persistenter Pfad | Kritikalität |
 |---|---|---|---|
 | OpenSearch | Aggregate in `dmarc_aggregate-*`, Forensic-/Failure-Daten in `dmarc_failure-*` und optional weitere aktivierte parsedmarc-Indizes | `data/opensearch/` | Primäre historische DMARC-Daten |
-| DMARC Control SQLite | Read- und Admin-Hashes samt Sitzungen, Alertstatus, Hostklassifizierungen und Notizen, globale UI-Einstellungen, Mailboxrevisionen, Benachrichtigungskonfiguration, Zustellhistorie und Parserstatus | `data/dashboard/dashboard.db` | Steuerungs- und Workflowzustand |
+| DMARC Control SQLite | Operator- und Admin-Hashes samt Sitzungen, Alertstatus, Hostklassifizierungen und Notizen, globale UI-Einstellungen, Mailboxrevisionen, Benachrichtigungskonfiguration, Zustellhistorie und Parserstatus | `data/dashboard/dashboard.db` | Steuerungs- und Workflowzustand |
 | Verschlüsselungsschlüssel | AES-GCM-Schlüssel für Mailbox- und Benachrichtigungs-Secrets | `data/dashboard/connection.key` | Muss gemeinsam mit SQLite gesichert werden |
 | Backup-Recovery-Key | Separater AES-256-GCM-Schlüssel für das verschlüsselte Steuerungsbackup | `data/dashboard/backup.key` | Muss getrennt vom Backup-Verzeichnis sicher verwahrt werden |
 | Parser-Steuerung | Gemeinsames Token zwischen Dashboard und Parser-Supervisor | `data/parser-control/control.token` | Betriebsrelevant, aber bei kontrolliertem Neustart regenerierbar |
@@ -51,9 +51,9 @@ Repository und müssen im Backup verschlüsselt sowie zugriffsgeschützt liegen.
 ## Verpflichtende Backup-Strategie im Setup
 
 DMARC Control startet nicht stillschweigend mit einer angenommenen Strategie.
-Bei einer Neuinstallation wird zusammen mit Read- und Admin-Zugang eine der
+Bei einer Neuinstallation wird zusammen mit Operator- und Admin-Zugang eine der
 folgenden Optionen gewählt. Bestehende Installationen werden nach dem nächsten
-Read-Login einmalig zu derselben administrativen Entscheidung geführt:
+Operator-Login einmalig zu derselben administrativen Entscheidung geführt:
 
 | Strategie | Verhalten |
 |---|---|
@@ -78,7 +78,7 @@ einfachste belastbare Konsistenzgrenze.
 
 `dashboard.db` enthält aktuell folgende logische Gruppen:
 
-- **Zugriff und Administration:** Read- und Admin-Passwort-Hashes sowie aktive Sitzungen
+- **Zugriff und Administration:** Operator- und Admin-Passwort-Hashes sowie aktive Sitzungen
 - **Alert-Triage:** offen, bestätigt, behoben oder ignoriert
 - **Sending-Host-Bewertung:** manueller Dienstname, Zuordnungsstatus und Notiz
 - **Globale Darstellung:** serverweiter Standard für das UI-Farbprofil
@@ -96,9 +96,9 @@ keine Ersatzkopie der von parsedmarc importierten Reporthistorie.
 | Vorhandene Daten | Was funktioniert? | Was fehlt oder ist gefährdet? |
 |---|---|---|
 | OpenSearch + SQLite + Schlüssel | Vollständiger Normalbetrieb | Nichts, sofern Versionen und Konfiguration kompatibel sind |
-| Nur OpenSearch | Historische Analysen bleiben grundsätzlich verfügbar; optionales Grafana kann mit provisionierter Konfiguration neu aufgebaut werden | Read-/Admin-Setup, Alertstatus, Klassifizierungen, Mailbox- und Alerting-Konfiguration sowie Versand-Deduplizierung fehlen |
+| Nur OpenSearch | Historische Analysen bleiben grundsätzlich verfügbar; optionales Grafana kann mit provisionierter Konfiguration neu aufgebaut werden | Operator-/Admin-Setup, Alertstatus, Klassifizierungen, Mailbox- und Alerting-Konfiguration sowie Versand-Deduplizierung fehlen |
 | SQLite + Schlüssel, aber kein OpenSearch | Konfiguration und Workflowzustand sind erhalten | Dashboard-Abfragen und optionales Grafana liefern keine historischen Daten; der Stack ist fachlich nicht betriebsbereit |
-| SQLite ohne `connection.key` | Nicht verschlüsselte Zustände wie Read-/Admin-Hashes, Alertstatus und Notizen bleiben lesbar | Mailbox- und Benachrichtigungs-Secrets können nicht entschlüsselt werden; der verwaltete Parser und Graph-/SMTP-Versand können dadurch ausfallen |
+| SQLite ohne `connection.key` | Nicht verschlüsselte Zustände wie Operator-/Admin-Hashes, Alertstatus und Notizen bleiben lesbar | Mailbox- und Benachrichtigungs-Secrets können nicht entschlüsselt werden; der verwaltete Parser und Graph-/SMTP-Versand können dadurch ausfallen |
 | `connection.key` ohne SQLite | Keine nutzbare Anwendungspersistenz | Der Schlüssel allein enthält weder Konfiguration noch Daten |
 | Repository und Konfiguration ohne `data/` | Reproduzierbare Neuinstallation | Keine Historie und kein bisheriger Workflowzustand |
 | OpenSearch + ältere SQLite-Sicherung | Historie ist vorhanden | Neuere Bestätigungen, Klassifizierungen und Versand-Deduplizierungen fehlen; alte Alerts können erneut offen erscheinen oder erneut versendet werden |
@@ -321,7 +321,7 @@ und automatischer Mailversand gesperrt, während das Dashboard geprüft wird:
 
 ```bash
 docker compose up -d dashboard
-# Read-/Admin-Anmeldung, aktive Mailboxrevision, Alerting und Historie prüfen
+# Operator-/Admin-Anmeldung, aktive Mailboxrevision, Alerting und Historie prüfen
 docker compose run --rm --no-deps backup release
 docker compose up -d backup parsedmarc
 ```

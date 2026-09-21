@@ -1,6 +1,7 @@
 name: Publish container images
 
 on:
+  pull_request:
   push:
     tags:
       - "v*"
@@ -14,8 +15,27 @@ on:
 permissions: {}
 
 jobs:
+  validate-release:
+    name: Validate release version
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Validate semantic release tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z][0-9A-Za-z.-]*)?(\+[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "Release version must be a v-prefixed semantic version, for example v2.2.2." >&2
+            exit 1
+          fi
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
   test:
-    name: Test dashboard
+    name: Test and build
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,31 +51,17 @@ jobs:
         with:
           node-version: 22
 
-      - name: Test and build frontend
-        working-directory: dashboard/frontend
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.9.0 --activate
-          pnpm install --frozen-lockfile
-          pnpm test
-          pnpm build
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Test dashboard backend
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --requirement dashboard/backend/requirements.txt
-          PYTHONPATH=dashboard/backend python -m unittest discover \
-            -s dashboard/backend/tests -v
-          python -m unittest discover -s parser/tests -v
+      - name: Run all tests and build the frontend
+        run: ./scripts/test.sh
 
   publish:
     name: Publish ${{ matrix.component.name }}
-    needs: test
+    needs: [test, validate-release]
     # Release Compose files pin the resulting image digests. Images are
     # therefore published from a reviewed release candidate via manual
     # dispatch; the final Git tag is created only after those digests are
@@ -118,6 +124,8 @@ jobs:
         with:
           context: ${{ matrix.component.context }}
           file: ${{ matrix.component.file }}
+          build-args: |
+            DASHBOARD_VERSION=${{ needs.validate-release.outputs.version }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

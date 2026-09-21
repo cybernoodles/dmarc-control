@@ -826,12 +826,29 @@ class BackupController:
                 names = set(tar.getnames())
                 if not REQUIRED_CONTROL_FILES.issubset(names):
                     raise BackupError("Control archive is incomplete")
+                members = {}
                 for name in REQUIRED_CONTROL_FILES | {"dashboard/connection.key"}:
                     if name not in names:
                         continue
                     member = tar.getmember(name)
                     if not member.isfile() or Path(name).is_absolute() or ".." in Path(name).parts:
                         raise BackupError("Control archive contains an unsafe path")
+                    members[name] = member
+                # The dashboard uses WAL mode.  The main database is restored
+                # from a consistent SQLite backup, but WAL and shared-memory
+                # sidecars are local runtime state and are not part of it.  A
+                # stale WAL can otherwise be replayed when SQLite opens the
+                # restored database, exposing writes made after the backup.
+                # Keep those files with the existing restore safety copy so a
+                # manual rollback has the complete pre-restore SQLite state.
+                database = self.config.dashboard_data / "dashboard.db"
+                for sidecar in (
+                    database.with_name(f"{database.name}-wal"),
+                    database.with_name(f"{database.name}-shm"),
+                ):
+                    if sidecar.exists():
+                        shutil.move(sidecar, safety / sidecar.name)
+                for name, member in members.items():
                     source = tar.extractfile(member)
                     if source is None:
                         raise BackupError(f"Cannot extract {name}")

@@ -21,8 +21,12 @@ and the release Compose file refer to the exact, immutable image digests.
 
 1. From the reviewed candidate commit, run **Publish container images** through
    the GitHub Actions UI with the intended version, for example `v2.2.2`.
-   The workflow runs the frontend, backend, and supervisor tests and publishes
-   all three `linux/amd64` and `linux/arm64` images.
+   The workflow validates the `v`-prefixed semantic version, runs the frontend
+   tests and production build plus the backend, supervisor, and backup tests,
+   then publishes all three `linux/amd64` and `linux/arm64` images. The
+   validated version (without the `v` prefix) is embedded in the dashboard
+   image: `/api/health` and the OpenAPI metadata report that exact release
+   value. Source builds that do not receive build metadata report `dev`.
 2. Resolve the three resulting digests and pin them, together with the version,
    in `docker-compose.release.yml` and `.env.release.example`. Commit that
    release metadata. No Docker build context may change between the candidate

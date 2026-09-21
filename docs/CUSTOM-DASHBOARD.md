@@ -81,29 +81,29 @@ Abhängigkeitsmatrix steht in
 Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
 sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
 Abweichung. Beim ersten Aufruf blockiert ein Setup-Screen das Dashboard, bis
-ein Read-Benutzer mit Passwort und ein separates Admin-Passwort festgelegt
+ein Operator-Benutzer mit Passwort und ein separates Admin-Passwort festgelegt
 und eine Backup-Strategie gewählt wurden. Beide Passwörter müssen mindestens
 zwölf Zeichen enthalten; nur ihre gesalzenen Hashes werden in `dashboard.db`
 gespeichert. Bestehende Installationen mit bereits vollständigen Zugängen
-werden nach dem Read-Login einmalig separat zur Backup-Strategie geführt.
+werden nach dem Operator-Login einmalig separat zur Backup-Strategie geführt.
 
-Eine gültige Read-Sitzung ist für das gesamte Dashboard und alle normalen
+Eine gültige Operator-Sitzung ist für das gesamte Dashboard und alle normalen
 API-Endpunkte erforderlich. Ausgenommen sind Healthcheck, die öffentlich
-erreichbaren Read-Auth-Endpunkte und die separat per Control-Token abgesicherte
-Parser-API. Die Read-Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden
-Gültigkeit gehalten. Ein Read-Logout beendet zusätzlich eine im selben Browser
+erreichbaren Operator-Auth-Endpunkte und die separat per Control-Token abgesicherte
+Parser-API. Die Operator-Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden
+Gültigkeit gehalten. Ein Operator-Logout beendet zusätzlich eine im selben Browser
 aktive Admin-Sitzung.
 
 Eine Admin-Anmeldung ist für globale Einstellungen und die
 Mailbox- und Benachrichtigungsverwaltung erforderlich. Sie verwendet eine
 unabhängige, ebenfalls zwölf Stunden gültige Sitzung. Das Admin-Passwort und
-der Read-Zugang können unter **Einstellungen → Administration** geändert
+der Operator-Zugang können unter **Einstellungen → Administration** geändert
 werden. Eine Änderung beendet jeweils die anderen Sitzungen des betroffenen
 Zugangstyps; der ändernde Browser erhält direkt eine neue Sitzung.
 
-Beim Upgrade einer bestehenden Installation ohne Read-Zugang wird das Setup
+Beim Upgrade einer bestehenden Installation ohne Operator-Zugang wird das Setup
 erneut als unvollständig markiert. Das vorhandene Admin-Passwort muss bestätigt
-werden, bevor der Read-Benutzer ergänzt wird. Das Admin-Passwort selbst bleibt
+werden, bevor der Operator-Benutzer ergänzt wird. Das Admin-Passwort selbst bleibt
 dabei unverändert.
 
 ## Ereignisse und Datenfrische
@@ -337,7 +337,7 @@ feste Kategorien ohne Endpunkte, Zugangsdaten oder rohe Serverantworten.
 `evaluation_runs` speichert die letzten 20 Läufe, zusätzlich gegebenenfalls
 einen älteren letzten Erfolg und noch laufende Prüfungen. Unterschiedliche
 Lauf-IDs verhindern, dass verspätete Abschlüsse neuere Ergebnisse ersetzen.
-`GET /api/alerts/evaluation/status` ist für angemeldete Leser verfügbar;
+`GET /api/alerts/evaluation/status` ist für angemeldete Operatoren verfügbar;
 die gespeicherte Auswahl der auslösenden E-Mail-Fälle bleibt intern.
 Die Oberfläche aktualisiert den Status alle 30 Sekunden, solange die Seite
 sichtbar ist, und kennzeichnet fehlgeschlagene Aktualisierungen.
@@ -534,14 +534,14 @@ nicht abgeschwächt oder verworfen.
 | Endpunkt | Zweck |
 |---|---|
 | `GET /api/health` | Container- und OpenSearch-Status |
-| `GET /api/auth/status` | Ersteinrichtung, Read- und Admin-Sitzung prüfen |
-| `POST /api/auth/setup` | Read-Zugang und Admin-Passwort initial festlegen beziehungsweise Read-Zugang sicher nachrüsten |
-| `POST /api/auth/read-login` | Read-Sitzung starten |
-| `POST /api/auth/read-logout` | Read- und zugehörige Admin-Sitzung beenden |
+| `GET /api/auth/status` | Ersteinrichtung, Operator- und Admin-Sitzung prüfen |
+| `POST /api/auth/setup` | Operator-Zugang und Admin-Passwort initial festlegen beziehungsweise Operator-Zugang sicher nachrüsten |
+| `POST /api/auth/read-login` | Operator-Sitzung starten (technischer Legacy-Pfad) |
+| `POST /api/auth/read-logout` | Operator- und zugehörige Admin-Sitzung beenden (technischer Legacy-Pfad) |
 | `POST /api/auth/login` | Admin-Sitzung starten |
 | `POST /api/auth/logout` | Admin-Sitzung beenden |
 | `POST /api/auth/change-password` | Admin-Passwort ändern |
-| `PUT /api/auth/read-credentials` | Read-Benutzername und -Passwort als Admin ändern |
+| `PUT /api/auth/read-credentials` | Operator-Benutzername und -Passwort als Admin ändern (technischer Legacy-Pfad) |
 | `GET /api/settings/appearance` | globalen UI-Farbstandard lesen |
 | `PUT /api/settings/appearance` | globalen UI-Farbstandard als Admin ändern |
 | `GET /api/settings/domains` | gespeicherte Domainüberwachung einschließlich Fristen als Admin lesen |
@@ -549,7 +549,7 @@ nicht abgeschwächt oder verworfen.
 | `PATCH /api/settings/domains` | Status und/oder Wartefrist einer Domain als Admin ändern; `grace_days: null` übernimmt den globalen Standard |
 | `PUT /api/settings/domains/{domain}/services/{service_id}` | automatische, bestätigte oder abgelehnte Dienstentscheidung als Admin speichern |
 | `POST /api/settings/domains/{domain}/services/{service_id}/refresh` | DNS-Belege für einen bekannten Versanddienst als Admin neu bewerten |
-| `GET /api/settings/notifications/status` | Read-sicheren Konfigurations- und Aktivstatus des E-Mail-Alertings lesen |
+| `GET /api/settings/notifications/status` | Operator-sicheren Konfigurations- und Aktivstatus des E-Mail-Alertings lesen |
 | `GET /api/settings/mailbox` | Entwurf, aktive Revision und Parserstatus lesen |
 | `PUT /api/settings/mailbox` | neuen Verbindungsentwurf als Admin speichern |
 | `POST /api/settings/mailbox/test` | gespeicherten Entwurf streng lesend prüfen |
@@ -598,25 +598,13 @@ only published by the optional Grafana profile in the source Compose file.
 
 ## Lokale Prüfungen
 
-Frontend:
+Für die vollständige, kanonische Prüfung aus einem sauberen Checkout:
 
 ```bash
-cd dashboard/frontend
-pnpm install
-pnpm build
+./scripts/test.sh
 ```
 
-Backend:
-
-```bash
-PYTHONPATH=dashboard/backend python -m unittest discover \
-  -s dashboard/backend/tests -v
-```
-
-Gesamtes Image:
-
-```bash
-docker build -t parsedmarc-dashboard:local dashboard
-docker build -t parsedmarc-managed:local parser
-python -m unittest discover -s parser/tests -v
-```
+Der Befehl installiert die fixierten Frontend-Abhängigkeiten und führt
+Frontend-Tests und -Build sowie die Test-Suites für Dashboard-Backend,
+Parser/Supervisor und Backup aus. Einzelne Teilchecks sind nur für die lokale
+Fehlersuche gedacht und ersetzen diese Gesamtprüfung nicht.

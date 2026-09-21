@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi import Response
 from fastapi.testclient import TestClient
 
 from app import main
@@ -23,6 +25,92 @@ class PasswordHashTests(unittest.TestCase):
         self.assertNotIn("correct horse battery", first)
         self.assertTrue(verify_password("correct horse battery", first))
         self.assertFalse(verify_password("wrong password", first))
+
+
+class CredentialMaintenanceAsyncTests(unittest.TestCase):
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.store = StateStore(Path(directory.name) / "dashboard.db")
+        self.assertTrue(self.store.set_initial_credentials(
+            admin_password_hash=hash_password("initial-admin-password"),
+            read_username="operator",
+            read_username_normalized="operator",
+            read_password_hash=hash_password("initial-operator-password"),
+            backup_mode="external",
+        ))
+
+    def test_change_admin_password_offloads_store_hashing_and_session_work(self) -> None:
+        original_to_thread = asyncio.to_thread
+        calls = []
+
+        async def recording_to_thread(function, /, *args, **kwargs):
+            calls.append(function)
+            return await original_to_thread(function, *args, **kwargs)
+
+        with (
+            patch.object(main, "store", self.store),
+            patch.object(main, "require_admin") as require_admin,
+            patch.object(main.asyncio, "to_thread", side_effect=recording_to_thread),
+        ):
+            response = Response()
+            result = asyncio.run(main.change_admin_password(
+                main.PasswordChangeRequest(
+                    current_password="initial-admin-password",
+                    new_password="replacement-admin-password",
+                ),
+                None,
+                response,
+            ))
+
+        self.assertTrue(verify_password(
+            "replacement-admin-password", self.store.admin_password_hash() or "",
+        ))
+        self.assertIn(require_admin, calls)
+        self.assertIn(self.store.admin_password_hash, calls)
+        self.assertIn(main.verify_password, calls)
+        self.assertIn(main.hash_password, calls)
+        self.assertIn(self.store.replace_admin_password, calls)
+        self.assertIn(main.create_admin_session, calls)
+        self.assertIn(self.store.backup_configured, calls)
+        self.assertIn(self.store.read_username, calls)
+        self.assertTrue(result["authenticated"])
+        self.assertIn(main.SESSION_COOKIE, response.headers["set-cookie"])
+
+    def test_update_read_credentials_offloads_store_hashing_and_session_work(self) -> None:
+        original_to_thread = asyncio.to_thread
+        calls = []
+
+        async def recording_to_thread(function, /, *args, **kwargs):
+            calls.append(function)
+            return await original_to_thread(function, *args, **kwargs)
+
+        with (
+            patch.object(main, "store", self.store),
+            patch.object(main, "require_admin") as require_admin,
+            patch.object(main.asyncio, "to_thread", side_effect=recording_to_thread),
+        ):
+            response = Response()
+            result = asyncio.run(main.update_read_credentials(
+                main.ReadCredentialsUpdate(
+                    username="replacement-operator",
+                    password="replacement-read-password",
+                ),
+                None,
+                response,
+            ))
+
+        self.assertTrue(verify_password(
+            "replacement-read-password",
+            self.store.read_password_hash("replacement-operator") or "",
+        ))
+        self.assertIn(require_admin, calls)
+        self.assertIn(main.hash_password, calls)
+        self.assertIn(self.store.replace_read_credentials, calls)
+        self.assertIn(main.create_read_session, calls)
+        self.assertIn(self.store.backup_configured, calls)
+        self.assertEqual(result["read_username"], "replacement-operator")
+        self.assertIn(main.READ_SESSION_COOKIE, response.headers["set-cookie"])
 
 
 class AdminSettingsApiTests(unittest.TestCase):

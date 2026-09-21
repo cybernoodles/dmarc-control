@@ -201,13 +201,17 @@ Open `http://HOSTNAME_OR_IP:3030`.
 
 The first browser visit opens the setup screen. Create:
 
-- a read username and password for normal dashboard access;
+- an operator username and password for normal dashboard access and alert/host triage;
 - a separate administrator password for protected settings.
 
 Both passwords must contain at least 12 characters. The dashboard is available
 after setup, but report ingestion remains idle until a mailbox connection has
 been tested and activated. On a clean installation, `docker compose ps` may
 show `parsedmarc` as unhealthy until that activation; this is expected.
+
+The visible role is **Operator**. For backwards compatibility, the underlying
+API paths, cookies, configuration keys, and stored role values retain their
+legacy `read` names.
 
 ## Build from source
 
@@ -281,12 +285,27 @@ docker compose logs -f parsedmarc
 
 ## Container releases
 
-Version tags publish the dashboard and parser/supervisor as multi-architecture
-images to GitHub Container Registry. The parser image retains the DMARC Control
-supervisor; it is not interchangeable with the bare upstream parsedmarc image.
+Releases are published only by manually starting the `workflow_dispatch`
+workflow. It publishes all three multi-architecture runtime images—dashboard,
+parser/supervisor, and backup—to GitHub Container Registry. The parser image
+retains the DMARC Control supervisor; it is not interchangeable with the bare
+upstream parsedmarc image.
 See [Container releases](docs/CONTAINER-RELEASES.md) for the release and
 digest-pinning procedure, including the mandatory bind-mount preparation for
 standalone Docker Compose deployments.
+
+## Tests and frontend build
+
+From a clean checkout, run the canonical verification command:
+
+```bash
+./scripts/test.sh
+```
+
+It installs the pinned dashboard dependencies, runs the frontend tests and
+production build, then runs the dashboard backend, parser/supervisor, and
+backup test suites. Pull requests run the same checks; publishing remains a
+manual release action only.
 
 ## Optional Grafana
 
