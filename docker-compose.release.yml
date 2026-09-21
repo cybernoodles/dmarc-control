@@ -1,5 +1,5 @@
 ---
-# DMARC Control 2.2.2 – deployment from immutable GHCR release images.
+# DMARC Control 2.3.0 – deployment from immutable GHCR release images.
 #
 # The release images are public; no registry token is required. Set
 # DMARC_DEPLOYMENT_ROOT in .env before the first deployment, then create the
@@ -47,7 +47,7 @@ services:
       - dmarc-net
 
   dashboard:
-    image: ghcr.io/cybernoodles/dmarc-control-dashboard:2.2.2@sha256:7d3814505747bc31c831c357de24bc321e650934ce32aa232af4b25908f86b81
+    image: ghcr.io/cybernoodles/dmarc-control-dashboard:2.3.0@sha256:fb64f668cdc116e1facac6c9dde3f2d917bd1fd7f8d8baed1a7f65afdd258630
     container_name: dmarc-dashboard
     restart: unless-stopped
     ports:
@@ -79,7 +79,7 @@ services:
       - dmarc-net
 
   backup:
-    image: ghcr.io/cybernoodles/dmarc-control-backup:2.2.2@sha256:e2ed857b2986d30a4c0553875da1bf18ab0fdc3dcbea7022f0853a1b2fdfe164
+    image: ghcr.io/cybernoodles/dmarc-control-backup:2.3.0@sha256:744dcc4253134bbee6d16a11f3c50cabec03a6d827b4cca6ac68acf90ab0c709
     container_name: dmarc-backup
     restart: unless-stopped
     environment:
@@ -93,7 +93,7 @@ services:
       - BACKUP_RETENTION_DAYS=${DMARC_BACKUP_RETENTION_DAYS:-30}
       - BACKUP_POLL_SECONDS=${DMARC_BACKUP_POLL_SECONDS:-30}
       - BACKUP_PARSER_PAUSE_TIMEOUT=${DMARC_BACKUP_PARSER_PAUSE_TIMEOUT:-60}
-      - DMARC_CONTROL_RELEASE=2.2.2
+      - DMARC_CONTROL_RELEASE=2.3.0
     volumes:
       - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/backups:/backups
       - ${DMARC_DEPLOYMENT_ROOT:?DMARC_DEPLOYMENT_ROOT must be set}/data/dashboard:/dashboard-data
@@ -122,7 +122,7 @@ services:
       - dmarc-net
 
   parsedmarc:
-    image: ghcr.io/cybernoodles/dmarc-control-parser:2.2.2@sha256:a5259a630057595bddc643e51f74cb956d7585112913f514fdfe4d01bcd2089b
+    image: ghcr.io/cybernoodles/dmarc-control-parser:2.3.0@sha256:03a227f35e54a8f774eaaa9aa2c04c4f8b9d8a403d7b5b751dfa5123fa7134aa
     container_name: dmarc-parser
     restart: unless-stopped
     environment:
