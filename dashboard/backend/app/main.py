@@ -15,11 +15,13 @@ from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .auth import (
+    DUMMY_PASSWORD_HASH,
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
     READ_SESSION_COOKIE,
@@ -381,6 +383,12 @@ def normalized_read_username(username: str) -> tuple[str, str]:
             detail="Read username must not contain whitespace",
         )
     return cleaned, cleaned.casefold()
+
+
+def login_client_ip(request: Request) -> str:
+    # Forwarding headers are client-controlled without an explicit trusted
+    # proxy configuration, so only the peer address participates in limits.
+    return request.client.host if request.client is not None else ""
 
 
 def auth_status_payload(request: Request) -> dict:
@@ -1341,6 +1349,28 @@ async def opensearch_error_handler(_request, exc: OpenSearchError):
     return JSONResponse(status_code=503, content={"detail": str(exc)})
 
 
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(
+    _request: Request,
+    exc: RequestValidationError,
+):
+    # FastAPI's default response can echo invalid input (including passwords).
+    # Keep the compatible detail list but retain only public error metadata.
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {
+                    "type": error.get("type", "value_error"),
+                    "loc": list(error.get("loc", ())),
+                    "msg": error.get("msg", "Invalid request"),
+                }
+                for error in exc.errors()
+            ]
+        },
+    )
+
+
 @app.get("/api/health")
 async def health():
     parser_control_ready = bool(configured_parser_control_token())
@@ -1560,25 +1590,45 @@ async def login_read_user(
     request: Request,
     response: Response,
 ):
-    if not store.setup_complete():
-        raise HTTPException(status_code=409, detail="Initial setup required")
     _read_username, read_username_normalized = normalized_read_username(
         update.username
     )
-    password_hash = store.read_password_hash(read_username_normalized)
-    if not password_hash or not verify_password(update.password, password_hash):
+    result = await asyncio.to_thread(
+        store.authenticate_login,
+        account="read",
+        client_ip=login_client_ip(request),
+        username_normalized=read_username_normalized,
+        password=update.password,
+        dummy_password_hash=DUMMY_PASSWORD_HASH,
+        verify=verify_password,
+    )
+    if result.status == "setup_required":
+        raise HTTPException(status_code=409, detail="Initial setup required")
+    if result.status == "throttled":
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts",
+            headers={"Retry-After": str(result.retry_after)},
+        )
+    if result.status != "authenticated":
         raise HTTPException(
             status_code=401,
             detail="Invalid read credentials",
         )
-    set_read_cookie(response, create_read_session(store))
+    read_session = await asyncio.to_thread(create_read_session, store)
+    backup_configured, read_username, admin_authenticated = await asyncio.gather(
+        asyncio.to_thread(store.backup_configured),
+        asyncio.to_thread(store.read_username),
+        asyncio.to_thread(is_admin_authenticated, request),
+    )
+    set_read_cookie(response, read_session)
     return {
         "setup_required": False,
-        "backup_setup_required": not store.backup_configured(),
+        "backup_setup_required": not backup_configured,
         "admin_configured": True,
         "read_authenticated": True,
-        "read_username": store.read_username(),
-        "authenticated": is_admin_authenticated(request),
+        "read_username": read_username,
+        "authenticated": admin_authenticated,
     }
 
 
@@ -1602,20 +1652,44 @@ async def logout_read_user(request: Request, response: Response):
     }
 
 
+@app.post("/api/auth/admin-login")
 @app.post("/api/auth/login")
-async def login_admin(update: PasswordRequest, response: Response):
-    password_hash = store.admin_password_hash()
-    if not password_hash:
+async def login_admin(
+    update: PasswordRequest,
+    request: Request,
+    response: Response,
+):
+    result = await asyncio.to_thread(
+        store.authenticate_login,
+        account="admin",
+        client_ip=login_client_ip(request),
+        username_normalized="admin",
+        password=update.password,
+        dummy_password_hash=DUMMY_PASSWORD_HASH,
+        verify=verify_password,
+    )
+    if result.status == "setup_required":
         raise HTTPException(status_code=409, detail="Admin setup required")
-    if not verify_password(update.password, password_hash):
+    if result.status == "throttled":
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts",
+            headers={"Retry-After": str(result.retry_after)},
+        )
+    if result.status != "authenticated":
         raise HTTPException(status_code=401, detail="Invalid admin password")
-    set_admin_cookie(response, create_admin_session(store))
+    admin_session = await asyncio.to_thread(create_admin_session, store)
+    backup_configured, read_username = await asyncio.gather(
+        asyncio.to_thread(store.backup_configured),
+        asyncio.to_thread(store.read_username),
+    )
+    set_admin_cookie(response, admin_session)
     return {
         "setup_required": False,
-        "backup_setup_required": not store.backup_configured(),
+        "backup_setup_required": not backup_configured,
         "admin_configured": True,
         "read_authenticated": True,
-        "read_username": store.read_username(),
+        "read_username": read_username,
         "authenticated": True,
     }
 

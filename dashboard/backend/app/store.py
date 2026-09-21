@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import threading
+from contextlib import closing
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Literal
 
 from .recipient_deliveries import RecipientDeliveryStore
 from .evaluation_runs import EvaluationRunStore
@@ -14,6 +17,14 @@ from .domain_services import DomainServiceStore
 
 DEFAULT_BRAND_COLOR = "#173f43"
 BACKUP_MODES = {"integrated", "external", "none"}
+LOGIN_THROTTLE_RETENTION = timedelta(hours=24)
+LOGIN_THROTTLE_MAX_SECONDS = 60
+
+
+@dataclass(frozen=True)
+class LoginAuthenticationResult:
+    status: Literal["authenticated", "failed", "throttled", "setup_required"]
+    retry_after: int | None = None
 
 
 class StateStore(
@@ -31,10 +42,12 @@ class StateStore(
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path, timeout=10)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 10000")
         return connection
 
     def _initialize(self) -> None:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
+            connection.execute("PRAGMA journal_mode=WAL")
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS alert_state (
@@ -151,6 +164,19 @@ class StateStore(
                     session_hash TEXT PRIMARY KEY,
                     expires_at TEXT NOT NULL,
                     created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS login_throttles (
+                    scope TEXT NOT NULL CHECK (scope IN ('ip', 'username')),
+                    client_ip TEXT NOT NULL,
+                    username_normalized TEXT NOT NULL,
+                    failure_count INTEGER NOT NULL,
+                    locked_until TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (scope, client_ip, username_normalized)
                 )
                 """
             )
@@ -298,6 +324,201 @@ class StateStore(
                 """
             ).fetchone()
         return row["password_hash"] if row else None
+
+    def authenticate_login(
+        self,
+        *,
+        account: Literal["admin", "read"],
+        client_ip: str,
+        username_normalized: str,
+        password: str,
+        dummy_password_hash: str,
+        verify: Callable[[str, str], bool],
+        now: datetime | None = None,
+    ) -> LoginAuthenticationResult:
+        """Perform one complete, serialized authentication attempt.
+
+        The immediate transaction makes the lock check and the failed-attempt
+        update atomic across processes.  This method is intentionally
+        synchronous: callers run the whole operation in a worker thread.
+        """
+        timestamp = now or datetime.now(UTC)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        timestamp = timestamp.astimezone(UTC)
+        timestamp_text = timestamp.isoformat()
+        username_key = username_normalized if account == "read" else "admin"
+        throttle_keys = (
+            ("ip", client_ip, ""),
+            ("username", client_ip, username_key),
+        )
+
+        with self._lock:
+            connection = self._connect()
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "DELETE FROM login_throttles WHERE updated_at <= ?",
+                    ((timestamp - LOGIN_THROTTLE_RETENTION).isoformat(),),
+                )
+
+                if account == "admin":
+                    configured = connection.execute(
+                        "SELECT password_hash FROM admin_credentials "
+                        "WHERE credential_id = 1"
+                    ).fetchone()
+                else:
+                    configured = connection.execute(
+                        "SELECT 1 FROM admin_credentials WHERE credential_id = 1"
+                    ).fetchone()
+                    read_configured = connection.execute(
+                        "SELECT 1 FROM read_credentials WHERE credential_id = 1"
+                    ).fetchone()
+                    if not configured or not read_configured:
+                        connection.commit()
+                        return LoginAuthenticationResult("setup_required")
+
+                if not configured:
+                    connection.commit()
+                    return LoginAuthenticationResult("setup_required")
+
+                retry_after = self._login_retry_after(
+                    connection, throttle_keys, timestamp,
+                )
+                if retry_after is not None:
+                    connection.commit()
+                    return LoginAuthenticationResult("throttled", retry_after)
+
+                if account == "admin":
+                    password_hash = configured["password_hash"]
+                    known_user = True
+                else:
+                    credential = connection.execute(
+                        """
+                        SELECT password_hash FROM read_credentials
+                        WHERE credential_id = 1 AND username_normalized = ?
+                        """,
+                        (username_normalized,),
+                    ).fetchone()
+                    known_user = credential is not None
+                    password_hash = (
+                        credential["password_hash"]
+                        if credential is not None
+                        else dummy_password_hash
+                    )
+
+                # Always perform exactly one scrypt verification, including for
+                # an unknown username, using the stable process-local dummy.
+                password_valid = verify(password, password_hash)
+                authenticated = known_user and password_valid
+
+                if authenticated:
+                    for scope, ip, username in throttle_keys:
+                        connection.execute(
+                            """
+                            DELETE FROM login_throttles
+                            WHERE scope = ? AND client_ip = ?
+                              AND username_normalized = ?
+                            """,
+                            (scope, ip, username),
+                        )
+                    connection.commit()
+                    return LoginAuthenticationResult("authenticated")
+
+                for scope, ip, username in throttle_keys:
+                    failure_count = self._record_login_failure(
+                        connection,
+                        scope=scope,
+                        client_ip=ip,
+                        username_normalized=username,
+                        timestamp_text=timestamp_text,
+                    )
+                    if failure_count >= 5:
+                        lock_seconds = min(
+                            2 ** (failure_count - 5),
+                            LOGIN_THROTTLE_MAX_SECONDS,
+                        )
+                        connection.execute(
+                            """
+                            UPDATE login_throttles SET locked_until = ?
+                            WHERE scope = ? AND client_ip = ?
+                              AND username_normalized = ?
+                            """,
+                            (
+                                (timestamp + timedelta(seconds=lock_seconds)).isoformat(),
+                                scope,
+                                ip,
+                                username,
+                            ),
+                        )
+                connection.commit()
+                return LoginAuthenticationResult("failed")
+            except Exception:
+                if connection.in_transaction:
+                    connection.rollback()
+                raise
+            finally:
+                connection.close()
+
+    @staticmethod
+    def _login_retry_after(
+        connection: sqlite3.Connection,
+        throttle_keys: tuple[tuple[str, str, str], ...],
+        timestamp: datetime,
+    ) -> int | None:
+        retry_after: int | None = None
+        for scope, client_ip, username_normalized in throttle_keys:
+            row = connection.execute(
+                """
+                SELECT locked_until FROM login_throttles
+                WHERE scope = ? AND client_ip = ? AND username_normalized = ?
+                """,
+                (scope, client_ip, username_normalized),
+            ).fetchone()
+            if not row or not row["locked_until"]:
+                continue
+            try:
+                locked_until = datetime.fromisoformat(row["locked_until"])
+            except ValueError:
+                continue
+            if locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=UTC)
+            remaining = (locked_until - timestamp).total_seconds()
+            if remaining > 0:
+                rounded = max(1, math.ceil(remaining))
+                retry_after = max(retry_after or 0, rounded)
+        return retry_after
+
+    @staticmethod
+    def _record_login_failure(
+        connection: sqlite3.Connection,
+        *,
+        scope: str,
+        client_ip: str,
+        username_normalized: str,
+        timestamp_text: str,
+    ) -> int:
+        connection.execute(
+            """
+            INSERT INTO login_throttles (
+                scope, client_ip, username_normalized, failure_count,
+                locked_until, updated_at
+            ) VALUES (?, ?, ?, 1, NULL, ?)
+            ON CONFLICT(scope, client_ip, username_normalized) DO UPDATE SET
+                failure_count = login_throttles.failure_count + 1,
+                locked_until = NULL,
+                updated_at = excluded.updated_at
+            """,
+            (scope, client_ip, username_normalized, timestamp_text),
+        )
+        row = connection.execute(
+            """
+            SELECT failure_count FROM login_throttles
+            WHERE scope = ? AND client_ip = ? AND username_normalized = ?
+            """,
+            (scope, client_ip, username_normalized),
+        ).fetchone()
+        return int(row["failure_count"])
 
     def set_initial_admin_password(self, password_hash: str) -> bool:
         timestamp = datetime.now(UTC).isoformat()

@@ -39,6 +39,11 @@ def hash_password(password: str) -> str:
     )
 
 
+# Created once per process so an unknown read user takes the same expensive
+# scrypt verification path as a configured user without request-time hashing.
+DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(32))
+
+
 def verify_password(password: str, encoded: str) -> bool:
     try:
         algorithm, n, r, p, encoded_salt, encoded_digest = encoded.split("$")
