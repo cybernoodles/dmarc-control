@@ -87,41 +87,15 @@ ADMIN_REQUESTS = (
     ("get", "/api/alerts/example-alert/delivery", None),
 )
 
-PUBLIC_AUTH_PATHS = {
-    "/api/auth/status",
-    "/api/auth/setup",
-    "/api/settings/backup/setup",
-    "/api/auth/read-login",
-    "/api/auth/read-logout",
-    "/api/auth/login",
-    "/api/auth/logout",
-    "/api/health",
-}
-
-PROTECTED_ROUTE_PATHS = {
-    "/api/domains",
-    "/api/settings/domains",
-    "/api/settings/domains/{domain}/services/{service_id}",
-    "/api/settings/domains/{domain}/services/{service_id}/refresh",
-    "/api/auth/change-password",
-    "/api/auth/read-credentials",
-    "/api/settings/appearance",
-    "/api/settings/backup",
-    "/api/settings/mailbox",
-    "/api/settings/mailbox/test",
-    "/api/settings/mailbox/activate",
-    "/api/settings/notifications/status",
-    "/api/settings/notifications",
-    "/api/settings/notifications/test",
-    "/api/overview",
-    "/api/hosts",
-    "/api/hosts/{source_ip}",
-    "/api/hosts/{source_ip}/classification",
-    "/api/alerts/evaluation/status",
-    "/api/alerts",
-    "/api/alerts/{alert_id}",
-    "/api/alerts/{alert_id}/delivery",
-    "/api/forensics",
+AUTH_REQUESTS = {
+    ("get", "/api/auth/status"),
+    ("post", "/api/auth/setup"),
+    ("post", "/api/settings/backup/setup"),
+    ("post", "/api/auth/read-login"),
+    ("post", "/api/auth/read-logout"),
+    ("post", "/api/auth/login"),
+    ("post", "/api/auth/logout"),
+    ("get", "/api/health"),
 }
 
 
@@ -153,13 +127,31 @@ class AuthorizationMatrixTests(unittest.TestCase):
 
     def test_route_registry_is_complete(self) -> None:
         registered = {
-            route.path
+            (method.lower(), route.path)
             for route in main.app.routes
             if getattr(route, "path", "").startswith("/api/")
             and not route.path.startswith("/api/internal/")
             and route.path not in {"/api/docs", "/api/openapi.json"}
+            for method in route.methods or ()
         }
-        self.assertSetEqual(registered, PROTECTED_ROUTE_PATHS | PUBLIC_AUTH_PATHS)
+        def route_path(method: str, path: str) -> str:
+            return next(
+                route.path
+                for route in main.app.routes
+                if method.upper() in (route.methods or ())
+                and route.path_regex.fullmatch(path)
+            )
+
+        expected = {
+            *((method, route_path(method, path))
+              for method, path, _body in OPERATOR_READ_REQUESTS),
+            *((method, route_path(method, path))
+              for method, path, _body in OPERATOR_TRIAGE_REQUESTS),
+            *((method, route_path(method, path))
+              for method, path, _body in ADMIN_REQUESTS),
+            *AUTH_REQUESTS,
+        }
+        self.assertSetEqual(registered, expected)
 
     def test_anonymous_requests_are_rejected_for_every_protected_route(self) -> None:
         for method, path, body in (

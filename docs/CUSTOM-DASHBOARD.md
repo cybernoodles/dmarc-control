@@ -337,7 +337,7 @@ feste Kategorien ohne Endpunkte, Zugangsdaten oder rohe Serverantworten.
 `evaluation_runs` speichert die letzten 20 Läufe, zusätzlich gegebenenfalls
 einen älteren letzten Erfolg und noch laufende Prüfungen. Unterschiedliche
 Lauf-IDs verhindern, dass verspätete Abschlüsse neuere Ergebnisse ersetzen.
-`GET /api/alerts/evaluation/status` ist für angemeldete Leser verfügbar;
+`GET /api/alerts/evaluation/status` ist für angemeldete Operatoren verfügbar;
 die gespeicherte Auswahl der auslösenden E-Mail-Fälle bleibt intern.
 Die Oberfläche aktualisiert den Status alle 30 Sekunden, solange die Seite
 sichtbar ist, und kennzeichnet fehlgeschlagene Aktualisierungen.
@@ -549,7 +549,7 @@ nicht abgeschwächt oder verworfen.
 | `PATCH /api/settings/domains` | Status und/oder Wartefrist einer Domain als Admin ändern; `grace_days: null` übernimmt den globalen Standard |
 | `PUT /api/settings/domains/{domain}/services/{service_id}` | automatische, bestätigte oder abgelehnte Dienstentscheidung als Admin speichern |
 | `POST /api/settings/domains/{domain}/services/{service_id}/refresh` | DNS-Belege für einen bekannten Versanddienst als Admin neu bewerten |
-| `GET /api/settings/notifications/status` | Read-sicheren Konfigurations- und Aktivstatus des E-Mail-Alertings lesen |
+| `GET /api/settings/notifications/status` | Operator-sicheren Konfigurations- und Aktivstatus des E-Mail-Alertings lesen |
 | `GET /api/settings/mailbox` | Entwurf, aktive Revision und Parserstatus lesen |
 | `PUT /api/settings/mailbox` | neuen Verbindungsentwurf als Admin speichern |
 | `POST /api/settings/mailbox/test` | gespeicherten Entwurf streng lesend prüfen |

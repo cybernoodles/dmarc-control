@@ -300,7 +300,7 @@ class AdminSettingsApiTests(unittest.TestCase):
             self.assertEqual(denied_without_read_session.status_code, 401)
             self.assertEqual(
                 denied_without_read_session.json()["detail"],
-                "Operator login required",
+                "Read login required",
             )
             self.assertEqual(old_read_login.status_code, 401)
             self.assertEqual(invalid_read_login.status_code, 401)

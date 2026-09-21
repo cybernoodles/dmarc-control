@@ -557,7 +557,11 @@ async function request<T>(
     const payload = await response.json().catch(() => null);
     options?.signal?.throwIfAborted();
     const message = responseErrorMessage(payload, response.status);
-    if (response.status === 401 && message === "Operator login required" && generation === readSessionGeneration) {
+    if (
+      response.status === 401
+      && (message === "Read login required" || message === "Operator login required")
+      && generation === readSessionGeneration
+    ) {
       window.dispatchEvent(new Event("dmarc-read-session-expired"));
     }
     throw new ApiError(message, response.status);

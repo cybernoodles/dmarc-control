@@ -914,7 +914,8 @@ function ReadLogin({
       const rawMessage =
         reason instanceof Error ? reason.message : t("Anmeldung fehlgeschlagen.");
       setError(
-        rawMessage === "Invalid operator credentials"
+        (rawMessage === "Invalid read credentials"
+          || rawMessage === "Invalid operator credentials")
           ? t("Benutzername oder Passwort ist falsch.")
           : rawMessage,
       );

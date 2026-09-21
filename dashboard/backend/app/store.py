@@ -347,7 +347,10 @@ class StateStore(
             timestamp = timestamp.replace(tzinfo=UTC)
         timestamp = timestamp.astimezone(UTC)
         timestamp_text = timestamp.isoformat()
-        username_key = username_normalized if account == "read" else "admin"
+        # The peer-IP limit deliberately applies across all accounts. The
+        # identity limit must not: an Operator named "admin" is a different
+        # principal from the administrator and must not reset its failures.
+        username_key = f"{account}:{username_normalized}"
         throttle_keys = (
             ("ip", client_ip, ""),
             ("username", client_ip, username_key),

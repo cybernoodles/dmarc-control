@@ -138,6 +138,42 @@ class LoginThrottleStoreTests(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertEqual(checks, [("wrong", DUMMY_PASSWORD_HASH)])
 
+    def test_operator_admin_does_not_clear_admin_identity_throttle(self) -> None:
+        with sqlite3.connect(self.database_path) as connection:
+            connection.execute(
+                "UPDATE read_credentials SET username = 'admin', username_normalized = 'admin'"
+            )
+
+        def attempt(account: str, username: str, password: str):
+            return self.store.authenticate_login(
+                account=account,
+                client_ip="198.51.100.25",
+                username_normalized=username,
+                password=password,
+                dummy_password_hash=DUMMY_PASSWORD_HASH,
+                verify=lambda candidate, encoded: (
+                    (account == "admin" and candidate == "admin-correct"
+                     and encoded == "admin-hash")
+                    or (account == "read" and candidate == "operator-correct"
+                        and encoded == "reader-hash")
+                ),
+                now=self.now,
+            )
+
+        for _ in range(4):
+            self.assertEqual(attempt("admin", "admin", "wrong").status, "failed")
+        self.assertEqual(
+            attempt("read", "admin", "operator-correct").status,
+            "authenticated",
+        )
+        self.assertEqual(
+            attempt("admin", "admin", "wrong").status,
+            "failed",
+        )
+        blocked = attempt("admin", "admin", "wrong")
+        self.assertEqual(blocked.status, "throttled")
+        self.assertEqual(blocked.retry_after, 1)
+
 
 class AuthenticationApiSecurityTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -238,7 +274,7 @@ class AuthenticationApiSecurityTests(unittest.TestCase):
                 json={"username": "reader", "password": secret * 30},
             )
             admin_login_invalid = client.post(
-                "/api/auth/admin-login",
+                "/api/auth/login",
                 json={"password": secret * 30},
             )
             credentials_invalid = client.put(
@@ -257,3 +293,102 @@ class AuthenticationApiSecurityTests(unittest.TestCase):
             self.assertNotIn(secret, response.text)
             for error in response.json()["detail"]:
                 self.assertEqual(set(error), {"type", "loc", "msg"})
+
+    def test_setup_migration_uses_admin_throttle_without_sleeping(self) -> None:
+        self.store.set_initial_admin_password(hash_password("existing-admin-password"))
+        payload = {
+            "admin_password": "wrong-admin-password",
+            "read_username": "operator",
+            "read_password": "initial-operator-password",
+            "backup_mode": "external",
+        }
+        with (
+            patch.object(main, "settings", self.settings),
+            patch.object(main, "store", self.store),
+            TestClient(main.app) as client,
+        ):
+            attempts = [
+                client.post("/api/auth/setup", headers={"X-Forwarded-For": "203.0.113.9"}, json=payload)
+                for _ in range(5)
+            ]
+            blocked = client.post("/api/auth/setup", json=payload)
+
+        self.assertTrue(all(response.status_code == 401 for response in attempts))
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.headers["retry-after"], "1")
+
+    def test_backup_setup_uses_admin_throttle_without_sleeping(self) -> None:
+        self.store.set_initial_credentials(
+            admin_password_hash=hash_password("existing-admin-password"),
+            read_username="operator",
+            read_username_normalized="operator",
+            read_password_hash=hash_password("initial-operator-password"),
+            backup_mode="external",
+        )
+        # Remove the initial strategy to model the supported migration state.
+        with sqlite3.connect(self.settings.database_path) as connection:
+            connection.execute("DELETE FROM backup_settings")
+        payload = {"admin_password": "wrong-admin-password", "mode": "external"}
+        with (
+            patch.object(main, "settings", self.settings),
+            patch.object(main, "store", self.store),
+            TestClient(main.app) as client,
+        ):
+            self.assertEqual(
+                client.post(
+                    "/api/auth/read-login",
+                    json={"username": "operator", "password": "initial-operator-password"},
+                ).status_code,
+                200,
+            )
+            attempts = [
+                client.post("/api/settings/backup/setup", json=payload)
+                for _ in range(5)
+            ]
+            blocked = client.post("/api/settings/backup/setup", json=payload)
+
+        self.assertTrue(all(response.status_code == 401 for response in attempts))
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.headers["retry-after"], "1")
+
+    def test_operator_named_admin_cannot_reset_admin_throttle(self) -> None:
+        self.store.set_initial_credentials(
+            admin_password_hash=hash_password("existing-admin-password"),
+            read_username="admin",
+            read_username_normalized="admin",
+            read_password_hash=hash_password("operator-password"),
+            backup_mode="external",
+        )
+        with (
+            patch.object(main, "settings", self.settings),
+            patch.object(main, "store", self.store),
+            TestClient(main.app) as client,
+        ):
+            # The application intentionally requires an Operator session
+            # before admin login. This initial session establishes that
+            # prerequisite; the later login is the regression transition.
+            self.assertEqual(
+                client.post(
+                    "/api/auth/read-login",
+                    json={"username": "admin", "password": "operator-password"},
+                ).status_code,
+                200,
+            )
+            failed = [
+                client.post("/api/auth/login", json={"password": "wrong-password"})
+                for _ in range(4)
+            ]
+            operator = client.post(
+                "/api/auth/read-login",
+                json={"username": "Admin", "password": "operator-password"},
+            )
+            fifth = client.post(
+                "/api/auth/login", json={"password": "wrong-password"})
+            blocked = client.post(
+                "/api/auth/login", json={"password": "wrong-password"})
+
+        self.assertTrue(all(response.status_code == 401 for response in failed))
+        self.assertEqual(operator.status_code, 200)
+        self.assertEqual(fifth.status_code, 401)
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.headers["retry-after"], "1")
