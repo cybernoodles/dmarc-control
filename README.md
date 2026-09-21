@@ -292,6 +292,19 @@ See [Container releases](docs/CONTAINER-RELEASES.md) for the release and
 digest-pinning procedure, including the mandatory bind-mount preparation for
 standalone Docker Compose deployments.
 
+## Tests and frontend build
+
+From a clean checkout, run the canonical verification command:
+
+```bash
+./scripts/test.sh
+```
+
+It installs the pinned dashboard dependencies, runs the frontend tests and
+production build, then runs the dashboard backend, parser/supervisor, and
+backup test suites. Pull requests run the same checks; publishing remains a
+manual release action only.
+
 ## Optional Grafana
 
 Grafana can be used as the primary analytics view, but it does not replace the

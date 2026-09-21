@@ -9,9 +9,11 @@ RUN pnpm build
 
 FROM python:3.12-slim
 
+ARG DASHBOARD_VERSION=dev
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DASHBOARD_DATABASE_PATH=/app/data/dashboard.db
+    DASHBOARD_DATABASE_PATH=/app/data/dashboard.db \
+    DMARC_CONTROL_VERSION=${DASHBOARD_VERSION}
 
 RUN groupadd --gid 10001 dashboard \
     && useradd --uid 10001 --gid dashboard --create-home --home-dir /home/dashboard dashboard
