@@ -201,13 +201,17 @@ Open `http://HOSTNAME_OR_IP:3030`.
 
 The first browser visit opens the setup screen. Create:
 
-- a read username and password for normal dashboard access;
+- an operator username and password for normal dashboard access and alert/host triage;
 - a separate administrator password for protected settings.
 
 Both passwords must contain at least 12 characters. The dashboard is available
 after setup, but report ingestion remains idle until a mailbox connection has
 been tested and activated. On a clean installation, `docker compose ps` may
 show `parsedmarc` as unhealthy until that activation; this is expected.
+
+The visible role is **Operator**. For backwards compatibility, the underlying
+API paths, cookies, configuration keys, and stored role values retain their
+legacy `read` names.
 
 ## Build from source
 

@@ -22,10 +22,10 @@ test("a late 401 from the old session cannot end a successful new login", async 
   globalThis.fetch = path => path.includes("read-login") ? Promise.resolve(response(200,{read_authenticated:true})) : old.promise;
   const request = api.host("192.0.2.1","*",30);
   await api.loginRead("reader","password");
-  old.resolve(response(401,{detail:"Read login required"}));
+  old.resolve(response(401,{detail:"Operator login required"}));
   await assert.rejects(request, error => error.status===401);
   assert.equal(expired(),0);
-  globalThis.fetch = async () => response(401,{detail:"Read login required"});
+  globalThis.fetch = async () => response(401,{detail:"Operator login required"});
   await assert.rejects(api.host("192.0.2.1","*",30), error => error.status===401);
   assert.equal(expired(),1);
 }));
@@ -36,7 +36,7 @@ test("an aborted lookup cannot dispatch a session-expired event", async () => ha
   const controller = new AbortController();
   const request = api.host("192.0.2.1","*",30,controller.signal);
   controller.abort();
-  pending.resolve(response(401,{detail:"Read login required"}));
+  pending.resolve(response(401,{detail:"Operator login required"}));
   await assert.rejects(request, error => error.name==="AbortError");
   assert.equal(expired(),0);
 }));
@@ -48,7 +48,7 @@ test("aborting while an error body loads also suppresses the old session event",
   const request = api.host("192.0.2.1","*",30,controller.signal);
   await Promise.resolve();
   controller.abort();
-  body.resolve({detail:"Read login required"});
+  body.resolve({detail:"Operator login required"});
   await assert.rejects(request, error => error.name==="AbortError");
   assert.equal(expired(),0);
 }));
@@ -58,7 +58,7 @@ test("old responses after explicit logout do not emit another session transition
   globalThis.fetch = path => path.includes("read-logout") ? Promise.resolve(response(200,{read_authenticated:false})) : old.promise;
   const request = api.host("192.0.2.1","*",30);
   await api.logoutRead();
-  old.resolve(response(401,{detail:"Read login required"}));
+  old.resolve(response(401,{detail:"Operator login required"}));
   await assert.rejects(request, error => error.status===401);
   assert.equal(expired(),0);
 }));

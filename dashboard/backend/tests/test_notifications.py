@@ -218,7 +218,7 @@ class NotificationSettingsApiTests(unittest.TestCase):
             self.assertEqual(unauthenticated.status_code, 401)
             self.assertEqual(
                 unauthenticated.json(),
-                {"detail": "Read login required"},
+                {"detail": "Operator login required"},
             )
 
     def test_admin_can_save_masked_settings_and_send_explicit_test(self) -> None:

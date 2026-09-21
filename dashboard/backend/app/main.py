@@ -380,7 +380,7 @@ def normalized_read_username(username: str) -> tuple[str, str]:
     if not cleaned or any(character.isspace() for character in cleaned):
         raise HTTPException(
             status_code=422,
-            detail="Read username must not contain whitespace",
+            detail="Operator username must not contain whitespace",
         )
     return cleaned, cleaned.casefold()
 
@@ -896,7 +896,7 @@ def public_notification_status(current: dict | None = None) -> dict:
 
 def public_evaluation_error(exc: Exception) -> str:
     # OpenSearch/transport exceptions may contain endpoints, credentials or body
-    # fragments. Read users receive only fixed, actionable error categories.
+    # fragments. Operators receive only fixed, actionable error categories.
     if isinstance(exc, OpenSearchError):
         return "Die Reportdaten konnten nicht vollständig ausgewertet werden. Bitte OpenSearch-Verbindung und Daten prüfen."
     if isinstance(exc, (NotificationDeliveryError, ConnectionSecretError, HTTPException)):
@@ -1323,7 +1323,7 @@ async def security_headers(request, call_next):
     if read_login_required:
         response = JSONResponse(
             status_code=401,
-            content={"detail": "Read login required"},
+            content={"detail": "Operator login required"},
         )
     else:
         response = await call_next(request)
@@ -1613,7 +1613,7 @@ async def login_read_user(
     if result.status != "authenticated":
         raise HTTPException(
             status_code=401,
-            detail="Invalid read credentials",
+            detail="Invalid operator credentials",
         )
     read_session = await asyncio.to_thread(create_read_session, store)
     backup_configured, read_username, admin_authenticated = await asyncio.gather(
@@ -1760,7 +1760,7 @@ async def update_read_credentials(
     ):
         raise HTTPException(
             status_code=409,
-            detail="Read user is not configured",
+            detail="Operator is not configured",
         )
     set_read_cookie(response, create_read_session(store))
     return {

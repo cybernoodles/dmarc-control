@@ -81,29 +81,29 @@ Abhängigkeitsmatrix steht in
 Die aktuell im Browser bearbeitete Farbe und das gespeicherte Custom-Profil
 sind lokale UI-Präferenzen. Ein globaler Standard gilt für Browser ohne lokale
 Abweichung. Beim ersten Aufruf blockiert ein Setup-Screen das Dashboard, bis
-ein Read-Benutzer mit Passwort und ein separates Admin-Passwort festgelegt
+ein Operator-Benutzer mit Passwort und ein separates Admin-Passwort festgelegt
 und eine Backup-Strategie gewählt wurden. Beide Passwörter müssen mindestens
 zwölf Zeichen enthalten; nur ihre gesalzenen Hashes werden in `dashboard.db`
 gespeichert. Bestehende Installationen mit bereits vollständigen Zugängen
-werden nach dem Read-Login einmalig separat zur Backup-Strategie geführt.
+werden nach dem Operator-Login einmalig separat zur Backup-Strategie geführt.
 
-Eine gültige Read-Sitzung ist für das gesamte Dashboard und alle normalen
+Eine gültige Operator-Sitzung ist für das gesamte Dashboard und alle normalen
 API-Endpunkte erforderlich. Ausgenommen sind Healthcheck, die öffentlich
-erreichbaren Read-Auth-Endpunkte und die separat per Control-Token abgesicherte
-Parser-API. Die Read-Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden
-Gültigkeit gehalten. Ein Read-Logout beendet zusätzlich eine im selben Browser
+erreichbaren Operator-Auth-Endpunkte und die separat per Control-Token abgesicherte
+Parser-API. Die Operator-Sitzung wird in einem `HttpOnly`-Cookie mit zwölf Stunden
+Gültigkeit gehalten. Ein Operator-Logout beendet zusätzlich eine im selben Browser
 aktive Admin-Sitzung.
 
 Eine Admin-Anmeldung ist für globale Einstellungen und die
 Mailbox- und Benachrichtigungsverwaltung erforderlich. Sie verwendet eine
 unabhängige, ebenfalls zwölf Stunden gültige Sitzung. Das Admin-Passwort und
-der Read-Zugang können unter **Einstellungen → Administration** geändert
+der Operator-Zugang können unter **Einstellungen → Administration** geändert
 werden. Eine Änderung beendet jeweils die anderen Sitzungen des betroffenen
 Zugangstyps; der ändernde Browser erhält direkt eine neue Sitzung.
 
-Beim Upgrade einer bestehenden Installation ohne Read-Zugang wird das Setup
+Beim Upgrade einer bestehenden Installation ohne Operator-Zugang wird das Setup
 erneut als unvollständig markiert. Das vorhandene Admin-Passwort muss bestätigt
-werden, bevor der Read-Benutzer ergänzt wird. Das Admin-Passwort selbst bleibt
+werden, bevor der Operator-Benutzer ergänzt wird. Das Admin-Passwort selbst bleibt
 dabei unverändert.
 
 ## Ereignisse und Datenfrische
@@ -534,14 +534,14 @@ nicht abgeschwächt oder verworfen.
 | Endpunkt | Zweck |
 |---|---|
 | `GET /api/health` | Container- und OpenSearch-Status |
-| `GET /api/auth/status` | Ersteinrichtung, Read- und Admin-Sitzung prüfen |
-| `POST /api/auth/setup` | Read-Zugang und Admin-Passwort initial festlegen beziehungsweise Read-Zugang sicher nachrüsten |
-| `POST /api/auth/read-login` | Read-Sitzung starten |
-| `POST /api/auth/read-logout` | Read- und zugehörige Admin-Sitzung beenden |
+| `GET /api/auth/status` | Ersteinrichtung, Operator- und Admin-Sitzung prüfen |
+| `POST /api/auth/setup` | Operator-Zugang und Admin-Passwort initial festlegen beziehungsweise Operator-Zugang sicher nachrüsten |
+| `POST /api/auth/read-login` | Operator-Sitzung starten (technischer Legacy-Pfad) |
+| `POST /api/auth/read-logout` | Operator- und zugehörige Admin-Sitzung beenden (technischer Legacy-Pfad) |
 | `POST /api/auth/login` | Admin-Sitzung starten |
 | `POST /api/auth/logout` | Admin-Sitzung beenden |
 | `POST /api/auth/change-password` | Admin-Passwort ändern |
-| `PUT /api/auth/read-credentials` | Read-Benutzername und -Passwort als Admin ändern |
+| `PUT /api/auth/read-credentials` | Operator-Benutzername und -Passwort als Admin ändern (technischer Legacy-Pfad) |
 | `GET /api/settings/appearance` | globalen UI-Farbstandard lesen |
 | `PUT /api/settings/appearance` | globalen UI-Farbstandard als Admin ändern |
 | `GET /api/settings/domains` | gespeicherte Domainüberwachung einschließlich Fristen als Admin lesen |

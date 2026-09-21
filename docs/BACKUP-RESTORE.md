@@ -51,9 +51,9 @@ Repository und müssen im Backup verschlüsselt sowie zugriffsgeschützt liegen.
 ## Verpflichtende Backup-Strategie im Setup
 
 DMARC Control startet nicht stillschweigend mit einer angenommenen Strategie.
-Bei einer Neuinstallation wird zusammen mit Read- und Admin-Zugang eine der
+Bei einer Neuinstallation wird zusammen mit Operator- und Admin-Zugang eine der
 folgenden Optionen gewählt. Bestehende Installationen werden nach dem nächsten
-Read-Login einmalig zu derselben administrativen Entscheidung geführt:
+Operator-Login einmalig zu derselben administrativen Entscheidung geführt:
 
 | Strategie | Verhalten |
 |---|---|

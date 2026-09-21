@@ -601,15 +601,15 @@ function AdminSetup({
       return;
     }
     if (!readUsername.trim() || /\s/.test(readUsername.trim())) {
-      setError(t("Der Read-Benutzername darf keine Leerzeichen enthalten."));
+      setError(t("Der Operator-Benutzername darf keine Leerzeichen enthalten."));
       return;
     }
     if (readPassword.length < 12) {
-      setError(t("Das Read-Passwort muss mindestens 12 Zeichen lang sein."));
+      setError(t("Das Operator-Passwort muss mindestens 12 Zeichen lang sein."));
       return;
     }
     if (readPassword !== readConfirmation) {
-      setError(t("Die Read-Passwörter stimmen nicht überein."));
+      setError(t("Die Operator-Passwörter stimmen nicht überein."));
       return;
     }
     if (!backupMode) {
@@ -670,10 +670,10 @@ function AdminSetup({
           <p>
             {adminConfigured
               ? t(
-                  "Bestätige das bestehende Admin-Passwort und ergänze den neuen Read-Zugang.",
+                  "Bestätige das bestehende Admin-Passwort und ergänze den neuen Operator-Zugang.",
                 )
               : t(
-                  "Lege den Read-Zugang für das Dashboard und das separate Admin-Passwort für geschützte Einstellungen fest.",
+                  "Lege den Operator-Zugang für das Dashboard und das separate Admin-Passwort für geschützte Einstellungen fest.",
                 )}
           </p>
         </div>
@@ -710,7 +710,7 @@ function AdminSetup({
           )}
           <div className="setup-divider" />
           <label>
-            <span>{t("Read-Benutzername")}</span>
+            <span>{t("Operator-Benutzername")}</span>
             <input
               type="text"
               autoComplete="username"
@@ -722,7 +722,7 @@ function AdminSetup({
             />
           </label>
           <label>
-            <span>{t("Read-Passwort")}</span>
+            <span>{t("Operator-Passwort")}</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -734,7 +734,7 @@ function AdminSetup({
             />
           </label>
           <label>
-            <span>{t("Read-Passwort wiederholen")}</span>
+            <span>{t("Operator-Passwort wiederholen")}</span>
             <input
               type="password"
               autoComplete="new-password"
@@ -776,7 +776,7 @@ function AdminSetup({
           <Info aria-hidden="true" />
           <span>
             {t(
-              "Der Read-Zugang schützt den Dashboard-Zugriff. Das separate Admin-Passwort schützt Änderungen an globalen Einstellungen.",
+              "Der Operator-Zugang schützt das Dashboard und erlaubt die vorgesehene Alarm- und Host-Triage. Das separate Admin-Passwort schützt Änderungen an globalen Einstellungen.",
             )}
           </span>
         </div>
@@ -914,7 +914,7 @@ function ReadLogin({
       const rawMessage =
         reason instanceof Error ? reason.message : t("Anmeldung fehlgeschlagen.");
       setError(
-        rawMessage === "Invalid read credentials"
+        rawMessage === "Invalid operator credentials"
           ? t("Benutzername oder Passwort ist falsch.")
           : rawMessage,
       );
@@ -948,7 +948,7 @@ function ReadLogin({
         <div className="setup-heading">
           <span>{t("Geschützter Zugriff")}</span>
           <h1>{t("Bei DMARC Control anmelden")}</h1>
-          <p>{t("Melde dich mit dem beim Setup definierten Read-Zugang an.")}</p>
+          <p>{t("Melde dich mit dem beim Setup definierten Operator-Zugang an.")}</p>
         </div>
         <form className="setup-form" onSubmit={submit}>
           <label>
@@ -1189,7 +1189,7 @@ function DashboardApp({
           </div>
           <span className="read-user-label">
             {t("Angemeldet als {username}", {
-              username: auth.read_username ?? "Read",
+              username: auth.read_username ?? "Operator",
             })}
           </span>
           <button
@@ -3231,17 +3231,17 @@ function SettingsView({
     event.preventDefault();
     if (!readUsername.trim() || /\s/.test(readUsername.trim())) {
       setAuthMessageTone("critical");
-      setAuthMessage(t("Der Read-Benutzername darf keine Leerzeichen enthalten."));
+      setAuthMessage(t("Der Operator-Benutzername darf keine Leerzeichen enthalten."));
       return;
     }
     if (readPassword.length < 12) {
       setAuthMessageTone("critical");
-      setAuthMessage(t("Das Read-Passwort muss mindestens 12 Zeichen lang sein."));
+      setAuthMessage(t("Das Operator-Passwort muss mindestens 12 Zeichen lang sein."));
       return;
     }
     if (readPassword !== readPasswordConfirmation) {
       setAuthMessageTone("critical");
-      setAuthMessage(t("Die Read-Passwörter stimmen nicht überein."));
+      setAuthMessage(t("Die Operator-Passwörter stimmen nicht überein."));
       return;
     }
     setAuthBusy(true);
@@ -3256,7 +3256,7 @@ function SettingsView({
       setReadPassword("");
       setReadPasswordConfirmation("");
       setAuthMessageTone("success");
-      setAuthMessage(t("Read-Zugang wurde aktualisiert."));
+      setAuthMessage(t("Operator-Zugang wurde aktualisiert."));
     } catch (reason) {
       const rawMessage =
         reason instanceof Error ? reason.message : t("Aktualisierung fehlgeschlagen.");
@@ -3425,7 +3425,7 @@ function SettingsView({
             <LockKeyhole aria-hidden="true" />
             <span>
               <strong>{t("Administration")}</strong>
-              <small>{t("Read-Zugang und Admin-Passwort")}</small>
+              <small>{t("Operator-Zugang und Admin-Passwort")}</small>
             </span>
             <ChevronRight aria-hidden="true" />
           </button>
@@ -3538,7 +3538,7 @@ function SettingsView({
               <h3>{t("Administration")}</h3>
               <p>
                 {t(
-                  "Der Read-Zugang schützt das Dashboard. Die separate Admin-Anmeldung schützt globale Einstellungen.",
+                  "Der Operator-Zugang schützt das Dashboard und erlaubt die vorgesehene Alarm- und Host-Triage. Die separate Admin-Anmeldung schützt globale Einstellungen.",
                 )}
               </p>
             </div>
@@ -3634,10 +3634,10 @@ function SettingsView({
               </small>
               <div className="credential-section">
                 <div>
-                  <strong>{t("Read-Zugang")}</strong>
+                  <strong>{t("Operator-Zugang")}</strong>
                   <small>
                     {t(
-                      "Eine Änderung beendet alle anderen Read-Sitzungen. Diese Sitzung bleibt angemeldet.",
+                      "Eine Änderung beendet alle anderen Operator-Sitzungen. Diese Sitzung bleibt angemeldet.",
                     )}
                   </small>
                 </div>
@@ -3646,7 +3646,7 @@ function SettingsView({
                   onSubmit={changeReadCredentials}
                 >
                   <label>
-                    <span>{t("Read-Benutzername")}</span>
+                    <span>{t("Operator-Benutzername")}</span>
                     <input
                       type="text"
                       autoComplete="username"
@@ -3657,7 +3657,7 @@ function SettingsView({
                     />
                   </label>
                   <label>
-                    <span>{t("Neues Read-Passwort")}</span>
+                    <span>{t("Neues Operator-Passwort")}</span>
                     <input
                       type="password"
                       autoComplete="new-password"
@@ -3669,7 +3669,7 @@ function SettingsView({
                     />
                   </label>
                   <label>
-                    <span>{t("Read-Passwort wiederholen")}</span>
+                    <span>{t("Operator-Passwort wiederholen")}</span>
                     <input
                       type="password"
                       autoComplete="new-password"
@@ -3688,7 +3688,7 @@ function SettingsView({
                       type="submit"
                       disabled={authBusy}
                     >
-                      {t("Read-Zugang aktualisieren")}
+                      {t("Operator-Zugang aktualisieren")}
                     </button>
                   </div>
                 </form>

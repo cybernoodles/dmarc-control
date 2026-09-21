@@ -399,7 +399,7 @@ const english: Record<string, string> = {
   Postfachanbindung: "Mailbox connection",
   "Microsoft 365 oder IMAP": "Microsoft 365 or IMAP",
   "Einrichtung ausstehend": "Setup pending",
-  "Read-Zugang und Admin-Passwort": "Read access and admin password",
+  "Operator-Zugang und Admin-Passwort": "Operator access and admin password",
   "Postfachanbindung wartet auf Aktivierung":
     "Mailbox connection is awaiting activation",
   "Postfachanbindung im GUI einrichten":
@@ -501,32 +501,32 @@ const english: Record<string, string> = {
   "Die Passwörter stimmen nicht überein.": "The passwords do not match.",
   "Wird gespeichert …": "Saving …",
   "Zugänge einrichten": "Set up access",
-  "Bestätige das bestehende Admin-Passwort und ergänze den neuen Read-Zugang.":
-    "Confirm the existing admin password and add the new read access.",
-  "Lege den Read-Zugang für das Dashboard und das separate Admin-Passwort für geschützte Einstellungen fest.":
-    "Set the read access for the dashboard and a separate admin password for protected settings.",
+  "Bestätige das bestehende Admin-Passwort und ergänze den neuen Operator-Zugang.":
+    "Confirm the existing admin password and add the new operator access.",
+  "Lege den Operator-Zugang für das Dashboard und das separate Admin-Passwort für geschützte Einstellungen fest.":
+    "Set the operator access for the dashboard and a separate admin password for protected settings.",
   "Bestehendes Admin-Passwort": "Existing admin password",
   "Admin-Passwort wiederholen": "Repeat admin password",
-  "Read-Benutzername": "Read username",
-  "Read-Passwort": "Read password",
-  "Read-Passwort wiederholen": "Repeat read password",
+  "Operator-Benutzername": "Operator username",
+  "Operator-Passwort": "Operator password",
+  "Operator-Passwort wiederholen": "Repeat operator password",
   "Beide Passwörter benötigen mindestens 12 Zeichen.":
     "Both passwords must contain at least 12 characters.",
-  "Der Read-Benutzername darf keine Leerzeichen enthalten.":
-    "The read username must not contain whitespace.",
-  "Das Read-Passwort muss mindestens 12 Zeichen lang sein.":
-    "The read password must contain at least 12 characters.",
-  "Die Read-Passwörter stimmen nicht überein.":
-    "The read passwords do not match.",
+  "Der Operator-Benutzername darf keine Leerzeichen enthalten.":
+    "The operator username must not contain whitespace.",
+  "Das Operator-Passwort muss mindestens 12 Zeichen lang sein.":
+    "The operator password must contain at least 12 characters.",
+  "Die Operator-Passwörter stimmen nicht überein.":
+    "The operator passwords do not match.",
   "Zugänge konnten nicht gespeichert werden.":
     "The access credentials could not be saved.",
   "Zugänge speichern": "Save access credentials",
-  "Der Read-Zugang schützt den Dashboard-Zugriff. Das separate Admin-Passwort schützt Änderungen an globalen Einstellungen.":
-    "Read access protects dashboard access. The separate admin password protects changes to global settings.",
+  "Der Operator-Zugang schützt das Dashboard und erlaubt die vorgesehene Alarm- und Host-Triage. Das separate Admin-Passwort schützt Änderungen an globalen Einstellungen.":
+    "Operator access protects the dashboard and permits the intended alert and host triage. The separate admin password protects changes to global settings.",
   "Geschützter Zugriff": "Protected access",
   "Bei DMARC Control anmelden": "Sign in to DMARC Control",
-  "Melde dich mit dem beim Setup definierten Read-Zugang an.":
-    "Sign in with the read credentials defined during setup.",
+  "Melde dich mit dem beim Setup definierten Operator-Zugang an.":
+    "Sign in with the operator credentials defined during setup.",
   "Benutzername oder Passwort ist falsch.":
     "The username or password is incorrect.",
   "Anmeldung läuft …": "Signing in …",
@@ -579,8 +579,8 @@ const english: Record<string, string> = {
   Anwenden: "Apply",
   "Global setzen": "Set globally",
   Administration: "Administration",
-  "Der Read-Zugang schützt das Dashboard. Die separate Admin-Anmeldung schützt globale Einstellungen.":
-    "Read access protects the dashboard. The separate admin sign-in protects global settings.",
+  "Der Operator-Zugang schützt das Dashboard und erlaubt die vorgesehene Alarm- und Host-Triage. Die separate Admin-Anmeldung schützt globale Einstellungen.":
+    "Operator access protects the dashboard and permits the intended alert and host triage. The separate admin sign-in protects global settings.",
   "Admin angemeldet": "Admin signed in",
   "Nicht angemeldet": "Not signed in",
   "Als Admin anmelden": "Sign in as admin",
@@ -602,12 +602,12 @@ const english: Record<string, string> = {
   "Abmeldung fehlgeschlagen.": "Sign-out failed.",
   "Nach einer Passwortänderung werden andere Admin-Sitzungen automatisch beendet.":
     "Changing the password automatically ends other admin sessions.",
-  "Read-Zugang": "Read access",
-  "Eine Änderung beendet alle anderen Read-Sitzungen. Diese Sitzung bleibt angemeldet.":
-    "A change ends all other read sessions. This session remains signed in.",
-  "Neues Read-Passwort": "New read password",
-  "Read-Zugang aktualisieren": "Update read access",
-  "Read-Zugang wurde aktualisiert.": "Read access was updated.",
+  "Operator-Zugang": "Operator access",
+  "Eine Änderung beendet alle anderen Operator-Sitzungen. Diese Sitzung bleibt angemeldet.":
+    "A change ends all other operator sessions. This session remains signed in.",
+  "Neues Operator-Passwort": "New operator password",
+  "Operator-Zugang aktualisieren": "Update operator access",
+  "Operator-Zugang wurde aktualisiert.": "Operator access was updated.",
   "Melde dich zuerst als Admin an.": "Sign in as admin first.",
   "Die Admin-Sitzung ist abgelaufen. Bitte erneut anmelden.":
     "The admin session has expired. Please sign in again.",
