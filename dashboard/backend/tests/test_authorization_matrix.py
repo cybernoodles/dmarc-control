@@ -87,16 +87,24 @@ ADMIN_REQUESTS = (
     ("get", "/api/alerts/example-alert/delivery", None),
 )
 
-AUTH_REQUESTS = {
+PUBLIC_AUTH_REQUESTS = {
     ("get", "/api/auth/status"),
     ("post", "/api/auth/setup"),
-    ("post", "/api/settings/backup/setup"),
     ("post", "/api/auth/read-login"),
     ("post", "/api/auth/read-logout"),
-    ("post", "/api/auth/login"),
-    ("post", "/api/auth/logout"),
     ("get", "/api/health"),
 }
+
+# These routes look like authentication/setup endpoints but are intentionally
+# behind the Operator middleware.  Keep their methods and role requirement in
+# the matrix instead of treating every /api/auth route as public.
+OPERATOR_AUTH_REQUESTS = (
+    ("post", "/api/settings/backup/setup", {
+        "admin_password": "initial-admin-password", "mode": "external",
+    }),
+    ("post", "/api/auth/login", {"password": "initial-admin-password"}),
+    ("post", "/api/auth/logout", None),
+)
 
 
 class AuthorizationMatrixTests(unittest.TestCase):
@@ -149,7 +157,9 @@ class AuthorizationMatrixTests(unittest.TestCase):
               for method, path, _body in OPERATOR_TRIAGE_REQUESTS),
             *((method, route_path(method, path))
               for method, path, _body in ADMIN_REQUESTS),
-            *AUTH_REQUESTS,
+            *PUBLIC_AUTH_REQUESTS,
+            *((method, route_path(method, path))
+              for method, path, _body in OPERATOR_AUTH_REQUESTS),
         }
         self.assertSetEqual(registered, expected)
 
@@ -158,6 +168,7 @@ class AuthorizationMatrixTests(unittest.TestCase):
             *OPERATOR_READ_REQUESTS,
             *OPERATOR_TRIAGE_REQUESTS,
             *ADMIN_REQUESTS,
+            *OPERATOR_AUTH_REQUESTS,
         ):
             with self.subTest(method=method, path=path):
                 self.assertEqual(self.request(method, path, body).status_code, 401)
@@ -168,6 +179,7 @@ class AuthorizationMatrixTests(unittest.TestCase):
             for method, path, body in (
                 *OPERATOR_READ_REQUESTS,
                 *OPERATOR_TRIAGE_REQUESTS,
+                *OPERATOR_AUTH_REQUESTS,
             ):
                 with self.subTest(method=method, path=path):
                     self.assertNotEqual(self.request(method, path, body).status_code, 401)

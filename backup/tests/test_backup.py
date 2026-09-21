@@ -186,6 +186,54 @@ class ArchiveTests(unittest.TestCase):
                 controller.verify_manifest(manifest, online=True)["valid"]
             )
 
+    def test_restore_discards_stale_wal_pages_before_opening_database(self) -> None:
+        """A restore must not replay writes made after the archived snapshot."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = test_config(root)
+            config.dashboard_data.mkdir(parents=True)
+            config.parser_control.mkdir(parents=True)
+            config.recovery_key_file.write_bytes(os.urandom(32))
+            config.control_token.write_text("control-token\n", encoding="utf-8")
+            database = config.dashboard_data / "dashboard.db"
+
+            # Keep the live WAL open after creating a consistent archive.  Its
+            # later page is valid for the pre-restore main database and would
+            # be replayed if restore replaced only dashboard.db.
+            live = sqlite3.connect(database)
+            live.execute("PRAGMA journal_mode=WAL")
+            live.execute("PRAGMA wal_autocheckpoint=0")
+            live.execute("CREATE TABLE state (value TEXT NOT NULL)")
+            live.execute("INSERT INTO state VALUES ('restored')")
+            live.commit()
+
+            controller = backup.BackupController(config)
+            controller.prepare_directories()
+            archive, _integrity, _included, _fingerprint = (
+                controller.create_control_archive("dmarc-20260821t020000z")
+            )
+            live.execute("INSERT INTO state VALUES ('stale')")
+            live.commit()
+            wal = database.with_name("dashboard.db-wal")
+            shm = database.with_name("dashboard.db-shm")
+            self.assertTrue(wal.is_file())
+            self.assertTrue(shm.is_file())
+
+            controller._restore_control({"control": {"archive": archive.name}})
+
+            self.assertFalse(wal.exists())
+            self.assertFalse(shm.exists())
+            safety_directories = list((config.backup_root / "restore-safety").iterdir())
+            self.assertEqual(len(safety_directories), 1)
+            self.assertTrue((safety_directories[0] / wal.name).is_file())
+            self.assertTrue((safety_directories[0] / shm.name).is_file())
+            with sqlite3.connect(database) as restored:
+                self.assertEqual(
+                    restored.execute("SELECT value FROM state ORDER BY rowid").fetchall(),
+                    [("restored",)],
+                )
+            live.close()
+
 
 class InventoryTests(unittest.TestCase):
     def test_system_indices_are_excluded_from_transportable_snapshot(self) -> None:

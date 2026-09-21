@@ -598,25 +598,13 @@ only published by the optional Grafana profile in the source Compose file.
 
 ## Lokale Prüfungen
 
-Frontend:
+Für die vollständige, kanonische Prüfung aus einem sauberen Checkout:
 
 ```bash
-cd dashboard/frontend
-pnpm install
-pnpm build
+./scripts/test.sh
 ```
 
-Backend:
-
-```bash
-PYTHONPATH=dashboard/backend python -m unittest discover \
-  -s dashboard/backend/tests -v
-```
-
-Gesamtes Image:
-
-```bash
-docker build -t parsedmarc-dashboard:local dashboard
-docker build -t parsedmarc-managed:local parser
-python -m unittest discover -s parser/tests -v
-```
+Der Befehl installiert die fixierten Frontend-Abhängigkeiten und führt
+Frontend-Tests und -Build sowie die Test-Suites für Dashboard-Backend,
+Parser/Supervisor und Backup aus. Einzelne Teilchecks sind nur für die lokale
+Fehlersuche gedacht und ersetzen diese Gesamtprüfung nicht.

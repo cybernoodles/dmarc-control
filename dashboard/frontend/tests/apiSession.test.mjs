@@ -62,3 +62,9 @@ test("old responses after explicit logout do not emit another session transition
   await assert.rejects(request, error => error.status===401);
   assert.equal(expired(),0);
 }));
+
+test("the legacy Read login required error still expires the Operator session", async () => harness(async expired => {
+  globalThis.fetch = async () => response(401,{detail:"Read login required"});
+  await assert.rejects(api.host("192.0.2.1","*",30), error => error.status===401);
+  assert.equal(expired(),1);
+}));

@@ -1751,36 +1751,42 @@ async def change_admin_password(
     request: Request,
     response: Response,
 ):
-    require_admin(request)
-    password_hash = store.admin_password_hash()
-    if not password_hash or not verify_password(
-        update.current_password,
-        password_hash,
+    await asyncio.to_thread(require_admin, request)
+    password_hash = await asyncio.to_thread(store.admin_password_hash)
+    if not password_hash or not await asyncio.to_thread(
+        verify_password, update.current_password, password_hash,
     ):
         raise HTTPException(
             status_code=403,
             detail="Current admin password is invalid",
         )
-    if verify_password(update.new_password, password_hash):
+    if await asyncio.to_thread(verify_password, update.new_password, password_hash):
         raise HTTPException(
             status_code=422,
             detail="New password must be different",
         )
-    if not store.replace_admin_password(
+    replacement_hash = await asyncio.to_thread(hash_password, update.new_password)
+    if not await asyncio.to_thread(
+        store.replace_admin_password,
         expected_hash=password_hash,
-        password_hash=hash_password(update.new_password),
+        password_hash=replacement_hash,
     ):
         raise HTTPException(
             status_code=409,
             detail="Admin password changed concurrently",
         )
-    set_admin_cookie(response, create_admin_session(store))
+    admin_session = await asyncio.to_thread(create_admin_session, store)
+    backup_configured, read_username = await asyncio.gather(
+        asyncio.to_thread(store.backup_configured),
+        asyncio.to_thread(store.read_username),
+    )
+    set_admin_cookie(response, admin_session)
     return {
         "setup_required": False,
-        "backup_setup_required": not store.backup_configured(),
+        "backup_setup_required": not backup_configured,
         "admin_configured": True,
         "read_authenticated": True,
-        "read_username": store.read_username(),
+        "read_username": read_username,
         "authenticated": True,
     }
 
@@ -1791,23 +1797,27 @@ async def update_read_credentials(
     request: Request,
     response: Response,
 ):
-    require_admin(request)
+    await asyncio.to_thread(require_admin, request)
     read_username, read_username_normalized = normalized_read_username(
         update.username
     )
-    if not store.replace_read_credentials(
+    password_hash = await asyncio.to_thread(hash_password, update.password)
+    if not await asyncio.to_thread(
+        store.replace_read_credentials,
         read_username=read_username,
         read_username_normalized=read_username_normalized,
-        password_hash=hash_password(update.password),
+        password_hash=password_hash,
     ):
         raise HTTPException(
             status_code=409,
             detail="Operator is not configured",
         )
-    set_read_cookie(response, create_read_session(store))
+    read_session = await asyncio.to_thread(create_read_session, store)
+    backup_configured = await asyncio.to_thread(store.backup_configured)
+    set_read_cookie(response, read_session)
     return {
         "setup_required": False,
-        "backup_setup_required": not store.backup_configured(),
+        "backup_setup_required": not backup_configured,
         "admin_configured": True,
         "read_authenticated": True,
         "read_username": read_username,

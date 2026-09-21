@@ -285,9 +285,11 @@ docker compose logs -f parsedmarc
 
 ## Container releases
 
-Version tags publish the dashboard and parser/supervisor as multi-architecture
-images to GitHub Container Registry. The parser image retains the DMARC Control
-supervisor; it is not interchangeable with the bare upstream parsedmarc image.
+Releases are published only by manually starting the `workflow_dispatch`
+workflow. It publishes all three multi-architecture runtime images—dashboard,
+parser/supervisor, and backup—to GitHub Container Registry. The parser image
+retains the DMARC Control supervisor; it is not interchangeable with the bare
+upstream parsedmarc image.
 See [Container releases](docs/CONTAINER-RELEASES.md) for the release and
 digest-pinning procedure, including the mandatory bind-mount preparation for
 standalone Docker Compose deployments.
